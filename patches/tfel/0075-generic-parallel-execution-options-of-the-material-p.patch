@@ -1,4 +1,4 @@
-From 586f9153193a91587a7676567438f08325ce3729 Mon Sep 17 00:00:00 2001
+From aa454a46b081cf47e1e5eaf4466319fffd21e7aa Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 14:30:51 +0200
 Subject: [PATCH] generic-parallel: execution options of the material

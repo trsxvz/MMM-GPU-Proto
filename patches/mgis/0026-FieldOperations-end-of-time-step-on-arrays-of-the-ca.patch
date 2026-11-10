@@ -1,4 +1,4 @@
-From 25ea2cf2408a22d39a7b80b379a8d4315655c6a1 Mon Sep 17 00:00:00 2001
+From f67fcbb9e13305b99b508719e0ff175f483b09a9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:23:48 +0200
 Subject: [PATCH] FieldOperations: end of time step on arrays of the calling
@@ -31,10 +31,10 @@ Subject: [PATCH] FieldOperations: end of time step on arrays of the calling
  src/FieldOperations.cxx                       |  77 +++++
  src/MaterialDataManager.cxx                   |  32 +-
  src/MaterialDataView.cxx                      |  48 +++
- src/MaterialStateManager.cxx                  | 211 +++++++++---
+ src/MaterialStateManager.cxx                  | 237 ++++++++++---
  tests/CMakeLists.txt                          |  16 +
  tests/FieldOperationsCUDATest.cu              | 320 ++++++++++++++++++
- 18 files changed, 1428 insertions(+), 55 deletions(-)
+ 18 files changed, 1450 insertions(+), 59 deletions(-)
  create mode 100644 include/MGIS/FieldOperations.hxx
  create mode 100644 include/MGIS/FieldOperations/CUDAFieldOperations.hxx
  create mode 100644 include/MGIS/FieldOperations/HIPFieldOperations.hxx
@@ -45,7 +45,7 @@ Subject: [PATCH] FieldOperations: end of time step on arrays of the calling
  create mode 100644 tests/FieldOperationsCUDATest.cu
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 3865776..7b9388e 100644
+index 2045662..32b771b 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -4,6 +4,7 @@ mgis_header(MGIS MemoryLocation.hxx)
@@ -69,10 +69,10 @@ index 3865776..7b9388e 100644
  mgis_header(MGIS/Behaviour Behaviour.hxx)
  mgis_header(MGIS/Behaviour StateView.hxx)
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index b3fbe72..5cf820e 100644
+index b259f67..c7add4c 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
-@@ -384,6 +384,35 @@ namespace mgis::behaviour {
+@@ -390,6 +390,35 @@ namespace mgis::behaviour {
     * the arrays are located in the memory of a device.
     */
    MGIS_EXPORT void revert(MaterialDataManager&);
@@ -176,10 +176,10 @@ index e2365bd..ec3e602 100644
  
  #endif /* LIB_MGIS_BEHAVIOUR_MATERIALDATAVIEW_HXX */
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 4a5cabf..591b607 100644
+index 0475e52..711cac9 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -33,6 +33,7 @@
+@@ -38,6 +38,7 @@
  
  #include "MGIS/MemoryLocation.hxx"
  #include "MGIS/FieldView.hxx"
@@ -187,10 +187,10 @@ index 4a5cabf..591b607 100644
  #ifdef MGIS_FUNCTION_SUPPORT
  #include "MGIS/Function/Function.hxx"
  #endif /* MGIS_FUNCTION_SUPPORT */
-@@ -605,6 +606,41 @@ namespace mgis::behaviour {
-    */
-   MGIS_EXPORT MGIS_NODISCARD bool updateValues(
-       Context&, MaterialStateManager&, const MaterialStateManager&) noexcept;
+@@ -672,6 +673,41 @@ namespace mgis::behaviour {
+                                                MaterialStateManager&,
+                                                const MaterialStateManager&)
+       MGIS_NOEXCEPT;
 +  /*!
 +   * \brief update the values of a state from another state, the arrays given
 +   * by the calling code being copied by the given operations.
@@ -942,7 +942,7 @@ index 192e34c..3d4b3ed 100644
      }
      if (nc <= 1) {
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 7bb523d..aa13919 100644
+index 0fa2c0c..381cb39 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -26,6 +26,7 @@ list(APPEND MFrontGenericInterface_SOURCES
@@ -1037,7 +1037,7 @@ index 0000000..7cb5c8f
 +
 +}  // end of namespace mgis
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 098892d..ff8e086 100644
+index 16812e2..443ab33 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -249,21 +249,37 @@ namespace mgis::behaviour {
@@ -1144,7 +1144,7 @@ index 86068ca..12c9d02 100644
 +
  }  // end of namespace mgis::behaviour
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index f83cdf5..fbf2927 100644
+index 2553976..5b8f11d 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -19,6 +19,7 @@
@@ -1155,8 +1155,8 @@ index f83cdf5..fbf2927 100644
  #include "MGIS/Behaviour/MaterialStateManager.hxx"
  
  namespace mgis::behaviour {
-@@ -562,22 +563,86 @@ namespace mgis::behaviour {
-         std::get<MutableFieldHolder>(p->second).value);
+@@ -664,11 +665,78 @@ namespace mgis::behaviour {
+     return is_uniform(std::get<std::vector<real>>(v));
    }  // end of isExternalStateVariableUniform
  
 +  /*!
@@ -1229,27 +1229,45 @@ index f83cdf5..fbf2927 100644
 +      ValuesUpdate& u,
        MaterialStateManager& o,
        MaterialStateManager::MutableFieldHolder& dest,
--      std::span<const real> values) noexcept {
+-      std::span<const real> values) MGIS_NOEXCEPT {
 +      std::span<const real> values,
-+      const bool held) noexcept {
++      const bool held) MGIS_NOEXCEPT {
 +    auto& ctx = u.ctx;
      if (!dest.shall_be_updated) {
        return true;
      }
-     auto& to = dest.value;
-     if (std::holds_alternative<std::span<mgis::real>>(to)) {
-       // reuse existing memory
--      auto& to_v = std::get<std::span<mgis::real>>(to);
+@@ -678,17 +746,23 @@ namespace mgis::behaviour {
+       auto& to_v = std::get<std::span<mgis::real>>(to);
+       if ((values.size() != to_v.size()) &&
+           (values.size() * o.n == to_v.size())) {
+-        // duplicate the uniform values
++        // duplicate the uniform values at each point, in the layout of the
++        // material state manager. The copy is made by the host.
++        if (!u.host_accessible) {
++          return ctx.registerErrorMessage(
++              "uniform values can't be duplicated by the host in an array "
++              "given by the calling code, located in the memory of a device");
++        }
++        const auto nc = static_cast<size_type>(values.size());
++        const auto v = makeFieldView(to_v, o.layout, o.n, nc);
+         for (size_type idx = 0; idx != o.n; ++idx) {
+-          std::copy(values.begin(), values.end(),
+-                    to_v.begin() + idx * values.size());
++          for (size_type c = 0; c != nc; ++c) {
++            v(idx, c) = values[c];
++          }
+         }
+         return true;
+       }
 -      if (values.size() != to_v.size()) {
 -        return ctx.registerErrorMessage("arrays' size does not match");
 -      }
 -      std::copy(values.begin(), values.end(), to_v.begin());
-+      return copyValues(u, std::get<std::span<mgis::real>>(to), values, false,
-+                        held);
++      return copyValues(u, to_v, values, false, held);
      } else if (std::holds_alternative<std::vector<mgis::real>>(to)) {
        // reuse existing memory
        auto& to_v = std::get<std::vector<mgis::real>>(to);
-@@ -589,16 +654,21 @@ namespace mgis::behaviour {
+@@ -701,16 +775,21 @@ namespace mgis::behaviour {
        if (values.size() != to_v.size()) {
          return ctx.registerErrorMessage("arrays' size does not match");
        }
@@ -1258,14 +1276,14 @@ index f83cdf5..fbf2927 100644
 -      // to contains a real value, so overwrite it with a new vector
 -      to = std::vector<mgis::real>(values.begin(), values.end());
 +      return copyValues(u, to_v, values, true, held);
-     }
++    }
 +    // to contains a real value, so overwrite it with a new vector
 +    if ((!held) && (!u.host_accessible)) {
 +      return ctx.registerErrorMessage(
 +          "the values of an array given by the calling code, located in the "
 +          "memory of a device, can't be copied in a value held by the "
 +          "material state manager");
-+    }
+     }
 +    to = std::vector<mgis::real>(values.begin(), values.end());
      return true;
 -  }
@@ -1276,9 +1294,28 @@ index f83cdf5..fbf2927 100644
 +      ValuesUpdate& u,
        MaterialStateManager& o,
        MaterialStateManager::MutableFieldHolder& dest,
-       const MaterialStateManager::MutableFieldHolder& src) noexcept {
-@@ -610,20 +680,21 @@ namespace mgis::behaviour {
-       dest.value = std::get<mgis::real>(from);
+       const MaterialStateManager::MutableFieldHolder& src) MGIS_NOEXCEPT {
+@@ -720,28 +799,38 @@ namespace mgis::behaviour {
+     const auto& from = src.value;
+     if (std::holds_alternative<mgis::real>(from)) {
+       if (std::holds_alternative<std::span<mgis::real>>(dest.value)) {
+-        // reuse existing memory
++        // reuse existing memory: the array is given by the calling code and
++        // is filled by the field operations
+         auto& to_v = std::get<std::span<mgis::real>>(dest.value);
+-        std::fill(to_v.begin(), to_v.end(), std::get<mgis::real>(from));
++        const auto nv = static_cast<size_type>(to_v.size());
++        try {
++          u.ops.fill(FieldView<real>(to_v, 1, nv, nv, 1),
++                     std::get<mgis::real>(from));
++        } catch (std::exception& e) {
++          return u.ctx.registerErrorMessage(e.what());
++        } catch (...) {
++          return u.ctx.registerErrorMessage("unknown exception");
++        }
+       } else {
+         dest = std::get<mgis::real>(from);
+       }
      } else if (std::holds_alternative<std::vector<mgis::real>>(from)) {
        return updateMutableFieldHolderFromSpan(
 -          ctx, o, dest, std::get<std::vector<mgis::real>>(from));
@@ -1296,13 +1333,13 @@ index f83cdf5..fbf2927 100644
 +      ValuesUpdate& u,
        MaterialStateManager& o,
        MaterialStateManager::FieldHolder& dest,
-       const MaterialStateManager::FieldHolder& src) noexcept {
+       const MaterialStateManager::FieldHolder& src) MGIS_NOEXCEPT {
      using MutableFieldHolder = MaterialStateManager::MutableFieldHolder;
 +    auto& ctx = u.ctx;
      if (std::holds_alternative<std::monostate>(dest)) {
        return ctx.registerErrorMessage("uninitialized field holder given");
      }
-@@ -638,22 +709,22 @@ namespace mgis::behaviour {
+@@ -756,22 +845,22 @@ namespace mgis::behaviour {
        return true;
      }
      if (std::holds_alternative<MutableFieldHolder>(src)) {
@@ -1321,7 +1358,7 @@ index f83cdf5..fbf2927 100644
        MaterialStateManager& o,
        MaterialStateManager::FieldHolder& dest,
        const std::string& n,
-       const MaterialStateManager::FieldHolder& src) noexcept {
+       const MaterialStateManager::FieldHolder& src) MGIS_NOEXCEPT {
 -    if (!updateFieldHolder(ctx, o, dest, src)) {
 -      return ctx.registerErrorMessage("updating field holder '" + n +
 -                                      "' failed");
@@ -1331,7 +1368,7 @@ index f83cdf5..fbf2927 100644
      }
      return true;
    }  // end of updateFieldHolder
-@@ -669,14 +740,41 @@ namespace mgis::behaviour {
+@@ -787,14 +876,41 @@ namespace mgis::behaviour {
             "memory of a device, which is not accessible by the host";
    }  // end of getHostAccessErrorMessage
  
@@ -1368,7 +1405,7 @@ index f83cdf5..fbf2927 100644
 +
    bool updateValues(Context& ctx,
                      MaterialStateManager& o,
--                    const MaterialStateManager& i) noexcept {
+-                    const MaterialStateManager& i) MGIS_NOEXCEPT {
 -    if ((!isHostAccessible(o.memory_location)) ||
 -        (!isHostAccessible(i.memory_location))) {
 -      return ctx.registerErrorMessage(
@@ -1379,13 +1416,13 @@ index f83cdf5..fbf2927 100644
      if (o.layout != i.layout) {
        return ctx.registerErrorMessage(
            "updateValues: the arrays of the material state managers have "
-@@ -684,16 +782,11 @@ namespace mgis::behaviour {
+@@ -802,16 +918,11 @@ namespace mgis::behaviour {
      }
      using FieldHolder = MaterialStateManager::FieldHolder;
      using MutableFieldHolder = MaterialStateManager::MutableFieldHolder;
--    auto update_span = [&ctx](
--                           std::span<real>& to,
--                           const std::span<const real>& from) noexcept -> bool {
+-    auto update_span =
+-        [&ctx](std::span<real>& to, const std::span<const real>& from)
+-            MGIS_NOEXCEPT -> bool {
 -      if (from.size() != to.size()) {
 -        return ctx.registerErrorMessage("arrays' size does not match");
 -      }
@@ -1399,9 +1436,9 @@ index f83cdf5..fbf2927 100644
 +                              isHostAccessible(o.memory_location) &&
 +                              isHostAccessible(i.memory_location)};
      auto check_mps =
-         [&ctx](
-             const Behaviour& b,
-@@ -719,19 +812,26 @@ namespace mgis::behaviour {
+         [&ctx](const Behaviour& b,
+                const std::map<std::string, FieldHolder, std::less<>>& mps)
+@@ -836,19 +947,26 @@ namespace mgis::behaviour {
      if (!check_mps(o.b, o.material_properties)) {
        return false;
      }
@@ -1433,7 +1470,7 @@ index f83cdf5..fbf2927 100644
        return false;
      }
      auto pmp = o.material_properties.begin();
-@@ -749,7 +849,7 @@ namespace mgis::behaviour {
+@@ -866,7 +984,7 @@ namespace mgis::behaviour {
          }
          o.material_properties.insert({mp.first, MutableFieldHolder{real{}}});
        }
@@ -1442,7 +1479,7 @@ index f83cdf5..fbf2927 100644
                               mp.first, mp.second)) {
          return false;
        }
-@@ -771,7 +871,7 @@ namespace mgis::behaviour {
+@@ -888,7 +1006,7 @@ namespace mgis::behaviour {
          o.external_state_variables.insert(
              {ev.first, MutableFieldHolder{real{}}});
        }
@@ -1451,7 +1488,7 @@ index f83cdf5..fbf2927 100644
                               ev.first, ev.second)) {
          return false;
        }
-@@ -780,7 +880,7 @@ namespace mgis::behaviour {
+@@ -897,7 +1015,7 @@ namespace mgis::behaviour {
        if (!o.mass_density.has_value()) {
          o.mass_density = MutableFieldHolder{.value = mgis::real{}};
        }
@@ -1460,7 +1497,7 @@ index f83cdf5..fbf2927 100644
                                      *(i.mass_density))) {
          return false;
        }
-@@ -790,6 +890,25 @@ namespace mgis::behaviour {
+@@ -907,6 +1025,25 @@ namespace mgis::behaviour {
      return true;
    }  // end of updateValues
  
@@ -1473,7 +1510,7 @@ index f83cdf5..fbf2927 100644
 +
 +  bool updateValues(Context& ctx,
 +                    MaterialStateManager& o,
-+                    const MaterialStateManager& i) noexcept {
++                    const MaterialStateManager& i) MGIS_NOEXCEPT {
 +    if ((!isHostAccessible(o.memory_location)) ||
 +        (!isHostAccessible(i.memory_location))) {
 +      return ctx.registerErrorMessage(
@@ -1487,10 +1524,10 @@ index f83cdf5..fbf2927 100644
      auto ctx = Context{};
      updateValues(ctx, o, i) | ctx.getThrowingFailureHandler();
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 84c8868..59b0866 100644
+index 22a8624..b5ea5d7 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -269,6 +269,22 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -268,6 +268,22 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
          PROPERTY DEPENDS GenericParallelBehaviourTestCUDA BehaviourTest
          GenericParallelMaterialPropertyTestCUDA MaterialPropertyTest ModelTest)
        set_test_environment(GenericParallelCUDATest)

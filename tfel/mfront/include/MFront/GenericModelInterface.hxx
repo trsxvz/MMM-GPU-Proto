@@ -24,8 +24,10 @@ namespace mfront {
   struct GenericModelClassOptions {
     /*!
      * \brief if true, the class can be used in device code: its constructor
-     * takes the behaviour data and a structure holding the values of the
-     * real parameters, its methods are host and device functions and, in
+     * takes the behaviour data, a structure holding the values of the real
+     * parameters and the out of bounds policy (which is read on the host,
+     * where it can be modified at runtime, see the `generic` interface), its
+     * methods are host and device functions and, in
      * device code, the material laws are evaluated by their device
      * implementations (the functions of the `mfront` interface are used on
      * the host). String parameters are not supported in this case (an
@@ -34,6 +36,14 @@ namespace mfront {
     bool device = false;
     //! \brief type of the structure holding the values of the parameters
     std::string parameters_type = "";
+    /*!
+     * \brief name of the host function returning the out of bounds policy,
+     * which can be modified at runtime (see the `generic` interface). If
+     * empty, the default out of bounds policy of the model is used. Not used
+     * if the class can be used in device code: the policy is then given to
+     * the constructor.
+     */
+    std::string out_of_bounds_policy_function = "";
   };
 
   /*!

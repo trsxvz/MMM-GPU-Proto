@@ -4,4 +4,4 @@
 PROTO_SPACK_VERSION=v1.2.2
 PROTO_SPACK_PACKAGES_COMMIT=3b7fdffc24
 PROTO_MGIS_URL=https://github.com/thelfer/MFrontGenericInterfaceSupport.git
-PROTO_MGIS_BASE=a30dbf5
+PROTO_MGIS_BASE=b1afeb3

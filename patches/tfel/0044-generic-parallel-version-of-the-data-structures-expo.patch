@@ -1,4 +1,4 @@
-From 786cf5cf3dc466efd7dd37ef6f251b94866b9f8b Mon Sep 17 00:00:00 2001
+From b810ad506a81f25e03463fea21b532adb1b797b3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 15:58:50 +0200
 Subject: [PATCH] generic-parallel: version of the data structures exported by

@@ -1,0 +1,240 @@
+From af55cc0f78801261fc8c2707a500eca4b792276f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 21:44:50 +0100
+Subject: [PATCH] Error handling: MGIS_NOEXCEPT for the functions of the
+ prototype reporting errors in a context
+
+Since c1ee292 (#283), the functions which may report an error in a
+context are declared MGIS_NOEXCEPT, which is empty if errors are reported
+by exceptions (enable-exceptions), so that the exception reaches the
+caller instead of terminating the process. The default build is
+unchanged.
+
+The functions of the prototype reporting errors in a context were still
+noexcept: updateValues and updateInputValues taking field operations,
+the setters and updateValues of the material state views, and the
+internal functions they use (copies of the field holders, HDF5 files
+written and read point by point). updateValues without operations, save
+and restore, which are MGIS_NOEXCEPT, call them: with enable-exceptions,
+their errors terminated the process.
+---
+ include/MGIS/Behaviour/MaterialDataView.hxx   |  8 ++---
+ .../MGIS/Behaviour/MaterialStateManager.hxx   |  5 +--
+ src/MaterialDataView.cxx                      | 10 +++---
+ src/MaterialStateManager.cxx                  | 33 ++++++++++---------
+ 4 files changed, 30 insertions(+), 26 deletions(-)
+
+diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
+index 8ea2556..6d23d06 100644
+--- a/include/MGIS/Behaviour/MaterialDataView.hxx
++++ b/include/MGIS/Behaviour/MaterialDataView.hxx
+@@ -135,7 +135,7 @@ namespace mgis::behaviour {
+       Context&,
+       MaterialStateView&,
+       std::string_view,
+-      const FieldView<const real>&) noexcept;
++      const FieldView<const real>&) MGIS_NOEXCEPT;
+   /*!
+    * \brief set the view of the given external state variable
+    * \param[in, out] s: state
+@@ -161,7 +161,7 @@ namespace mgis::behaviour {
+       Context&,
+       MaterialStateView&,
+       std::string_view,
+-      const FieldView<const real>&) noexcept;
++      const FieldView<const real>&) MGIS_NOEXCEPT;
+   /*!
+    * \brief set the view of the mass density
+    * \param[in, out] s: state
+@@ -181,7 +181,7 @@ namespace mgis::behaviour {
+    * are checked.
+    */
+   MGIS_EXPORT MGIS_NODISCARD bool setMassDensity(
+-      Context&, MaterialStateView&, const FieldView<const real>&) noexcept;
++      Context&, MaterialStateView&, const FieldView<const real>&) MGIS_NOEXCEPT;
+ 
+   /*!
+    * \brief description of the data of a material stored in arrays owned by
+@@ -384,7 +384,7 @@ namespace mgis::behaviour {
+   MGIS_EXPORT MGIS_NODISCARD bool updateValues(Context&,
+                                                const MaterialStateView&,
+                                                const MaterialStateView&,
+-                                               FieldOperations&) noexcept;
++                                               FieldOperations&) MGIS_NOEXCEPT;
+   /*!
+    * \brief update a material data view: copy the arrays of the state at the
+    * end of the time step in the arrays of the state at the beginning of the
+diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
+index 812138d..e7b763f 100644
+--- a/include/MGIS/Behaviour/MaterialStateManager.hxx
++++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
+@@ -719,7 +719,7 @@ namespace mgis::behaviour {
+   MGIS_EXPORT MGIS_NODISCARD bool updateValues(Context&,
+                                                MaterialStateManager&,
+                                                const MaterialStateManager&,
+-                                               FieldOperations&) noexcept;
++                                               FieldOperations&) MGIS_NOEXCEPT;
+   /*!
+    * \brief update the material properties, the external state variables and
+    * the mass density of a state from another state, as `updateValues`
+@@ -738,7 +738,8 @@ namespace mgis::behaviour {
+   MGIS_EXPORT MGIS_NODISCARD bool updateInputValues(Context&,
+                                                     MaterialStateManager&,
+                                                     const MaterialStateManager&,
+-                                                    FieldOperations&) noexcept;
++                                                    FieldOperations&)
++      MGIS_NOEXCEPT;
+   /*!
+    * \brief extract an internal state variable
+    *
+diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
+index da4415c..db6f3c0 100644
+--- a/src/MaterialDataView.cxx
++++ b/src/MaterialDataView.cxx
+@@ -60,7 +60,7 @@ namespace mgis::behaviour {
+                               const std::vector<Variable>& variables,
+                               const std::string_view d,
+                               const std::string_view n,
+-                              const FieldView<const real>& v) noexcept {
++                              const FieldView<const real>& v) MGIS_NOEXCEPT {
+     const auto p = std::find_if(
+         variables.begin(), variables.end(),
+         [n](const Variable& variable) { return variable.name == n; });
+@@ -91,7 +91,7 @@ namespace mgis::behaviour {
+   bool setMaterialProperty(Context& ctx,
+                            MaterialStateView& s,
+                            std::string_view n,
+-                           const FieldView<const real>& v) noexcept {
++                           const FieldView<const real>& v) MGIS_NOEXCEPT {
+     if (s.b == nullptr) {
+       return ctx.registerErrorMessage("setMaterialProperty: no behaviour");
+     }
+@@ -109,7 +109,7 @@ namespace mgis::behaviour {
+   bool setExternalStateVariable(Context& ctx,
+                                 MaterialStateView& s,
+                                 std::string_view n,
+-                                const FieldView<const real>& v) noexcept {
++                                const FieldView<const real>& v) MGIS_NOEXCEPT {
+     if (s.b == nullptr) {
+       return ctx.registerErrorMessage("setExternalStateVariable: no behaviour");
+     }
+@@ -126,7 +126,7 @@ namespace mgis::behaviour {
+ 
+   bool setMassDensity(Context& ctx,
+                       MaterialStateView& s,
+-                      const FieldView<const real>& v) noexcept {
++                      const FieldView<const real>& v) MGIS_NOEXCEPT {
+     if ((!v.empty()) &&
+         ((v.getNumberOfPoints() != s.n) || (v.getNumberOfComponents() != 1))) {
+       return ctx.registerErrorMessage("invalid view for the mass density");
+@@ -479,7 +479,7 @@ namespace mgis::behaviour {
+   bool updateValues(Context& ctx,
+                     const MaterialStateView& o,
+                     const MaterialStateView& i,
+-                    FieldOperations& ops) noexcept {
++                    FieldOperations& ops) MGIS_NOEXCEPT {
+     try {
+       updateValues(o, i, ops);
+     } catch (...) {
+diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
+index b0649ac..124a0fe 100644
+--- a/src/MaterialStateManager.cxx
++++ b/src/MaterialStateManager.cxx
+@@ -724,7 +724,7 @@ namespace mgis::behaviour {
+                                        const std::span<real> to,
+                                        const std::span<const real> from,
+                                        const bool to_held,
+-                                       const bool from_held) noexcept {
++                                       const bool from_held) MGIS_NOEXCEPT {
+     if (to.size() != from.size()) {
+       return u.ctx.registerErrorMessage("arrays' size does not match");
+     }
+@@ -945,7 +945,8 @@ namespace mgis::behaviour {
+   [[nodiscard]] static bool updateArray(ValuesUpdate& u,
+                                         MaterialStateManager& o,
+                                         const MaterialStateManager& i,
+-                                        const ViewFunction& view) noexcept {
++                                        const ViewFunction& view)
++      MGIS_NOEXCEPT {
+     try {
+       u.ops.copy(view(o), view(i));
+     } catch (std::exception& e) {
+@@ -974,10 +975,10 @@ namespace mgis::behaviour {
+    * \param[in] o: output state
+    * \param[in] i: input state
+    */
+-  [[nodiscard]] static bool checkStates(
+-      ErrorBacktrace& ctx,
+-      const MaterialStateManager& o,
+-      const MaterialStateManager& i) noexcept {
++  [[nodiscard]] static bool checkStates(ErrorBacktrace& ctx,
++                                        const MaterialStateManager& o,
++                                        const MaterialStateManager& i)
++      MGIS_NOEXCEPT {
+     using FieldHolder = MaterialStateManager::FieldHolder;
+     auto check_mps =
+         [&ctx](const Behaviour& b,
+@@ -1009,10 +1010,10 @@ namespace mgis::behaviour {
+    * \param[out] o: output state
+    * \param[in] i: input state
+    */
+-  [[nodiscard]] static bool updateInputValuesImpl(
+-      ValuesUpdate& u,
+-      MaterialStateManager& o,
+-      const MaterialStateManager& i) noexcept {
++  [[nodiscard]] static bool updateInputValuesImpl(ValuesUpdate& u,
++                                                  MaterialStateManager& o,
++                                                  const MaterialStateManager& i)
++      MGIS_NOEXCEPT {
+     using MutableFieldHolder = MaterialStateManager::MutableFieldHolder;
+     auto pmp = o.material_properties.begin();
+     while (pmp != o.material_properties.end()) {
+@@ -1082,7 +1083,8 @@ namespace mgis::behaviour {
+   [[nodiscard]] static bool updateValuesImpl(ErrorBacktrace& ctx,
+                                              MaterialStateManager& o,
+                                              const MaterialStateManager& i,
+-                                             FieldOperations& ops) noexcept {
++                                             FieldOperations& ops)
++      MGIS_NOEXCEPT {
+     if (o.layout != i.layout) {
+       return ctx.registerErrorMessage(
+           "updateValues: the arrays of the material state managers have "
+@@ -1124,14 +1126,14 @@ namespace mgis::behaviour {
+   bool updateValues(Context& ctx,
+                     MaterialStateManager& o,
+                     const MaterialStateManager& i,
+-                    FieldOperations& ops) noexcept {
++                    FieldOperations& ops) MGIS_NOEXCEPT {
+     return updateValuesImpl(ctx, o, i, ops);
+   }  // end of updateValues
+ 
+   bool updateInputValues(Context& ctx,
+                          MaterialStateManager& o,
+                          const MaterialStateManager& i,
+-                         FieldOperations& ops) noexcept {
++                         FieldOperations& ops) MGIS_NOEXCEPT {
+     // the inputs of the states (material properties, external state
+     // variables) are copied in the layout of the states, as by
+     // `updateValues`
+@@ -1388,7 +1390,7 @@ namespace mgis::behaviour {
+       const size_type n,
+       const size_type nc,
+       const FieldLayout l,
+-      const bool allow_overwrite) noexcept {
++      const bool allow_overwrite) MGIS_NOEXCEPT {
+     using namespace mgis::utilities::hdf5;
+     if ((l == FieldLayout::POINT_BY_POINT) || (nc <= 1) ||
+         (values.size() != n * nc)) {
+@@ -1420,7 +1422,8 @@ namespace mgis::behaviour {
+                                              const std::string& name,
+                                              const size_type n,
+                                              const size_type nc,
+-                                             const FieldLayout l) noexcept {
++                                             const FieldLayout l)
++      MGIS_NOEXCEPT {
+     using namespace mgis::utilities::hdf5;
+     if ((l == FieldLayout::POINT_BY_POINT) || (nc <= 1)) {
+       return read(ctx, values, g, name);
+-- 
+2.43.0
+

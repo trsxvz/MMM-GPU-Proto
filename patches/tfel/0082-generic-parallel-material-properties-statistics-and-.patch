@@ -1,4 +1,4 @@
-From b2f520a29b16a39d4990907674518bef74f280d4 Mon Sep 17 00:00:00 2001
+From fc1d734c40a4a08f70179f09f5eced87ef887260 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 18:09:49 +0200
 Subject: [PATCH] generic-parallel material properties: statistics and output
@@ -51,10 +51,10 @@ reference by such a lambda in an OpenMP target region.
  create mode 100644 mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
 
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 5616f22a5..a496a1e14 100644
+index d021582be..b74beae85 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -263,6 +263,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
+@@ -268,6 +268,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
  
  install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)
  install_mfront_header(MFront/GenericParallelMaterialProperty MaterialProperty.h)

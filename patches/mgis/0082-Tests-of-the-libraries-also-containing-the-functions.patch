@@ -1,4 +1,4 @@
-From 89e1ac1143f279e76147ef2cdd936be5ef3f1b6d Mon Sep 17 00:00:00 2001
+From 2161e78494505fa844ff4d0b1c79a4999a410244 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 03:53:10 +0200
 Subject: [PATCH] Tests of the libraries also containing the functions of the
@@ -105,10 +105,10 @@ index aa50f32..f96ddae 100644
  
  ~~~~{.cxx}
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 2455de6..d0ec875 100644
+index cebea41..cbe7a66 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -346,6 +346,30 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -345,6 +345,30 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
        GenericParallelInvalidMaterialProperties)
      set_test_environment(GenericParallelEvaluateTest)
  

@@ -169,8 +169,18 @@ namespace mfront {
     gradients.description =
         "the gradients from the global frame to the material frame";
     gradients.to_material_frame = true;
-    for (const auto& mv : bd.getMainVariables()) {
-      addVariable(gradients, mv.first, N, h);
+    if ((bd.getBehaviourType() ==
+         BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) &&
+        (bd.isStrainMeasureDefined()) &&
+        (bd.getStrainMeasure() != BehaviourDescription::LINEARISED)) {
+      // the gradient of a finite strain behaviour defined through a strain
+      // measure is the deformation gradient, not the strain
+      gradients.objects.push_back({getObjectType("tensor", N), 0});
+      gradients.size = tfel::material::getTensorSize(h);
+    } else {
+      for (const auto& mv : bd.getMainVariables()) {
+        addVariable(gradients, mv.first, N, h);
+      }
     }
     functions.push_back(std::move(gradients));
     if (isFiniteStrainBehaviour(bd)) {

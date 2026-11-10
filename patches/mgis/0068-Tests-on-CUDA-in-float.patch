@@ -1,4 +1,4 @@
-From a31b8cb89beb0ac4ca2b1fd0bfb999d05a320441 Mon Sep 17 00:00:00 2001
+From d3246192e5b57180fc4e06c282eb4017db76604d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 05:33:30 +0200
 Subject: [PATCH] Tests on CUDA in float
@@ -251,7 +251,7 @@ index 63c6b3f..3a741cf 100644
    }
    checkCUDA(cudaStreamDestroy(stream), "cudaStreamDestroy");
 diff --git a/tests/FunctionTest-cuda.cu b/tests/FunctionTest-cuda.cu
-index 7372027..f8a0121 100644
+index 5981ddb..bfc1446 100644
 --- a/tests/FunctionTest-cuda.cu
 +++ b/tests/FunctionTest-cuda.cu
 @@ -24,6 +24,7 @@
@@ -280,7 +280,7 @@ index 7372027..f8a0121 100644
      auto conf = CUDAExecutionConfiguration{.number_of_threads_per_block = 4};
      auto ctx = Context{};
      auto space = BasicLinearSpace{2};
-@@ -306,7 +307,7 @@ struct CUDAMechanicalEvaluatorsTest final : public tfel::tests::TestCase {
+@@ -315,7 +316,7 @@ struct CUDAMechanicalEvaluatorsTest final : public tfel::tests::TestCase {
    void test1() {
      using namespace mgis;
      using namespace mgis::function;
@@ -289,7 +289,7 @@ index 7372027..f8a0121 100644
      const auto conf =
          CUDAExecutionConfiguration{.number_of_threads_per_block = 32};
      auto ctx = Context{};
-@@ -340,7 +341,7 @@ struct CUDAMechanicalEvaluatorsTest final : public tfel::tests::TestCase {
+@@ -349,7 +350,7 @@ struct CUDAMechanicalEvaluatorsTest final : public tfel::tests::TestCase {
    void test2() {
      using namespace mgis;
      using namespace mgis::function;

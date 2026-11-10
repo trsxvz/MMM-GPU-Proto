@@ -1,4 +1,4 @@
-From 40e74a813d19d3a2cf61a68a19e3889071fdca5a Mon Sep 17 00:00:00 2001
+From 33359ea04aa1f925728d7fd3197ae6fe1d0a3d45 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 00:36:49 +0200
 Subject: [PATCH] generic-parallel material properties: symbols, shared kernel
@@ -60,10 +60,10 @@ index 8f6244b2a..dc700220b 100644
    of the material property, if modification of parameters is allowed
    (see the DSL options `parameters_as_static_variables` options).
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 6a9241b74..f1b5aedbd 100644
+index 56887e1b5..c40d07783 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -260,6 +260,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
+@@ -265,6 +265,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
  install_mfront_header(MFront/GenericBehaviour RotateTangentOperatorBlock.hxx)
  
  install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)

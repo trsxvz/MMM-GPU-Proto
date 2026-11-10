@@ -1,4 +1,4 @@
-From 47cdaee968fda0a7981b4408490d75c65246b6d1 Mon Sep 17 00:00:00 2001
+From 27b5530bd52129f1e62b017564c414534f009d3f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:29:50 +0200
 Subject: [PATCH] updateInputValues checks the layouts, error messages fixed
@@ -23,10 +23,10 @@ Subject: [PATCH] updateInputValues checks the layouts, error messages fixed
  7 files changed, 32 insertions(+), 14 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index cb084b6..ff904bb 100644
+index 24c9520..812138d 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -660,8 +660,8 @@ namespace mgis::behaviour {
+@@ -727,8 +727,8 @@ namespace mgis::behaviour {
     * the states (gradients, thermodynamic forces, internal state variables,
     * energies). The calling code copies these arrays, for instance on their
     * copies on a device (see `update(const MaterialDataView&,
@@ -38,7 +38,7 @@ index cb084b6..ff904bb 100644
     * \param[in, out] ctx: execution context
     * \param[out] o: output state
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 87f3485..6a5e153 100644
+index f2d907b..ffc48d8 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -700,7 +700,7 @@ namespace mgis::behaviour {
@@ -51,7 +51,7 @@ index 87f3485..6a5e153 100644
      }
      if (r.getNumberOfComponents() != 9) {
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index fb98878..85ddebc 100644
+index 959d092..cc689e9 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -263,7 +263,7 @@ namespace mgis::behaviour {
@@ -76,7 +76,7 @@ index fb98878..85ddebc 100644
      }
      convertFiniteStrainStress(makeFieldView(s, m.layout, m.n, ts), m, t);
    }  // end of convertFiniteStrainStress
-@@ -923,8 +923,9 @@ namespace mgis::behaviour {
+@@ -939,8 +939,9 @@ namespace mgis::behaviour {
      const auto ts = getTensorSize(m.b.hypothesis);
      if (K.size() != m.n * ts * ts) {
        mgis::raise(
@@ -140,10 +140,10 @@ index a597b0a..d73d744 100644
        }
      }
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 072b593..665cea7 100644
+index 7309f3b..af7093b 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -975,6 +975,14 @@ namespace mgis::behaviour {
+@@ -1110,6 +1110,14 @@ namespace mgis::behaviour {
                           MaterialStateManager& o,
                           const MaterialStateManager& i,
                           FieldOperations& ops) noexcept {

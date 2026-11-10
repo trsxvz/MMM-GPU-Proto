@@ -537,9 +537,10 @@ namespace mfront {
         out << "using mfront::SupportedTypes;\n";
         if ((type == BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) ||
             (is_finite_strain_through_strain_measure)) {
-          // the options are decoded before the integration, which may
-          // overwrite the `K` array with the tangent operator
-          out << "const auto mfront_displacement_gradient = "
+          // the stress measure and the options are read before the
+          // integration, which may overwrite d->K with the tangent operator
+          out << "const auto mg_sm = mfront::gb::getStressMeasure(d->K);\n"
+              << "const auto mfront_displacement_gradient = "
               << "mfront::gb::decodeDisplacementGradient(d->K[1]);\n";
         }
       }
@@ -664,35 +665,43 @@ namespace mfront {
   static void writeBehaviourVariablesDeclarations(
       std::ostream& os, const BehaviourDescription& bd) {
     const auto mvs = bd.getMainVariables();
+    // arrays of gradients and thermodynamic forces are described entry by
+    // entry, with the names of the exported symbols
+    auto n = std::size_t{};
+    for (const auto& mv : mvs) {
+      n += mv.first.arraySize;
+    }
+    auto write = [&os](const VariableDescription& v, const bool first) {
+      for (unsigned short idx = 0; idx != v.arraySize; ++idx) {
+        if ((!first) || (idx != 0)) {
+          os << ", ";
+        }
+        os << "{\"" << v.getExternalName();
+        if (v.arraySize != 1u) {
+          os << '[' << idx << ']';
+        }
+        os << "\", " << as_string(v.getTypeFlag()) << "}";
+      }
+    };
     os << "using BehaviourVariablesDescription = "
        << "mfront::GenericBehaviourMTestFileGenerator::"
        << "BehaviourVariablesDescription;\n";
     os << "using VariableDescription = "
        << "BehaviourVariablesDescription::VariableDescription;\n";
     os << "const auto gradients = "
-       << "std::array<VariableDescription," << mvs.size() << ">{";
-    for (auto pmv = mvs.begin(); pmv != mvs.end();) {
-      const auto& g = pmv->first;
-      os << "{\"" << g.getExternalName() << "\", " << as_string(g.getTypeFlag())
-         << "}";
-      if (++pmv != mvs.end()) {
-        os << ", ";
-      }
+       << "std::array<VariableDescription," << n << ">{{";
+    for (auto pmv = mvs.begin(); pmv != mvs.end(); ++pmv) {
+      write(pmv->first, pmv == mvs.begin());
     }
-    os << "};\n";
+    os << "}};\n";
     os << "const auto thermodynamic_forces = "
-       << "std::array<VariableDescription," << mvs.size() << ">{";
-    for (auto pmv = mvs.begin(); pmv != mvs.end();) {
-      const auto& thf = pmv->second;
-      os << "{\"" << thf.getExternalName() << "\", "
-         << as_string(thf.getTypeFlag()) << "}";
-      if (++pmv != mvs.end()) {
-        os << ", ";
-      }
+       << "std::array<VariableDescription," << n << ">{{";
+    for (auto pmv = mvs.begin(); pmv != mvs.end(); ++pmv) {
+      write(pmv->second, pmv == mvs.begin());
     }
-    os << "};\n";
+    os << "}};\n";
     os << "const auto description = "
-       << "BehaviourVariablesDescription{" << mvs.size() << ", "
+       << "BehaviourVariablesDescription{" << n << ", "
        << "gradients.data(), "
        << "thermodynamic_forces.data()};\n\n";
   }  // end of writeBehaviourVariablesDeclarations
@@ -785,13 +794,66 @@ namespace mfront {
            << "mfront_g0);\n"
            << "mg.setDeformationGradientTensorAtTheEndOfTheTimeStep("
            << "mfront_g1);\n";
+        // MTest expects the Cauchy stress: the stress measure selected by
+        // the caller is converted as in the integrate functions
+        os << "using mg_Traits = "
+           << "mfront::gb::GenericBehaviourTraits<Behaviour>;\n"
+           << "auto mg_F0 = tfel::math::tensor<mg_Traits::N, real>{};\n"
+           << "std::copy(mfront_g0, "
+           << "mfront_g0 + mg_Traits::TensorSize, mg_F0.begin());\n";
+        if ((h == ModellingHypothesis::PLANESTRESS) ||
+            (h == ModellingHypothesis::AXISYMMETRICALGENERALISEDPLANESTRESS)) {
+          const auto* const F0zz =
+              (h == ModellingHypothesis::PLANESTRESS) ? "mg_F0[2]" : "mg_F0[1]";
+          // the integrate functions convert the stress with the axial
+          // deformation gradient computed by the behaviour
+          if (type == BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) {
+            if (this->checkIfAxialDeformationGradientIsDefinedAndGetItsOffset(
+                        bd, h)
+                    .first) {
+              os << F0zz << " = d->s0.internal_state_variables"
+                 << "[mg_Traits::axial_deformation_gradient_offset];\n";
+            }
+          } else if (bd.getStrainMeasure() ==
+                     BehaviourDescription::GREENLAGRANGE) {
+            if (this->checkIfAxialStrainIsDefinedAndGetItsOffset(bd, h).first) {
+              os << F0zz << " = std::sqrt(1 + 2 * "
+                 << "d->s0.internal_state_variables"
+                 << "[mg_Traits::axial_strain_offset]);\n";
+            }
+          } else if (bd.getStrainMeasure() == BehaviourDescription::HENCKY) {
+            if (this->checkIfAxialStrainIsDefinedAndGetItsOffset(bd, h).first) {
+              os << F0zz << " = std::exp("
+                 << "d->s0.internal_state_variables"
+                 << "[mg_Traits::axial_strain_offset]);\n";
+            }
+          }
+        }
+        // mg_sm, the stress measure, is read before the integration
+        os << "auto mg_s0 = tfel::math::stensor<mg_Traits::N, real>{};\n"
+           << "if (mg_sm == mfront::gb::StressMeasure::PK1) {\n"
+           << "mg_s0 = "
+           << "tfel::math::convertFirstPiolaKirchhoffStressToCauchyStress("
+           << "tfel::math::ConstTensorView<mg_Traits::N, real>("
+           << "d->s0.thermodynamic_forces), mg_F0);\n"
+           << "} else if (mg_sm == mfront::gb::StressMeasure::PK2) {\n"
+           << "mg_s0 = "
+           << "tfel::math::convertSecondPiolaKirchhoffStressToCauchyStress("
+           << "tfel::math::ConstStensorView<mg_Traits::N, real>("
+           << "d->s0.thermodynamic_forces), mg_F0);\n"
+           << "} else {\n"
+           << "std::copy(d->s0.thermodynamic_forces, "
+           << "d->s0.thermodynamic_forces + mg_Traits::StensorSize, "
+           << "mg_s0.begin());\n"
+           << "}\n"
+           << "mg.setStressTensor(mg_s0.begin());\n";
       } else {
         os << "mg.setStrainTensorAtTheBeginningOfTheTimeStep("
            << "d->s0.gradients);\n"
            << "mg.setStrainTensorAtTheEndOfTheTimeStep("
-           << "d->s1.gradients);\n";
+           << "d->s1.gradients);\n"
+           << "mg.setStressTensor(d->s0.thermodynamic_forces);\n";
       }
-      os << "mg.setStressTensor(d->s0.thermodynamic_forces);\n";
     }
     for (const auto& m : mprops.first) {
       tfel::raise_if(!m.isScalar(),
@@ -835,7 +897,8 @@ namespace mfront {
           os << "auto name =  \"" << ivname
              << "[\" + std::to_string(i)+ \"]\";\n";
           os << "mg.addInternalStateVariable(name," << as_string(flag)
-             << ",&d->s0.internal_state_variables[" << ivoffset << "]+i);\n";
+             << ",&d->s0.internal_state_variables[" << ivoffset << "]+i*("
+             << SupportedTypes::TypeSize(flag) << "));\n";
           os << "}\n";
           ivoffset += SupportedTypes::TypeSize(v.arraySize, flag);
         } else {
@@ -866,8 +929,10 @@ namespace mfront {
              << "[\" +std::to_string(i)+\"]\";\n";
           os << "mg.addExternalStateVariable(name, "  //
              << as_string(flag) << ", "
-             << "0,d->s0.external_state_variables + " << evoffset << " + i, "
-             << "dt, d->s1.external_state_variables + " << evoffset << " + i, "
+             << "0,d->s0.external_state_variables + " << evoffset << " + i*("
+             << SupportedTypes::TypeSize(flag) << "), "
+             << "dt, d->s1.external_state_variables + " << evoffset << " + i*("
+             << SupportedTypes::TypeSize(flag) << "), "
              << "false);\n";
           os << "}\n";
           evoffset += SupportedTypes::TypeSize(ev.arraySize, flag);
@@ -1075,43 +1140,53 @@ namespace mfront {
       } else {
         if (dv.arraySize == 1) {
           if (dv.isScalar()) {
-            os << "this->d" << dv.name << " = "
-               << "mgb_d.s1.gradients[" << odv << "] - "
-               << "mgb_d.s0.gradients[" << odv << "];\n";
+            if (bd.useQt()) {
+              os << "this->d" << dv.name << " = " << dv.type
+                 << "(mgb_d.s1.gradients[" << odv << "] - "
+                 << "mgb_d.s0.gradients[" << odv << "]);\n";
+            } else {
+              os << "this->d" << dv.name << " = "
+                 << "mgb_d.s1.gradients[" << odv << "] - "
+                 << "mgb_d.s0.gradients[" << odv << "];\n";
+            }
           } else {
             if (!odv.isNull()) {
-              os << "tfel::fsalgo::transform<" << s << ">::exe("
-                 << "mgb_d.s1.gradients+" << odv << ","
-                 << "mgb_d.s0.gradients+" << odv << ","
-                 << "this->d" << dv.name << ".begin(),std::minus<real>());\n";
+              os << "this->d" << dv.name << " = tfel::math::map<" << dv.type
+                 << ">(mgb_d.s1.gradients+" << odv << ") - "
+                 << "tfel::math::map<" << dv.type << ">(mgb_d.s0.gradients+"
+                 << odv << ");\n";
             } else {
-              os << "tfel::fsalgo::transform<" << s << ">::exe("
-                 << "mgb_d.s1.gradients,"
-                 << "mgb_d.s0.gradients,"
-                 << "this->d" << dv.name << ".begin(),std::minus<real>());\n";
+              os << "this->d" << dv.name << " = tfel::math::map<" << dv.type
+                 << ">(mgb_d.s1.gradients) - "
+                 << "tfel::math::map<" << dv.type << ">(mgb_d.s0.gradients);\n";
             }
           }
         } else {
           auto lodv = odv;  // local offset
-          const auto ls = SupportedTypes::getTypeSize(dv.type, 1);
           for (unsigned short idx = 0; idx != dv.arraySize; ++idx) {
             if (dv.isScalar()) {
-              os << "this->d" << dv.name << "[" << idx << "] = "
-                 << "mgb_d.s1.gradients[" << idx << "] - "
-                 << "mgb_d.s0.gradients[" << idx << "];\n";
+              if (bd.useQt()) {
+                os << "this->d" << dv.name << "[" << idx << "] = " << dv.type
+                   << "(mgb_d.s1.gradients[" << lodv << "] - "
+                   << "mgb_d.s0.gradients[" << lodv << "]);\n";
+              } else {
+                os << "this->d" << dv.name << "[" << idx << "] = "
+                   << "mgb_d.s1.gradients[" << lodv << "] - "
+                   << "mgb_d.s0.gradients[" << lodv << "];\n";
+              }
             } else {
               if (!lodv.isNull()) {
-                os << "tfel::fsalgo::transform<" << ls << ">::exe("
-                   << "mgb_d.s1.gradients+" << lodv << ","
-                   << "mgb_d.s0.gradients+" << lodv << ","
-                   << "this->d" << dv.name << "[" << idx
-                   << "].begin(),std::minus<real>());\n";
+                os << "this->d" << dv.name << "[" << idx
+                   << "] = tfel::math::map<" << dv.type
+                   << ">(mgb_d.s1.gradients+" << lodv << ") - "
+                   << "tfel::math::map<" << dv.type << ">(mgb_d.s0.gradients+"
+                   << lodv << ");\n";
               } else {
-                os << "tfel::fsalgo::transform<" << ls << ">::exe("
-                   << "mgb_d.s1.gradients,"
-                   << "mgb_d.s0.gradients,"
-                   << "this->d" << dv.name << "[" << idx
-                   << "].begin(),std::minus<real>());\n";
+                os << "this->d" << dv.name << "[" << idx
+                   << "] = tfel::math::map<" << dv.type
+                   << ">(mgb_d.s1.gradients) - "
+                   << "tfel::math::map<" << dv.type
+                   << ">(mgb_d.s0.gradients);\n";
               }
             }
             lodv += SupportedTypes::getTypeSize(dv.type, 1);

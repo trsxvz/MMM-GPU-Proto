@@ -1,4 +1,4 @@
-From 368ec48b5b0e173210b3fc2ad203b515c7246234 Mon Sep 17 00:00:00 2001
+From 39d7f4569fd6bd23cec4991e3750f58e91f555f6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 15:57:46 +0200
 Subject: [PATCH] Documentation of the headers for the generic-parallel
@@ -22,28 +22,28 @@ touched headers (update, parameters, typos).
  include/MGIS/Behaviour/Behaviour.hxx          |  77 ++++++--
  .../MGIS/Behaviour/BehaviourDescription.hxx   |  14 +-
  include/MGIS/Behaviour/Integrate.hxx          | 168 +++++++++++++++---
- .../MGIS/Behaviour/MaterialDataManager.hxx    |  68 +++++--
+ .../MGIS/Behaviour/MaterialDataManager.hxx    |  66 +++++--
  .../MGIS/Behaviour/MaterialStateManager.hxx   |  88 ++++++---
  include/MGIS/LibrariesManager.hxx             |  32 +++-
  .../BatchMaterialPropertyFctPtr.hxx           |  11 +-
  .../MaterialProperty/MaterialProperty.hxx     |  53 ++++--
- .../MGIS/MaterialProperty/OutputStatus.hxx    |  17 +-
+ .../MGIS/MaterialProperty/OutputStatus.hxx    |  15 +-
  include/MGIS/MemoryLocation.hxx               |   8 +
  .../CUDAManagedMemoryResource.hxx             |   6 +-
  .../HIPManagedMemoryResource.hxx              |   6 +-
  .../KokkosSharedSpaceMemoryResource.hxx       |   8 +-
  .../SYCLSharedMemoryResource.hxx              |   8 +-
- mgis.doxygen                                  |  22 ++-
+ mgis.doxygen                                  |  20 ++-
  src/MaterialProperty.cxx                      |   4 +-
  tests/GenericParallelCUDATest.cxx             |   2 +-
  tests/GenericParallelIntegrateTest.cxx        |   4 +-
- 24 files changed, 606 insertions(+), 157 deletions(-)
+ 24 files changed, 603 insertions(+), 154 deletions(-)
 
 diff --git a/bindings/c/include/MGIS/Behaviour/Behaviour.h b/bindings/c/include/MGIS/Behaviour/Behaviour.h
-index ac97296..52e3095 100644
+index 3bc1853..0c42783 100644
 --- a/bindings/c/include/MGIS/Behaviour/Behaviour.h
 +++ b/bindings/c/include/MGIS/Behaviour/Behaviour.h
-@@ -205,6 +205,13 @@ MGIS_C_EXPORT mgis_status mgis_bv_load_finite_strain_behaviour(
+@@ -204,6 +204,13 @@ MGIS_C_EXPORT mgis_status mgis_bv_load_finite_strain_behaviour(
   */
  MGIS_C_EXPORT mgis_status mgis_bv_behaviour_get_tangent_operator_array_size(
      mgis_size_type* const, const mgis_bv_Behaviour* const);
@@ -55,10 +55,10 @@ index ac97296..52e3095 100644
 + * through the `C++` library.
 + */
  /*!
-  * \brief rotate gradients from the global frame to the material frame
-  * \param[in,out] g: gradients
+  * \brief return the number of tangent operator blocks
+  * \param[out] c: number of tangent operator blocks
 diff --git a/bindings/c/include/MGIS/Behaviour/Integrate.h b/bindings/c/include/MGIS/Behaviour/Integrate.h
-index 4627693..fabfd3b 100644
+index ffe7dc8..6c7e2cb 100644
 --- a/bindings/c/include/MGIS/Behaviour/Integrate.h
 +++ b/bindings/c/include/MGIS/Behaviour/Integrate.h
 @@ -106,11 +106,18 @@ MGIS_C_EXPORT mgis_status mgis_bv_free_behaviour_integration_options(
@@ -376,10 +376,10 @@ index a0fe256..384a054 100644
     */
    constexpr BatchExecutionOptions getBatchExecutionOptions(
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index 043afe2..083b7fc 100644
+index ada9d02..2488551 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
-@@ -204,6 +204,10 @@ namespace mgis::behaviour {
+@@ -210,6 +210,10 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour name
     * \param[in] h: modelling hypothesis
     * \return the behaviour description
@@ -388,9 +388,9 @@ index 043afe2..083b7fc 100644
 +   * `batch_*`) and the pointers to the functions of a point are null (see
 +   * also `loadBehaviourDescription`).
     */
-   MGIS_EXPORT MGIS_NODISCARD std::optional<Behaviour> load(
-       Context &,
-@@ -224,8 +228,12 @@ namespace mgis::behaviour {
+   MGIS_EXPORT MGIS_NODISCARD std::optional<Behaviour> load(Context&,
+                                                            const std::string&,
+@@ -225,8 +229,12 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour name
     * \param[in] h: modelling hypothesis
     * \return the behaviour description
@@ -403,8 +403,8 @@ index 043afe2..083b7fc 100644
 +   * also `loadBehaviourDescription`).
     */
    MGIS_EXPORT MGIS_NODISCARD std::optional<Behaviour> load(
-       Context &,
-@@ -240,6 +248,10 @@ namespace mgis::behaviour {
+       Context&,
+@@ -244,6 +252,10 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour name
     * \param[in] h: modelling hypothesis
     * \return the behaviour description
@@ -415,7 +415,7 @@ index 043afe2..083b7fc 100644
     */
    MGIS_EXPORT Behaviour load(const std::string &,
                               const std::string &,
-@@ -257,8 +269,12 @@ namespace mgis::behaviour {
+@@ -256,8 +268,12 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour name
     * \param[in] h: modelling hypothesis
     * \return the behaviour description
@@ -429,7 +429,7 @@ index 043afe2..083b7fc 100644
     */
    MGIS_EXPORT Behaviour load(const FiniteStrainBehaviourOptions &,
                               const std::string &,
-@@ -318,10 +334,14 @@ namespace mgis::behaviour {
+@@ -317,10 +333,14 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -445,7 +445,7 @@ index 043afe2..083b7fc 100644
     */
    MGIS_EXPORT void rotateGradients(std::span<real>,
                                     const Behaviour &,
-@@ -331,10 +351,10 @@ namespace mgis::behaviour {
+@@ -330,10 +350,10 @@ namespace mgis::behaviour {
     * frame.
     * \param[out] mg: array of gradients in the material frame
     * \param[in] b: behaviour description
@@ -458,7 +458,7 @@ index 043afe2..083b7fc 100644
     * - an array of size 9 which is interpreted as a 3x3 rotation matrix.
     * - an array of size 9*n where n is the number of integration
     *   points which is interpreted as a field of 3x3 rotation matrix.
-@@ -359,7 +379,7 @@ namespace mgis::behaviour {
+@@ -358,7 +378,7 @@ namespace mgis::behaviour {
     * frame.
     * \param[out] mg: array of gradients in the material frame
     * \param[in] b: behaviour description
@@ -467,7 +467,7 @@ index 043afe2..083b7fc 100644
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
     */
-@@ -383,7 +403,7 @@ namespace mgis::behaviour {
+@@ -382,7 +402,7 @@ namespace mgis::behaviour {
     * frame.
     * \param[out] mg: array of gradients in the material frame
     * \param[in] b: behaviour description
@@ -476,7 +476,7 @@ index 043afe2..083b7fc 100644
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
     */
-@@ -399,6 +419,10 @@ namespace mgis::behaviour {
+@@ -398,6 +418,10 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -487,7 +487,7 @@ index 043afe2..083b7fc 100644
     */
    MGIS_EXPORT void rotateThermodynamicForces(std::span<real>,
                                               const Behaviour &,
-@@ -476,6 +500,10 @@ namespace mgis::behaviour {
+@@ -475,6 +499,10 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -498,7 +498,7 @@ index 043afe2..083b7fc 100644
     */
    MGIS_EXPORT void rotateTangentOperatorBlocks(std::span<real>,
                                                 const Behaviour &,
-@@ -546,8 +574,9 @@ namespace mgis::behaviour {
+@@ -545,8 +573,9 @@ namespace mgis::behaviour {
     * global frame to the material frame, on the queue of the given execution
     * policy (behaviours generated by the `generic-parallel` interface).
     *
@@ -510,7 +510,7 @@ index 043afe2..083b7fc 100644
     *
     * \param[in] p: execution policy
     * \param[out] mg: gradients in the material frame
-@@ -601,19 +630,30 @@ namespace mgis::behaviour {
+@@ -600,19 +629,30 @@ namespace mgis::behaviour {
     * `gtf`
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -543,7 +543,7 @@ index 043afe2..083b7fc 100644
    MGIS_EXPORT void rotateThermodynamicForces(const BatchExecutionPolicy &,
                                               std::span<real>,
                                               const Behaviour &,
-@@ -630,19 +670,30 @@ namespace mgis::behaviour {
+@@ -629,19 +669,30 @@ namespace mgis::behaviour {
     * be `gK`
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -609,7 +609,7 @@ index 73ae8b5..428a5b6 100644
    MGIS_EXPORT void loadBehaviourDescription(BehaviourDescription &,
                                              const std::string &,
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 9ff2cc5..923dccb 100644
+index 3c643dc..97ab49c 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -102,20 +102,34 @@ namespace mgis::behaviour {
@@ -691,18 +691,18 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT BehaviourIntegrationResult executeInitializeFunction(
        MaterialDataManager&, const std::string_view, std::span<const real>);
-@@ -207,6 +233,9 @@ namespace mgis::behaviour {
-    * \param[in] n: name of the initialize function
-    * \param[in] b: first index of the range
-    * \param[in] e: last index of the range
+@@ -208,6 +234,9 @@ namespace mgis::behaviour {
+    * \param[in] b: index of the first integration point of the range
+    * \param[in] e: index following the last integration point of the range
+    *               (the integration points of indices in [b, e) are treated)
 +   * \note for a behaviour generated by the `generic-parallel` interface, the
 +   * points are processed as a batch with the execution policy of the
 +   * material data manager (see the overload taking an execution policy).
     */
    MGIS_EXPORT BehaviourIntegrationResult
    executeInitializeFunction(MaterialDataManager&,
-@@ -223,6 +252,9 @@ namespace mgis::behaviour {
-    * \param[in] e: last index of the range
+@@ -225,6 +254,9 @@ namespace mgis::behaviour {
+    *               (the integration points of indices in [b, e) are treated)
     *
     * \note the inputs can be uniform or not.
 +   * \note for a behaviour generated by the `generic-parallel` interface, the
@@ -711,7 +711,7 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT BehaviourIntegrationResult
    executeInitializeFunction(MaterialDataManager&,
-@@ -231,16 +263,21 @@ namespace mgis::behaviour {
+@@ -233,16 +265,21 @@ namespace mgis::behaviour {
                              const size_type,
                              const size_type);
    /*!
@@ -735,7 +735,7 @@ index 9ff2cc5..923dccb 100644
     * using a thread pool to parallelize the integration.
     * \param[in,out] p: thread pool
     * \param[in,out] d: material data manager
-@@ -248,6 +285,10 @@ namespace mgis::behaviour {
+@@ -250,6 +287,10 @@ namespace mgis::behaviour {
     * \param[in] inputs: initialize function inputs
     *
     * \note the inputs can be uniform or not.
@@ -746,7 +746,7 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT MultiThreadedBehaviourIntegrationResult
    executeInitializeFunction(ThreadPool&,
-@@ -265,6 +306,8 @@ namespace mgis::behaviour {
+@@ -267,6 +308,8 @@ namespace mgis::behaviour {
     * \param[in] p: execution policy
     * \param[in,out] m: material data manager
     * \param[in] n: name of the initialize function
@@ -755,7 +755,7 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT BehaviourIntegrationResult
    executeInitializeFunction(const BatchExecutionPolicy&,
-@@ -358,6 +401,9 @@ namespace mgis::behaviour {
+@@ -360,6 +403,9 @@ namespace mgis::behaviour {
     *   computed.
     * - if Ke is greater than 3.5, the consistent tangent operator
     *   must be computed.
@@ -765,7 +765,7 @@ index 9ff2cc5..923dccb 100644
     */
    int integrate(BehaviourDataView&, const Behaviour&);
    /*!
-@@ -371,6 +417,9 @@ namespace mgis::behaviour {
+@@ -373,6 +419,9 @@ namespace mgis::behaviour {
     *
     * \param[in,out] d: behaviour data
     * \param[in,out] b: behaviour
@@ -775,7 +775,7 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT int integrate_debug(BehaviourDataView&, const Behaviour&);
    /*!
-@@ -384,13 +433,16 @@ namespace mgis::behaviour {
+@@ -386,13 +435,16 @@ namespace mgis::behaviour {
     *
     * \param[in,out] d: behaviour data
     * \param[in,out] b: behaviour
@@ -793,7 +793,7 @@ index 9ff2cc5..923dccb 100644
     * \return the result of the behaviour integration.
     * \param[in,out] m: material data manager
     * \param[in] opts: description of the operation to be performed
-@@ -399,7 +451,7 @@ namespace mgis::behaviour {
+@@ -401,7 +453,7 @@ namespace mgis::behaviour {
     * \note if required, the memory associated with the tangent operator blocks
     * is automatically allocated.
     * \note for a behaviour generated by the `generic-parallel` interface, the
@@ -802,7 +802,7 @@ index 9ff2cc5..923dccb 100644
     * material data manager (see the overload taking an execution policy).
     */
    MGIS_EXPORT BehaviourIntegrationResult integrate(
-@@ -409,9 +461,10 @@ namespace mgis::behaviour {
+@@ -411,9 +463,10 @@ namespace mgis::behaviour {
     * interface on all the points of a material data manager, as a batch.
     *
     * The fields of the batch refer to the arrays of the material data
@@ -816,7 +816,7 @@ index 9ff2cc5..923dccb 100644
     *
     * Contrary to the integration point by point, all the points are
     * integrated, even if the integration fails at some points. In case of
-@@ -425,6 +478,14 @@ namespace mgis::behaviour {
+@@ -427,6 +480,14 @@ namespace mgis::behaviour {
     * \param[in,out] m: material data manager
     * \param[in] opts: description of the operation to be performed
     * \param[in] dt: time step
@@ -831,7 +831,7 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT BehaviourIntegrationResult
    integrate(const BatchExecutionPolicy&,
-@@ -450,10 +511,16 @@ namespace mgis::behaviour {
+@@ -452,10 +513,16 @@ namespace mgis::behaviour {
              const real,
              const size_type,
              const size_type);
@@ -850,7 +850,7 @@ index 9ff2cc5..923dccb 100644
    MGIS_EXPORT BehaviourIntegrationResult
    integrate_debug(MaterialDataManager&,
                    const BehaviourIntegrationOptions&,
-@@ -470,6 +537,9 @@ namespace mgis::behaviour {
+@@ -473,6 +540,9 @@ namespace mgis::behaviour {
     *
     * \note if required, the memory associated with the tangent operator blocks
     * is automatically allocated.
@@ -860,7 +860,7 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT BehaviourIntegrationResult
    integrate(MaterialDataManager&,
-@@ -477,14 +547,20 @@ namespace mgis::behaviour {
+@@ -480,14 +550,20 @@ namespace mgis::behaviour {
              const real,
              const size_type,
              const size_type);
@@ -883,7 +883,7 @@ index 9ff2cc5..923dccb 100644
    MGIS_EXPORT BehaviourIntegrationResult
    integrate_debug(MaterialDataManager&,
                    const BehaviourIntegrationOptions&,
-@@ -503,19 +579,29 @@ namespace mgis::behaviour {
+@@ -506,19 +582,29 @@ namespace mgis::behaviour {
     *
     * \note if required, the memory associated with the tangent operator blocks
     * is automatically allocated.
@@ -915,7 +915,7 @@ index 9ff2cc5..923dccb 100644
    MGIS_EXPORT MultiThreadedBehaviourIntegrationResult
    integrate_debug(mgis::ThreadPool&,
                    MaterialDataManager&,
-@@ -523,7 +609,8 @@ namespace mgis::behaviour {
+@@ -526,7 +612,8 @@ namespace mgis::behaviour {
                    const real,
                    const debug::BehaviourIntegrationFailureAnalyser&);
    /*!
@@ -925,7 +925,7 @@ index 9ff2cc5..923dccb 100644
     * \return an exit status. The returned value has the following meaning:
     * - -1: integration failed for at least one integration point
     * -  0: all integrations succeeded but results are unreliable for at least
-@@ -532,21 +619,31 @@ namespace mgis::behaviour {
+@@ -535,21 +622,31 @@ namespace mgis::behaviour {
     *
     * \param[in,out] p: thread pool
     * \param[in,out] m: material data manager
@@ -959,7 +959,7 @@ index 9ff2cc5..923dccb 100644
    MGIS_EXPORT int integrate_debug(
        mgis::ThreadPool&,
        MaterialDataManager&,
-@@ -574,13 +671,19 @@ namespace mgis::behaviour {
+@@ -578,13 +675,19 @@ namespace mgis::behaviour {
                              const real,
                              const size_type,
                              const size_type);
@@ -981,7 +981,7 @@ index 9ff2cc5..923dccb 100644
    MGIS_EXPORT int integrate_debug(
        MaterialDataManager&,
        const IntegrationType,
-@@ -594,6 +697,9 @@ namespace mgis::behaviour {
+@@ -598,6 +701,9 @@ namespace mgis::behaviour {
     * \param[in,out] d: behaviour data
     * \param[in,out] b: behaviour
     * \param[in] n: name of the post-processing
@@ -991,7 +991,7 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT int executePostProcessing(std::span<real>,
                                          BehaviourDataView&,
-@@ -604,6 +710,9 @@ namespace mgis::behaviour {
+@@ -608,6 +714,9 @@ namespace mgis::behaviour {
     * \param[out] outputs: post-processing results
     * \param[in,out] d: material data manager
     * \param[in] n: name of the post-processing
@@ -1001,17 +1001,17 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT BehaviourIntegrationResult executePostProcessing(
        std::span<real>, MaterialDataManager&, const std::string_view);
-@@ -614,6 +723,9 @@ namespace mgis::behaviour {
-    * \param[in] n: name of the post-processing
-    * \param[in] b: first index of the range
-    * \param[in] e: last index of the range
+@@ -619,6 +728,9 @@ namespace mgis::behaviour {
+    * \param[in] b: index of the first integration point of the range
+    * \param[in] e: index following the last integration point of the range
+    *               (the integration points of indices in [b, e) are treated)
 +   * \note for a behaviour generated by the `generic-parallel` interface, the
 +   * points are processed as a batch with the execution policy of the
 +   * material data manager (see the overload taking an execution policy).
     */
    MGIS_EXPORT BehaviourIntegrationResult
    executePostProcessing(std::span<real>,
-@@ -622,12 +734,17 @@ namespace mgis::behaviour {
+@@ -627,12 +739,17 @@ namespace mgis::behaviour {
                          const size_type,
                          const size_type);
    /*!
@@ -1030,7 +1030,7 @@ index 9ff2cc5..923dccb 100644
     */
    MGIS_EXPORT MultiThreadedBehaviourIntegrationResult
    executePostProcessing(std::span<real>,
-@@ -647,6 +764,11 @@ namespace mgis::behaviour {
+@@ -652,6 +769,11 @@ namespace mgis::behaviour {
     * \param[in] p: execution policy
     * \param[in,out] m: material data manager
     * \param[in] n: name of the post-processing
@@ -1043,7 +1043,7 @@ index 9ff2cc5..923dccb 100644
    MGIS_EXPORT BehaviourIntegrationResult
    executePostProcessing(std::span<real>,
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index e854a78..57bb64a 100644
+index ca12f08..1aec748 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -74,19 +74,24 @@ namespace mgis::behaviour {
@@ -1144,8 +1144,8 @@ index e854a78..57bb64a 100644
       * internally, this memory is freed.
       * If an external memory buffer was used, reference to this buffer is
       * removed.
-@@ -253,7 +269,10 @@ namespace mgis::behaviour {
-     real rdt = 1;
+@@ -258,7 +274,10 @@ namespace mgis::behaviour {
+     real rdt = 10;
      /*!
       * \brief execution policy used by the functions which do not take one,
 -     * for the behaviours generated by the `generic-parallel` interface
@@ -1156,7 +1156,7 @@ index e854a78..57bb64a 100644
       */
      BatchExecutionPolicy batch_execution_policy;
      //! \brief view on the speed of sound.
-@@ -300,14 +319,18 @@ namespace mgis::behaviour {
+@@ -305,6 +324,8 @@ namespace mgis::behaviour {
     * - setting s0 equal to s1
     * - filling the stiffness matrix with 0
     * \param[in,out] m: material data manager
@@ -1165,18 +1165,16 @@ index e854a78..57bb64a 100644
     */
    MGIS_EXPORT void update(MaterialDataManager&);
    /*!
-    * \brief update the behaviour data by:
--   * - setting s1 equal to s0
-+   * - setting s0 equal to s1
-    * - filling the stiffness matrix with 0
+@@ -314,6 +335,8 @@ namespace mgis::behaviour {
+    *   `args.zero_tangent_operator_blocks` is true
     * \param[in,out] m: material data manager
-    * \param[in,out] args: additional arguments
+    * \param[in] args: additional arguments
 +   * \note the copies are performed on the host: an exception is thrown if
 +   * the arrays are located in the memory of a device.
     */
    MGIS_EXPORT void update(MaterialDataManager&, const UpdateArguments&);
    /*!
-@@ -315,11 +338,14 @@ namespace mgis::behaviour {
+@@ -321,11 +344,14 @@ namespace mgis::behaviour {
     * - setting s1 equal to s0
     * - filling the stiffness matrix with 0
     * \param[in,out] m: material data manager
@@ -1192,7 +1190,7 @@ index e854a78..57bb64a 100644
     * \param[in] m: material data manager
     * \param[in] n: name of the post-processing
     */
-@@ -336,6 +362,10 @@ namespace mgis::behaviour {
+@@ -342,6 +368,10 @@ namespace mgis::behaviour {
  
    /*!
     * \brief save a `MaterialDataManager` to an HDF5 group
@@ -1203,7 +1201,7 @@ index e854a78..57bb64a 100644
     * \param[in] ctx: execution context
     * \param[in] g: group
     * \param[in] m: material data manager
-@@ -353,6 +383,10 @@ namespace mgis::behaviour {
+@@ -359,6 +389,10 @@ namespace mgis::behaviour {
        : public MaterialStateManagerRestoreOptions {};
    /*!
     * \brief restore a `MaterialDataManager` from an HDF5 group
@@ -1215,10 +1213,10 @@ index e854a78..57bb64a 100644
     * \param[in] g: group
     * \param[in] m: material data manager
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index cacf55b..3d03791 100644
+index 5ba9d21..3ed028d 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -47,7 +47,11 @@ namespace mgis::behaviour {
+@@ -52,7 +52,11 @@ namespace mgis::behaviour {
     * It may contain pointers to externally allocated data, that won't be
     * handled by the final state manager.
     * If a pointer is not initialized, the material state manager will allocate
@@ -1231,7 +1229,7 @@ index cacf55b..3d03791 100644
     */
    struct MaterialStateManagerInitializer {
      /*!
-@@ -107,7 +111,7 @@ namespace mgis::behaviour {
+@@ -112,7 +116,7 @@ namespace mgis::behaviour {
       * \brief a structure defining a mutable field holder
       *
       * A mutable field holder may be a scalar value, a reference to externally
@@ -1240,7 +1238,7 @@ index cacf55b..3d03791 100644
       * (`std::vector` case).
       */
      struct MGIS_EXPORT MutableFieldHolder {
-@@ -177,7 +181,8 @@ namespace mgis::behaviour {
+@@ -216,7 +220,8 @@ namespace mgis::behaviour {
       * of those arrays are initialized by the host: the resource must allocate
       * memory accessible by the host, in the given location, and must outlive
       * the material state manager. If the location is a device, or a shared
@@ -1250,7 +1248,7 @@ index cacf55b..3d03791 100644
       */
      MaterialStateManager(const Behaviour&,
                           const size_type,
-@@ -210,19 +215,23 @@ namespace mgis::behaviour {
+@@ -249,19 +254,23 @@ namespace mgis::behaviour {
      /*!
       * \brief material properties
       *
@@ -1283,7 +1281,7 @@ index cacf55b..3d03791 100644
       */
      std::optional<MutableFieldHolder> mass_density;
      //! \brief view to the values of the internal state variables
-@@ -236,11 +245,8 @@ namespace mgis::behaviour {
+@@ -275,11 +284,8 @@ namespace mgis::behaviour {
      /*!
       * \brief values of the external state variables
       *
@@ -1297,7 +1295,7 @@ index cacf55b..3d03791 100644
       */
      std::map<std::string, FieldHolder, std::less<>> external_state_variables;
      //! \brief number of integration points
-@@ -249,7 +255,9 @@ namespace mgis::behaviour {
+@@ -288,7 +294,9 @@ namespace mgis::behaviour {
      const Behaviour& b;
      /*!
       * \brief location of the arrays of the gradients, of the thermodynamic
@@ -1308,7 +1306,7 @@ index cacf55b..3d03791 100644
       */
      const MemoryLocation memory_location = MemoryLocation::HOST;
  
-@@ -369,14 +377,19 @@ namespace mgis::behaviour {
+@@ -418,14 +426,19 @@ namespace mgis::behaviour {
    MGIS_EXPORT bool isMaterialPropertyDefined(const MaterialStateManager&,
                                               std::string_view);
    /*!
@@ -1330,7 +1328,7 @@ index cacf55b..3d03791 100644
     *
     * \param[in, out] ctx: execution context
     * \param[in] m: material state manager
-@@ -441,7 +454,8 @@ namespace mgis::behaviour {
+@@ -496,7 +509,8 @@ namespace mgis::behaviour {
     * \brief set the given external state variable
     * \param[out] m: material state manager
     * \param[in] n: name
@@ -1339,8 +1337,8 @@ index cacf55b..3d03791 100644
 +   * a uniform variable
     * \param[in] s: storage mode
     * \param[in] p: update policy
-    */
-@@ -474,7 +488,8 @@ namespace mgis::behaviour {
+    * \param[in] h: clean-up hook, called once when the given values are no
+@@ -533,7 +547,8 @@ namespace mgis::behaviour {
     * \param[in, out] ctx: execution context
     * \param[out] m: material state manager
     * \param[in] n: name
@@ -1349,8 +1347,8 @@ index cacf55b..3d03791 100644
 +   * a uniform variable
     * \param[in] s: storage mode
     * \param[in] p: update policy
-    */
-@@ -494,7 +509,8 @@ namespace mgis::behaviour {
+    * \param[in] h: clean-up hook, called once when the given values are no
+@@ -556,7 +571,8 @@ namespace mgis::behaviour {
     * \param[in, out] ctx: execution context
     * \param[out] m: material state manager
     * \param[in] n: name
@@ -1360,7 +1358,7 @@ index cacf55b..3d03791 100644
     * \param[in] s: storage mode
     * \param[in] p: update policy
     *
-@@ -529,14 +545,19 @@ namespace mgis::behaviour {
+@@ -594,14 +610,19 @@ namespace mgis::behaviour {
    MGIS_EXPORT bool isExternalStateVariableDefined(const MaterialStateManager&,
                                                    std::string_view);
    /*!
@@ -1382,7 +1380,7 @@ index cacf55b..3d03791 100644
     *
     * \param[in, out] ctx: execution context
     * \param[in] m: material state manager
-@@ -547,14 +568,18 @@ namespace mgis::behaviour {
+@@ -612,14 +633,18 @@ namespace mgis::behaviour {
    /*!
     * \brief update the values of a state from another state
     * \param[out] o: output state
@@ -1401,9 +1399,9 @@ index cacf55b..3d03791 100644
 +   * \note the copies are performed on the host: the update fails if one of
 +   * the states is located in the memory of a device.
     */
-   MGIS_EXPORT MGIS_NODISCARD bool updateValues(
-       Context&, MaterialStateManager&, const MaterialStateManager&) noexcept;
-@@ -567,6 +592,8 @@ namespace mgis::behaviour {
+   MGIS_EXPORT MGIS_NODISCARD bool updateValues(Context&,
+                                                MaterialStateManager&,
+@@ -634,6 +659,8 @@ namespace mgis::behaviour {
     * \param[in] n: name of the internal state variables
     *
     * \note the output buffer must be allocated properly
@@ -1412,7 +1410,7 @@ index cacf55b..3d03791 100644
     */
    MGIS_EXPORT void extractInternalStateVariable(
        std::span<mgis::real>,
-@@ -591,6 +618,10 @@ namespace mgis::behaviour {
+@@ -658,6 +685,10 @@ namespace mgis::behaviour {
  
    /*!
     * \brief save a `MaterialStateManager` to an HDF5 group
@@ -1423,7 +1421,7 @@ index cacf55b..3d03791 100644
     * \param[in] ctx: execution context
     * \param[in] g: group
     * \param[in] s: material state manager
-@@ -651,6 +682,9 @@ namespace mgis::behaviour {
+@@ -729,6 +760,9 @@ namespace mgis::behaviour {
    /*!
     * \brief restore a `MaterialStateManager` from a HDF5 group
     *
@@ -1434,7 +1432,7 @@ index cacf55b..3d03791 100644
     * \param[in] g: group
     * \param[in] s: material state manager
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 6869a8c..b5bd49b 100644
+index 88aaab0..3897d8b 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -39,6 +39,15 @@ namespace mgis {
@@ -1666,7 +1664,7 @@ index 9bbb68d..5692d30 100644
     * \param[in] e: execution policy
     * \param[out] values: values of the material property, one per point
 diff --git a/include/MGIS/MaterialProperty/OutputStatus.hxx b/include/MGIS/MaterialProperty/OutputStatus.hxx
-index d2f10d5..6b7a071 100644
+index 1229d11..2840091 100644
 --- a/include/MGIS/MaterialProperty/OutputStatus.hxx
 +++ b/include/MGIS/MaterialProperty/OutputStatus.hxx
 @@ -21,7 +21,7 @@ extern "C" {
@@ -1678,14 +1676,10 @@ index d2f10d5..6b7a071 100644
   */
  typedef struct {
    /*!
-@@ -50,9 +50,22 @@ typedef struct {
-    *   `c_error_number` field of this structure. The string returned by
-    *   `strerrno` is returned. Note that the `errno` value is always reset to
-    *   the  value it had before the call.
--   * - If the exit status is -4, the computed value is invalid (either \nan`,
-+   * - If the exit status is -4, the computed value is invalid (either `nan`,
-    *   `inf`, or `-inf`).
-    * - If the exit status is -5, the number of arguments is invalid.
+@@ -58,6 +58,19 @@ typedef struct {
+    * - If the exit status is -6, the parameters of the material property are
+    *   invalid, for instance because the parameters file could not be read.
+    *   The `msg` field contains the error message.
 +   *
 +   * The functions generated by the `generic-parallel` interface evaluate a
 +   * set of points: the status summarizes all the points. They use the
@@ -1801,10 +1795,10 @@ index bfa7115..806f185 100644
    struct SYCLSharedMemoryResource final : std::pmr::memory_resource {
      /*!
 diff --git a/mgis.doxygen b/mgis.doxygen
-index 28779ab..fece3b2 100644
+index e86a307..1aeb5d6 100644
 --- a/mgis.doxygen
 +++ b/mgis.doxygen
-@@ -13,11 +13,12 @@
+@@ -13,7 +13,8 @@
   * <https://thelfer.github.io/mgis/web/index.html>.
   *
   * This project aims at providing tools (functions, classes, bindings,
@@ -1814,12 +1808,7 @@ index 28779ab..fece3b2 100644
   * For information about `MFront`, see <http://tfel.sourceforge.net>.
   * 
   * Those tools are meant to be used by (`FEM`, `FFT`, etc.) solver
-- * developers. These tools are *not* linked to the `TFEL` libraries.
-+ * developers. Those tools are *not* linked to the `TFEL` libraries.
-  * Permissive licences have been chosen to allow integration in open-source
-  * and proprietary codes.
-  * 
-@@ -37,7 +38,15 @@
+@@ -46,7 +47,15 @@
   *   step.
   * 
   * The library also supports handling a group of integration points though
@@ -1834,9 +1823,9 @@ index 28779ab..fece3b2 100644
 + * evaluated on a set of points by the `mgis::material_property::evaluate`
 + * function. See [this page](generic-parallel.html).
   * 
-  * An introduction to the `C++` library may be found [here](bindings-cxx.html)
+  * An introduction to the `C++` library may be found [here](https://thelfer.github.io/mgis/web/bindings-cxx.html)
   * 
-@@ -127,3 +136,10 @@
+@@ -162,3 +171,10 @@
   * \namespace mgis
   * \brief the namespace `mgis` encloses all the `MGIS` project.
   */

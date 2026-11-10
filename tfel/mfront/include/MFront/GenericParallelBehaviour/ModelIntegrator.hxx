@@ -56,21 +56,20 @@ namespace mfront::gpb {
      * \param[in,out] d: behaviour data
      * \param[in] o: computation options, not used: the model is executed
      * whatever the type of computation
-     * \param[in] p: out of bounds policy, which is the default policy of the
-     * model, applied by the model itself
+     * \param[in] p: out of bounds policy, applied by the model
      * \param[in] parameters: values of the parameters
      */
     template <typename Model, typename ParametersType>
     TFEL_HOST_DEVICE static int integrate(
         mfront::gb::BehaviourData& d,
         const ComputationOptions&,
-        const tfel::material::OutOfBoundsPolicy,
+        const tfel::material::OutOfBoundsPolicy p,
         const ParametersType& parameters) {
       // on the host, the exceptions thrown by the model (bounds checks,
       // material laws) are reported as failures
       const auto status =
-          mfront::gb::callAndReportExceptions(d, [&d, &parameters] {
-            const auto m = Model(d, parameters);
+          mfront::gb::callAndReportExceptions(d, [&d, &parameters, p] {
+            const auto m = Model(d, parameters, p);
             return m.execute(d) ? 1 : -1;
           });
       if (status == -1) {

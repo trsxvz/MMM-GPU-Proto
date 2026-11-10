@@ -1,4 +1,4 @@
-From 05a47466f4b76f321a67a822e069e4fec10c00af Mon Sep 17 00:00:00 2001
+From 37b9bbaa8731bbf5998d980b5f540cf338588427 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 01:47:43 +0200
 Subject: [PATCH] TFEL: no assertion in the computation of the eigenvectors of
@@ -19,7 +19,7 @@ assertions of TFEL used in device code.
  1 file changed, 6 insertions(+), 6 deletions(-)
 
 diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-index 062f936c9..4440192c1 100644
+index 9c64f99f3..95c6cd47d 100644
 --- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 @@ -15,7 +15,6 @@
@@ -30,7 +30,7 @@ index 062f936c9..4440192c1 100644
  #include <algorithm>
  #include <type_traits>
  
-@@ -373,8 +372,8 @@ namespace tfel::math::internals {
+@@ -398,8 +397,8 @@ namespace tfel::math::internals {
  #endif /* LIB_TFEL_STENSORCOMPUTEEIGENVECTORS_HXX */
        } else if ((tfel::math::abs(vp2(1) - vp2(0)) > prec) &&
                   (tfel::math::abs(vp2(1) - vp2(2)) > prec)) {
@@ -41,7 +41,7 @@ index 062f936c9..4440192c1 100644
          if (computeEigenVector(s2.begin(), vp2(1), vec(0, 1), vec(1, 1),
                                 vec(2, 1)) == false) {
            return false;
-@@ -390,9 +389,10 @@ namespace tfel::math::internals {
+@@ -415,9 +414,10 @@ namespace tfel::math::internals {
          return true;
  #endif /* LIB_TFEL_STENSORCOMPUTEEIGENVECTORS_HXX */
        }

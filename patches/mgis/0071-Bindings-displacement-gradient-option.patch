@@ -1,4 +1,4 @@
-From 30a839dd28a10b8c6c71fe3cfbe29c501537458c Mon Sep 17 00:00:00 2001
+From 573e504be990b7f19574373da135d610269d9a7d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:19:36 +0200
 Subject: [PATCH] Bindings: displacement gradient option
@@ -21,7 +21,7 @@ The C and Python tests load a Hencky behaviour with both gradients.
  create mode 100644 bindings/python/tests/DisplacementGradientTest.py
 
 diff --git a/bindings/c/include/MGIS/Behaviour/Behaviour.h b/bindings/c/include/MGIS/Behaviour/Behaviour.h
-index 52e3095..8f7bb0c 100644
+index 0c42783..3a9382b 100644
 --- a/bindings/c/include/MGIS/Behaviour/Behaviour.h
 +++ b/bindings/c/include/MGIS/Behaviour/Behaviour.h
 @@ -94,6 +94,13 @@ typedef enum {
@@ -38,7 +38,7 @@ index 52e3095..8f7bb0c 100644
  /*!
   * \brief allocate a new
   * `mgis_bv_FiniteStrainBehaviourOptions` object
-@@ -144,6 +151,28 @@ mgis_bv_finite_strain_behaviour_options_set_tangent_operator(
+@@ -145,6 +152,28 @@ mgis_bv_finite_strain_behaviour_options_set_tangent_operator(
  MGIS_C_EXPORT mgis_status
  mgis_bv_finite_strain_behaviour_options_set_tangent_operator_by_string(
      mgis_bv_FiniteStrainBehaviourOptions* const, const char* const);
@@ -67,7 +67,7 @@ index 52e3095..8f7bb0c 100644
  /*!
   * \brief free the ressources associated with a
   * `mgis_bv_FiniteStrainBehaviourOptions` object
-@@ -205,6 +234,15 @@ MGIS_C_EXPORT mgis_status mgis_bv_load_finite_strain_behaviour(
+@@ -204,6 +233,15 @@ MGIS_C_EXPORT mgis_status mgis_bv_load_finite_strain_behaviour(
   */
  MGIS_C_EXPORT mgis_status mgis_bv_behaviour_get_tangent_operator_array_size(
      mgis_size_type* const, const mgis_bv_Behaviour* const);
@@ -84,10 +84,10 @@ index 52e3095..8f7bb0c 100644
   * The following rotation functions report a failure for a behaviour which
   * provides no rotation function of an integration point: an isotropic
 diff --git a/bindings/c/src/Behaviour.cxx b/bindings/c/src/Behaviour.cxx
-index 822ea87..9cb0324 100644
+index 4d30568..4c11b39 100644
 --- a/bindings/c/src/Behaviour.cxx
 +++ b/bindings/c/src/Behaviour.cxx
-@@ -117,6 +117,42 @@ mgis_bv_finite_strain_behaviour_options_set_tangent_operator_by_string(
+@@ -123,6 +123,42 @@ mgis_bv_finite_strain_behaviour_options_set_tangent_operator_by_string(
  }  // end of
     // mgis_bv_finite_strain_behaviour_options_set_tangent_operator_by_string
  
@@ -130,9 +130,9 @@ index 822ea87..9cb0324 100644
  mgis_status mgis_bv_free_finite_strain_behaviour_options(
      mgis_bv_FiniteStrainBehaviourOptions** o) {
    try {
-@@ -354,6 +390,16 @@ mgis_status mgis_bv_behaviour_get_tangent_operator_array_size(
-   return mgis_report_success();
- }  // end of mgis_bv_behaviour_get_tangent_operator_array_size
+@@ -430,6 +466,16 @@ mgis_status mgis_bv_behaviour_get_number_of_tangent_operator_blocks(
+   }
+ }  // end of mgis_bv_behaviour_get_number_of_tangent_operator_blocks
  
 +mgis_status mgis_bv_behaviour_uses_displacement_gradient(
 +    int* const r, const mgis_bv_Behaviour* const b) {
@@ -148,11 +148,11 @@ index 822ea87..9cb0324 100644
                                            const mgis_bv_Behaviour* const b) {
    if (b == nullptr) {
 diff --git a/bindings/c/tests/CMakeLists.txt b/bindings/c/tests/CMakeLists.txt
-index 27b7e4b..d49ede7 100644
+index 45740db..6242aaa 100644
 --- a/bindings/c/tests/CMakeLists.txt
 +++ b/bindings/c/tests/CMakeLists.txt
-@@ -136,6 +136,28 @@ else((CMAKE_HOST_WIN32) AND (NOT MSYS))
-     PROPERTY DEPENDS BehaviourTest)
+@@ -154,6 +154,28 @@ if((CMAKE_HOST_WIN32) AND (NOT MSYS))
+     PROPERTY ENVIRONMENT "PATH=$<TARGET_FILE_DIR:MFrontGenericInterface>\;$<TARGET_FILE_DIR:MFrontGenericInterface-c>\;${MGIS_PATH_STRING}")
  endif((CMAKE_HOST_WIN32) AND (NOT MSYS))
  
 +# finite strain behaviour loaded with the displacement gradient, if TFEL
@@ -263,10 +263,10 @@ index 0000000..c0ff828
 +  return test_status;
 +}  // end of main
 diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
-index d643bb1..e7d9234 100644
+index e250e78..d890f85 100644
 --- a/bindings/fortran/src/mgis_behaviour.f90
 +++ b/bindings/fortran/src/mgis_behaviour.f90
-@@ -72,6 +72,10 @@ module mgis_behaviour
+@@ -74,6 +74,10 @@ module mgis_behaviour
       enumerator :: DPK1_DF = 2
       enumerator :: DTAU_DDF = 3
    end enum
@@ -277,7 +277,7 @@ index d643bb1..e7d9234 100644
    type :: FiniteStrainBehaviourOptions
      private
      type(c_ptr) :: ptr = c_null_ptr
-@@ -323,6 +327,52 @@ contains
+@@ -325,6 +329,52 @@ contains
      s = fsb_opts_set_tangent_operator_by_string_wrapper(o%ptr,convert_fortran_string(to))
    end function finite_strain_behaviour_options_set_tangent_operator_by_string
    !
@@ -330,10 +330,10 @@ index d643bb1..e7d9234 100644
    function free_finite_strain_behaviour_options(ptr) result(r)
      use, intrinsic :: iso_c_binding, only: c_associated
      use mgis
-@@ -777,6 +827,35 @@ contains
-     s = behaviour_get_tangent_operator_array_size_wrapper(ns, b%ptr)
+@@ -805,6 +855,35 @@ contains
+     s = behaviour_get_number_of_tangent_operator_blocks_wrapper(ns, b%ptr)
      n = ns
-   end function behaviour_get_tangent_operator_array_size
+   end function behaviour_get_number_of_tangent_operator_blocks
 +  ! behaviour_uses_displacement_gradient
 +  function behaviour_uses_displacement_gradient(r,b) result(s)
 +    use, intrinsic :: iso_c_binding, only: c_int
@@ -367,10 +367,10 @@ index d643bb1..e7d9234 100644
    function behaviour_get_library(l,b) result(s)
      use mgis_fortran_utilities
 diff --git a/bindings/julia/src/Behaviour.cxx b/bindings/julia/src/Behaviour.cxx
-index 34425ea..c1e7cdc 100644
+index a841259..3fc8608 100644
 --- a/bindings/julia/src/Behaviour.cxx
 +++ b/bindings/julia/src/Behaviour.cxx
-@@ -86,6 +86,17 @@ void declareBehaviour(jlcxx::Module &m) {
+@@ -80,6 +80,17 @@ void declareBehaviour(jlcxx::Module &m) {
    m.set_const("DPK2_DEGL", FiniteStrainBehaviourOptions::DS_DEGL);
    m.set_const("DTAU_DDF", FiniteStrainBehaviourOptions::DTAU_DDF);
    //!
@@ -388,7 +388,7 @@ index 34425ea..c1e7cdc 100644
    m.add_bits<Behaviour::Symmetry>("BehaviourSymmetry");
    m.set_const("ISOTROPIC", Behaviour::ISOTROPIC);
    m.set_const("Isotropic", Behaviour::ISOTROPIC);
-@@ -112,7 +123,16 @@ void declareBehaviour(jlcxx::Module &m) {
+@@ -106,7 +117,16 @@ void declareBehaviour(jlcxx::Module &m) {
            [](FiniteStrainBehaviourOptions &o,
               const FiniteStrainBehaviourOptions::TangentOperator &to) noexcept {
              o.tangent_operator = to;
@@ -406,10 +406,10 @@ index 34425ea..c1e7cdc 100644
    //
    m.add_bits<Behaviour::BehaviourType>("BehaviourType");
    m.set_const("GENERALBEHAVIOUR", Behaviour::GENERALBEHAVIOUR);
-@@ -173,6 +193,9 @@ void declareBehaviour(jlcxx::Module &m) {
-   //
-   m.method("load", load);
-   m.method("load", load2);
+@@ -179,6 +199,9 @@ void declareBehaviour(jlcxx::Module &m) {
+               const std::string& b, const Hypothesis h) {
+              return SharedBehaviour(mgis::behaviour::load(o, l, b, h));
+            });
 +  m.method("uses_displacement_gradient", [](const Behaviour &b) {
 +    return mgis::behaviour::usesDisplacementGradient(b);
 +  });
@@ -417,10 +417,10 @@ index 34425ea..c1e7cdc 100644
    m.method("set_integer_parameter!", setParameter2);
    m.method("set_unsigned_short_parameter!",
 diff --git a/bindings/python/src/Behaviour.cxx b/bindings/python/src/Behaviour.cxx
-index 9c1a78e..65d66a8 100644
+index 76cc9a2..66b7eaf 100644
 --- a/bindings/python/src/Behaviour.cxx
 +++ b/bindings/python/src/Behaviour.cxx
-@@ -218,6 +218,13 @@ void declareBehaviour(pybind11::module_ &m) {
+@@ -231,6 +231,13 @@ void declareBehaviour(pybind11::module_ &m) {
        .value("DPK1_DF", FiniteStrainBehaviourOptions::DPK1_DF)
        .value("DS_DEGL", FiniteStrainBehaviourOptions::DS_DEGL)
        .value("DTAU_DDF", FiniteStrainBehaviourOptions::DTAU_DDF);
@@ -434,7 +434,7 @@ index 9c1a78e..65d66a8 100644
    // wrapping the FiniteStrainBehaviourOptions class
    pybind11::class_<FiniteStrainBehaviourOptions>(m,
                                                   "FiniteStrainBehaviourOptions")
-@@ -227,7 +234,10 @@ void declareBehaviour(pybind11::module_ &m) {
+@@ -240,7 +247,10 @@ void declareBehaviour(pybind11::module_ &m) {
                       "defines the stress measure")
        .def_readwrite("tangent_operator",
                       &FiniteStrainBehaviourOptions::tangent_operator,
@@ -446,7 +446,7 @@ index 9c1a78e..65d66a8 100644
    // wrapping the Behaviour class
    pybind11::class_<Behaviour, BehaviourDescription>(m, "Behaviour")
        // pybind11::class_<Behaviour>("Behaviour")
-@@ -259,6 +269,9 @@ void declareBehaviour(pybind11::module_ &m) {
+@@ -272,6 +282,9 @@ void declareBehaviour(pybind11::module_ &m) {
  
    m.def("load", load_ptr);
    m.def("load", load_ptr2);
@@ -455,15 +455,15 @@ index 9c1a78e..65d66a8 100644
 +        "gradient");
    m.def("loadFromDatabase", Behaviour_loadFromDatabase, "name"_a,
          "hypothesis"_a, "material"_a = std::optional<std::string>{});
- 
+   m.def("loadFromDatabase", Behaviour_loadFromDatabase2, "options"_a, "name"_a,
 diff --git a/bindings/python/tests/CMakeLists.txt b/bindings/python/tests/CMakeLists.txt
-index 9047150..301f288 100644
+index e9d6a14..0bc87c0 100644
 --- a/bindings/python/tests/CMakeLists.txt
 +++ b/bindings/python/tests/CMakeLists.txt
-@@ -44,4 +44,9 @@ test_python_bindings(IntegrateTest6)
- test_python_bindings(ExternalStateVariableTest)
+@@ -46,4 +46,9 @@ test_python_bindings(ExternalStateVariableTest)
  test_python_bindings(InitializeFunctionTest)
  test_python_bindings(PostProcessingTest)
+ test_python_bindings(ComputeSpeedOfSoundTest)
 +# finite strain behaviour loaded with the displacement gradient, if TFEL
 +# supports it
 +if(EXISTS "${TFEL_INCLUDE_PATH}/MFront/GenericBehaviour/DisplacementGradient.hxx")

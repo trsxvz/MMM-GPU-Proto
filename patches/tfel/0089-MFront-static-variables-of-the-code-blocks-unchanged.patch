@@ -1,4 +1,4 @@
-From d7dc9e8774f5e2a8a2676d77db069a7d9a354f8b Mon Sep 17 00:00:00 2001
+From ac467294be2e22362b5764768fdcd6f726b20d5f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:42:08 +0200
 Subject: [PATCH] MFront: static variables of the code blocks unchanged in host
@@ -59,10 +59,10 @@ index fcdecec89..cb5a34ec3 100644
  #if (defined TFEL_DEVICE_CODE) && (!defined TFEL_NO_REPORT_CONTRACT_VIOLATION)
  #define TFEL_NO_REPORT_CONTRACT_VIOLATION 1
 diff --git a/mfront/src/DSLBase.cxx b/mfront/src/DSLBase.cxx
-index 9da54324e..ad621ebe0 100644
+index b922fb9c8..b761b63f2 100644
 --- a/mfront/src/DSLBase.cxx
 +++ b/mfront/src/DSLBase.cxx
-@@ -376,13 +376,10 @@ namespace mfront {
+@@ -379,13 +379,10 @@ namespace mfront {
      }
      auto& res = b.code;
      // writes a static member, the current token. A static variable is
@@ -80,7 +80,7 @@ index 9da54324e..ad621ebe0 100644
      auto writeStaticMember = [this, &res, addClassName](const std::string& n) {
        const auto previous = std::prev(this->current);
        if ((previous->value == "->") || (previous->value == ".") ||
-@@ -390,8 +387,13 @@ namespace mfront {
+@@ -393,8 +390,13 @@ namespace mfront {
          res += n;
          return;
        }

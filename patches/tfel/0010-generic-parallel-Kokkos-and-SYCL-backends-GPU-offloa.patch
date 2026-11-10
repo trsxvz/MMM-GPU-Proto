@@ -1,4 +1,4 @@
-From cecb2931d0e371f21add80fc0bac7ee9e57fec83 Mon Sep 17 00:00:00 2001
+From e7a81e74101749e84c62d1febad0b9c33a01ed91 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:28:41 +0200
 Subject: [PATCH] generic-parallel: Kokkos and SYCL backends, GPU offloading
@@ -82,10 +82,10 @@ Tests and configurations:
  create mode 100644 test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index b466cc4e2..959b41845 100644
+index 6b50bf710..5ed52aa87 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -547,7 +547,11 @@ set(_tfel-generic-parallel_supported_configurations
+@@ -554,7 +554,11 @@ set(_tfel-generic-parallel_supported_configurations
  #    "stlpar-parunseq-acpp-generic"
      "sycl-default-icpx"
      "sycl-default-acpp"
@@ -98,7 +98,7 @@ index b466cc4e2..959b41845 100644
  
  foreach(conf ${generic-parallel-configurations})
    if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
-@@ -556,8 +560,10 @@ foreach(conf ${generic-parallel-configurations})
+@@ -563,8 +567,10 @@ foreach(conf ${generic-parallel-configurations})
    endif()
    set(_tfel-enable-generic-parallel-${conf}-configuration ON)
    if(NOT ${conf} STREQUAL "hip-clang")
@@ -111,7 +111,7 @@ index b466cc4e2..959b41845 100644
      list(APPEND tfel-check-components
           "mfront::behaviour::generic-parallel_interface::supported_configuration::${conf}")
    endif()
-@@ -669,3 +675,58 @@ if((_tfel-enable-generic-parallel-stlpar-parunseq-acpp-generic-configuration) OR
+@@ -676,3 +682,58 @@ if((_tfel-enable-generic-parallel-stlpar-parunseq-acpp-generic-configuration) OR
     (_tfel-enable-generic-parallel-sycl-gpu-acpp-configuration))
    define_tfel_cxx_compiler("acpp")
  endif()
@@ -391,10 +391,10 @@ index 96e4cf211..68a6c5475 100644
    }
  },
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 585a91c3e..1f018ff6f 100644
+index ead62d8d5..c8385df91 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -128,10 +128,13 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty SYCLBackend.hxx)
+@@ -133,10 +133,13 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty SYCLBackend.hxx)
  install_mfront_header(MFront GenericBehaviourInterface.hxx)
  install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
  install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
@@ -408,7 +408,7 @@ index 585a91c3e..1f018ff6f 100644
  install_mfront_header(MFront GenericModelInterface.hxx)
  install_mfront_header(MFront CastemModelInterface.hxx)
  install_mfront_header(MFront Castem21ModelInterface.hxx)
-@@ -252,7 +255,9 @@ install_mfront_header(MFront/GenericBehaviour RotateTangentOperatorBlock.hxx)
+@@ -257,7 +260,9 @@ install_mfront_header(MFront/GenericBehaviour RotateTangentOperatorBlock.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)
  install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)
@@ -1505,10 +1505,10 @@ index 000000000..b700b4596
 +
 +#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_SYCL_HXX */
 diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
-index 7aded7eef..66d83c06e 100644
+index 1d255881d..07f106420 100644
 --- a/mfront/src/CMakeLists.txt
 +++ b/mfront/src/CMakeLists.txt
-@@ -222,7 +222,9 @@ set(TFELMFront_SOURCES
+@@ -231,7 +231,9 @@ set(TFELMFront_SOURCES
      GenericParallel/Behaviour/AbstractBackend.cxx
      GenericParallel/Behaviour/BackendFactory.cxx
      GenericParallel/Behaviour/GPUBackend.cxx

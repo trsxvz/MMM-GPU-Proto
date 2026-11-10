@@ -1,4 +1,4 @@
-From 35f774adda0fbaf12933aa342cd1cfb592a8ca44 Mon Sep 17 00:00:00 2001
+From 0e9f093281f45ab5854e93beb4bf747d12ace969 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 12:07:37 +0200
 Subject: [PATCH] MFront: comparison to the numerical jacobian only performed
@@ -38,10 +38,10 @@ index 06f33cd8e..dfd595264 100644
  # Tests
  
 diff --git a/mfront/src/ImplicitCodeGeneratorBase.cxx b/mfront/src/ImplicitCodeGeneratorBase.cxx
-index 263a3e954..121240b74 100644
+index 2690032b9..b0dfd2394 100644
 --- a/mfront/src/ImplicitCodeGeneratorBase.cxx
 +++ b/mfront/src/ImplicitCodeGeneratorBase.cxx
-@@ -1280,10 +1280,14 @@ namespace mfront {
+@@ -1388,10 +1388,14 @@ namespace mfront {
        NonLinearSystemSolverBase::writeEvaluateNumericallyComputedBlocks(
            os, this->bd, h);
        if (this->bd.hasAttribute(h, BehaviourData::compareToNumericalJacobian)) {
@@ -55,8 +55,8 @@ index 263a3e954..121240b74 100644
              os, this->bd, h, "njacobian");
 +        os << "#endif /* TFEL_DEVICE_CODE */\n";
        }
+       os << "return true;\n";
      }
-     os << "}\n"
 -- 
 2.43.0
 

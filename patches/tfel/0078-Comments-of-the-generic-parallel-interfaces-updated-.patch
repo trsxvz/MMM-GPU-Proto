@@ -1,4 +1,4 @@
-From 399a20ff20bb1167110b431c5fb48868b64ff04e Mon Sep 17 00:00:00 2001
+From 8c642da4254727cde454c9adb20ff6d441048d7b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 15:59:36 +0200
 Subject: [PATCH] Comments of the generic-parallel interfaces updated,
@@ -30,7 +30,7 @@ wrong parameter names, template parameters documented as parameters.
  16 files changed, 57 insertions(+), 33 deletions(-)
 
 diff --git a/include/TFEL/Material/BoundsCheck.hxx b/include/TFEL/Material/BoundsCheck.hxx
-index a11be78f8..b5db1643d 100644
+index 14c3e19ea..4674b3fea 100644
 --- a/include/TFEL/Material/BoundsCheck.hxx
 +++ b/include/TFEL/Material/BoundsCheck.hxx
 @@ -39,19 +39,19 @@ namespace std {
@@ -264,10 +264,10 @@ index 73d34a5e6..93ea48d97 100644
     * `<name>_generic_parallel_report` function analyses the statuses, read on
     * the host, and reports the result in an output status, as a synchronous
 diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
-index a74619d51..23bd340b3 100644
+index 968c8269f..3910c04ff 100644
 --- a/mfront/src/GenericBehaviourInterface.cxx
 +++ b/mfront/src/GenericBehaviourInterface.cxx
-@@ -896,15 +896,23 @@ namespace mfront {
+@@ -966,15 +966,23 @@ namespace mfront {
    void GenericBehaviourInterface::writeBehaviourConstructorHeader(
        std::ostream& os,
        const BehaviourDescription& bd,

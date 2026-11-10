@@ -1,4 +1,4 @@
-From 35a64b22a687b2f8787db62c47301f5e7452d115 Mon Sep 17 00:00:00 2001
+From 976f97ebfeba91610d71639882ed9296a87b9356 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 04:04:41 +0200
 Subject: [PATCH] Behaviours of the generic-parallel interface: fixes of the
@@ -17,7 +17,7 @@ Subject: [PATCH] Behaviours of the generic-parallel interface: fixes of the
  4 files changed, 77 insertions(+)
 
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 8f2acdc..4a71274 100644
+index a2f6745..af54d43 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -850,6 +850,11 @@ namespace mgis::behaviour {
@@ -45,10 +45,10 @@ index 8f2acdc..4a71274 100644
      auto c = PendingBatchComputation(p, b.batch_report, f.name, 0, std::nullopt,
                                       9 * nm);
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index d6f9a67..77c85c3 100644
+index 9e6d334..5586dd2 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
-@@ -577,6 +577,23 @@ namespace mgis::behaviour::internals {
+@@ -584,6 +584,23 @@ namespace mgis::behaviour::internals {
      return r;
    }  // end of executeBatch
  
@@ -72,7 +72,7 @@ index d6f9a67..77c85c3 100644
    /*!
     * \brief submit computations on the points `[b, e)` of a material data
     * view, asynchronously (see the previous overload)
-@@ -592,6 +609,7 @@ namespace mgis::behaviour::internals {
+@@ -599,6 +616,7 @@ namespace mgis::behaviour::internals {
        const std::optional<real> rdt,
        const SubmitFunction& submit) {
      checkAsynchronousBatchExecutionPolicy(f, p, v.b->memory_space);

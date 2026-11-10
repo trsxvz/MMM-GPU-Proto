@@ -1,0 +1,497 @@
+From 681d39357790f04956dee3d548419fc02761cba8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 4 Nov 2026 16:32:27 +0100
+Subject: [PATCH] arcane backend: Arccore built with HIP on AMD GPUs
+
+- The 'arcane' configuration reads the accelerator mode of Arccore. With
+  CUDA, the sources are compiled by clang as a CUDA compiler, as before.
+  With HIP, they are compiled by hipcc as HIP sources (-x hip), on the AMD
+  platform. The compiler is given by the TFEL_ARCANE_CXX_COMPILER
+  substitution.
+- HIP on the NVIDIA platform is refused: the kernels of Arccore are only
+  compiled for HIP by the HIP language of clang (__HIP__), which only
+  targets AMD GPUs.
+- Tests: queue of the GPU 'hip' (default when Arccore is built with HIP),
+  memory and stack size of the tests through the runtime of CUDA or HIP.
+- Documentation of both interfaces.
+---
+ cmake/modules/tfel.cmake                      | 65 ++++++++++++++-----
+ .../generic-parallel-behaviour-interface.md   | 38 ++++++-----
+ ...ic-parallel-material-property-interface.md |  3 +-
+ mfront/configuration-files/config-arcane.json |  4 +-
+ .../generic-parallel/arcane/tdls/test.check   |  2 +-
+ .../generic-parallel/arcane/test.check        |  5 +-
+ .../behaviours/generic-parallel/runtime.hxx   | 34 +++++++---
+ .../generic-parallel/arcane/test.check        |  4 +-
+ .../generic-parallel/test-cxx.cxx             | 51 ++++++++++-----
+ 9 files changed, 137 insertions(+), 69 deletions(-)
+
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index 05c360a4d..0cf66348c 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -658,9 +658,11 @@ endif()
+ # configuration. Arccore is not found by `find_package`, since its
+ # configuration file enables the CUDA language in the calling project: its
+ # headers and its libraries are searched in `Arccore_ROOT`, and its
+-# accelerator mode is read in its configuration header. Only an Arccore
+-# built with CUDA is supported. The generated libraries are compiled by
+-# clang as a CUDA compiler.
++# accelerator mode is read in its configuration header: with CUDA, the
++# generated libraries are compiled by clang as a CUDA compiler; with HIP, by
++# hipcc on the AMD platform. The kernels of Arccore are only compiled for
++# HIP by the HIP language of clang (`__HIP__`), which only targets AMD GPUs:
++# an Arccore built with HIP on the NVIDIA platform is not supported.
+ if(_tfel-enable-generic-parallel-arcane-configuration)
+   find_path(TFEL_ARCCORE_INCLUDE_DIR NAMES arccore/arccore_config.h
+             HINTS "${Arccore_ROOT}" "$ENV{Arccore_ROOT}"
+@@ -669,10 +671,12 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
+                HINTS "${Arccore_ROOT}" "$ENV{Arccore_ROOT}"
+                PATH_SUFFIXES lib lib64 REQUIRED)
+   file(STRINGS "${TFEL_ARCCORE_INCLUDE_DIR}/arccore/arccore_config.h"
+-       _arccore_cuda REGEX "^#define ARCCORE_HAS_CUDA *$")
+-  if(NOT _arccore_cuda)
++       _arccore_accelerator REGEX "^#define ARCCORE_HAS_(CUDA|HIP|SYCL) *$")
++  string(REGEX REPLACE "#define ARCCORE_HAS_([A-Z]+) *" "\\1"
++         TFEL_ARCCORE_ACCELERATOR "${_arccore_accelerator}")
++  if(NOT TFEL_ARCCORE_ACCELERATOR MATCHES "^(CUDA|HIP)$")
+     message(FATAL_ERROR "the 'arcane' configuration requires Arccore built "
+-            "with CUDA")
++            "with CUDA or HIP")
+   endif()
+   # the generated libraries and the calling code share the same instance of
+   # Arccore (runtimes and allocators registered in global variables)
+@@ -704,9 +708,23 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
+     message(FATAL_ERROR "the 'arcane' configuration requires Arccore 2.8.0 "
+             "or later (Arcane 4.1.16), found ${TFEL_ARCCORE_VERSION}")
+   endif()
+-  message(STATUS "Arccore version: ${TFEL_ARCCORE_VERSION}")
+-  set(TFEL_REQUIRES_CUDA ON)
+-  define_tfel_cxx_compiler("clang++")
++  message(STATUS "Arccore version: ${TFEL_ARCCORE_VERSION} "
++          "(${TFEL_ARCCORE_ACCELERATOR})")
++  if(TFEL_ARCCORE_ACCELERATOR STREQUAL "CUDA")
++    set(TFEL_REQUIRES_CUDA ON)
++    define_tfel_cxx_compiler("clang++")
++  else()
++    if(NOT HIP_PLATFORM)
++      set(HIP_PLATFORM "$ENV{HIP_PLATFORM}")
++    endif()
++    if(HIP_PLATFORM STREQUAL "nvidia")
++      message(FATAL_ERROR "the 'arcane' configuration does not support HIP "
++              "on the NVIDIA platform (HIP_PLATFORM=nvidia)")
++    endif()
++    if(NOT TFEL_HIPCC_COMPILER)
++      find_program(TFEL_HIPCC_COMPILER NAMES "hipcc" REQUIRED)
++    endif()
++  endif()
+ endif()
+ 
+ if(TFEL_REQUIRES_CUDA)
+@@ -743,9 +761,10 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
+   # the generated sources are compiled by clang as a CUDA compiler, with
+   # the CUDA of the `cuda-clang` configuration, and the libraries linked
+   # with the shared libraries of Arccore and with the shared CUDA runtime,
+-  # as Arccore. The code of the behaviours is also executed on the host by
+-  # the `Thread` and `Sequential` queues: the device functions of CUDA are
+-  # excluded from the overloads in the compilation for the host, so that an
++  # as Arccore; or by hipcc as HIP sources (`-x hip`), hipcc linking the HIP
++  # runtime. The code of the behaviours is also executed on the host by
++  # the `Thread` and `Sequential` queues: the device functions of CUDA or HIP
++  # are excluded from the overloads in the compilation for the host, so that an
+   # unqualified call to `max` or `min` in the code of a behaviour (`using
+   # namespace std`) is resolved to the function of the standard library. The
+   # compilation for the device keeps the default resolution: otherwise, the
+@@ -754,9 +773,20 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
+   # ignored.
+   get_filename_component(_arccore_library_directory
+                          "${TFEL_ARCCORE_ACCELERATOR_LIBRARY}" DIRECTORY)
+-  set(_arcane_flags "-x" "cuda" "--cuda-compile-host-device"
+-      "--cuda-gpu-arch=native" "--cuda-path=${TFEL_CLANG_CUDA_PATH}"
+-      "-Xarch_host" "-fgpu-exclude-wrong-side-overloads" "-fPIC")
++  if(TFEL_ARCCORE_ACCELERATOR STREQUAL "CUDA")
++    set(TFEL_ARCANE_CXX_COMPILER "${TFEL_CLANGXX_COMPILER}")
++    set(_arcane_flags "-x" "cuda" "--cuda-compile-host-device"
++        "--cuda-gpu-arch=native" "--cuda-path=${TFEL_CLANG_CUDA_PATH}")
++    set(_arcane_runtime_flags
++        "-L${_tfel_clang_cuda_library_dir}"
++        "-Wl,-rpath,${_tfel_clang_cuda_library_dir}" "-lcudart")
++  else()
++    set(TFEL_ARCANE_CXX_COMPILER "${TFEL_HIPCC_COMPILER}")
++    set(_arcane_flags "-x" "hip" "--offload-arch=native")
++    set(_arcane_runtime_flags)
++  endif()
++  list(APPEND _arcane_flags
++       "-Xarch_host" "-fgpu-exclude-wrong-side-overloads" "-fPIC")
+   # a standard system directory is not given (`-isystem /usr/include` would
+   # break the `#include_next` directives of the standard library, see HIP)
+   if(NOT "${TFEL_ARCCORE_INCLUDE_DIR}" IN_LIST
+@@ -767,11 +797,10 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
+       "-L${_arccore_library_directory}"
+       "-Wl,-rpath,${_arccore_library_directory}"
+       "-larccore_accelerator" "-larccore_concurrency" "-larccore_common"
+-      "-larccore_trace" "-larccore_base"
+-      "-L${_tfel_clang_cuda_library_dir}"
+-      "-Wl,-rpath,${_tfel_clang_cuda_library_dir}" "-lcudart")
++      "-larccore_trace" "-larccore_base" ${_arcane_runtime_flags})
+   list(JOIN _arcane_flags " " TFEL_ARCANE_CXX_FLAGS)
+   list(JOIN _arcane_linker_flags " " TFEL_ARCANE_LINKER_FLAGS)
++  add_tfel_substitution(TFEL_ARCANE_CXX_COMPILER "${TFEL_ARCANE_CXX_COMPILER}")
+   add_tfel_substitution(TFEL_ARCANE_CXX_FLAGS "${TFEL_ARCANE_CXX_FLAGS}")
+   add_tfel_substitution(TFEL_ARCANE_LINKER_FLAGS "${TFEL_ARCANE_LINKER_FLAGS}")
+   message(STATUS "Arcane flags: ${TFEL_ARCANE_CXX_FLAGS}")
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index a4d95cd4f..8c339c4d4 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -1033,21 +1033,29 @@ creates the queue (`makeQueue`). On GPUs, the stack size of the threads of
+ the current device of the calling thread, which must be the device of the
+ queue, is increased if needed, as for the `CUDA` and `HIP` backends.
+ 
+-The generated source (`.cu` file) is compiled by `clang++` as a `CUDA`
+-compiler (`TFEL_ARCANE_CXX_FLAGS` substitution, see the [`TFEL/Config`
+-page](tfel-config.html)), and the sources shared with the `generic`
+-interface by `clang++` as a `C++` compiler. The code of the behaviours is
+-also executed on the host by the `Thread` and `Sequential` queues: the
+-device functions of `CUDA` are excluded from the overloads in the
+-compilation for the host (`-Xarch_host -fgpu-exclude-wrong-side-overloads`),
+-so that an unqualified call to `max` or `min` in the code of a behaviour is
+-resolved to the function of the standard library. The libraries are linked with the shared libraries
+-of Arccore and with the shared `CUDA` runtime, as Arccore
+-(`TFEL_ARCANE_LINKER_FLAGS` substitution). The `arcane` configuration
+-requires Arccore 2.8.0 or later (Arcane 4.1.16), built with `CUDA`
+-(`ARCCORE_ACCELERATOR_MODE=CUDA`) as shared libraries, found in
+-`Arccore_ROOT`; the `HIP` queues are handled by
+-the headers, but are not supported by the `arcane` configuration.
++The compiler of the generated sources depends on the accelerator mode of
++Arccore (`TFEL_ARCANE_CXX_COMPILER` and `TFEL_ARCANE_CXX_FLAGS`
++substitutions, see the [`TFEL/Config` page](tfel-config.html)):
++
++- with `CUDA`, the generated source (`.cu` file) is compiled by `clang++`
++  as a `CUDA` compiler, the sources shared with the `generic` interface by
++  `clang++` as a `C++` compiler, and the libraries are linked with the
++  shared `CUDA` runtime, as Arccore;
++- with `HIP`, the sources are compiled by `hipcc` (`-x hip`) on the AMD
++  platform, `hipcc` linking the `HIP` runtime. `HIP` on the NVIDIA platform
++  is not supported: the kernels of Arccore are only compiled for `HIP` by
++  the `HIP` language of clang (`__HIP__`), which only targets AMD GPUs.
++
++The code of the behaviours is also executed on the host by the `Thread` and
++`Sequential` queues: the device functions of `CUDA` or `HIP` are excluded
++from the overloads in the compilation for the host (`-Xarch_host
++-fgpu-exclude-wrong-side-overloads`), so that an unqualified call to `max`
++or `min` in the code of a behaviour is resolved to the function of the
++standard library. The libraries are linked with the shared libraries of
++Arccore (`TFEL_ARCANE_LINKER_FLAGS` substitution). The `arcane`
++configuration requires Arccore 2.8.0 or later (Arcane 4.1.16), built with
++`CUDA` or `HIP` (`ARCCORE_ACCELERATOR_MODE`) as shared libraries, found in
++`Arccore_ROOT`.
+ 
+ This backend has no option.
+ 
+diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
+index 5e20feb0a..190a68147 100644
+--- a/docs/web/generic-parallel-material-property-interface.md
++++ b/docs/web/generic-parallel-material-property-interface.md
+@@ -903,7 +903,8 @@ queue (`barrier`). The queue has a reference semantics: it must not be used
+ by another thread during the call. With a `CUDA` or `HIP` queue, the stack
+ size of the threads of the current device of the calling thread, which must
+ be the device of the queue, is increased if the kernel requires it. The source files (`.cu`
+-files) are compiled by `clang++` as a `CUDA` compiler and linked with the
++files) are compiled by `clang++` as a `CUDA` compiler or by `hipcc`,
++depending on the accelerator mode of Arccore, and linked with the
+ shared libraries of Arccore (see the `config-arcane.json` configuration
+ file and the section of the behaviours).
+ 
+diff --git a/mfront/configuration-files/config-arcane.json b/mfront/configuration-files/config-arcane.json
+index 2a82fbca0..775db44d8 100644
+--- a/mfront/configuration-files/config-arcane.json
++++ b/mfront/configuration-files/config-arcane.json
+@@ -8,11 +8,11 @@ interfaces_options: {
+ },
+ compilation_options : {
+   cxx : {
+-    compiler: "@TFEL_CLANGXX_COMPILER@",
++    compiler: "@TFEL_ARCANE_CXX_COMPILER@",
+     compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@"
+   },
+   cuda : {
+-    compiler: "@TFEL_CLANGXX_COMPILER@",
++    compiler: "@TFEL_ARCANE_CXX_COMPILER@",
+     compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@"
+   }
+ },
+diff --git a/test-suite/behaviours/generic-parallel/arcane/tdls/test.check b/test-suite/behaviours/generic-parallel/arcane/tdls/test.check
+index bcd2c5e4d..bc8e66c1e 100644
+--- a/test-suite/behaviours/generic-parallel/arcane/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/arcane/tdls/test.check
+@@ -5,7 +5,7 @@
+ // behaviours using the TDLS linear system solver, on the CUDA queue
+ // (default) and on a `Thread` queue
+ @Command "sh ../../build-libraries.sh @mfront@ config-arcane.json ImplicitNortonTDLS";
+-@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
++@Command "@TFEL_ARCANE_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-arcane.so";
+ @Command "env MFRONT_GPB_COMPARE_ARCANE_QUEUE=thread sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-arcane.so";
+ 
+diff --git a/test-suite/behaviours/generic-parallel/arcane/test.check b/test-suite/behaviours/generic-parallel/arcane/test.check
+index e83470b21..22a018918 100644
+--- a/test-suite/behaviours/generic-parallel/arcane/test.check
++++ b/test-suite/behaviours/generic-parallel/arcane/test.check
+@@ -4,10 +4,11 @@
+ // libraries of the reference (`generic` interface, host compiler) and of the
+ // tested configuration (see build-libraries.sh)
+ @Command "sh ../build-libraries.sh @mfront@ config-arcane.json";
+-@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
++@Command "@TFEL_ARCANE_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
+ // comparisons with the `generic` interface (see compare-all.sh). The
+ // library computes on the GPU or on the cores of the host, as selected by
+-// the queue of the execution policy: CUDA queue (default), `Thread` queue
++// the queue of the execution policy: queue of the GPU (CUDA or HIP, default),
++// `Thread` queue
+ // and, for an integration, a rotation, an initialize function, a
+ // post-processing and shared data, `Sequential` queue (see runtime.hxx and
+ // compare-sequential.sh)
+diff --git a/test-suite/behaviours/generic-parallel/runtime.hxx b/test-suite/behaviours/generic-parallel/runtime.hxx
+index d32677d8c..4ff8823d4 100644
+--- a/test-suite/behaviours/generic-parallel/runtime.hxx
++++ b/test-suite/behaviours/generic-parallel/runtime.hxx
+@@ -22,7 +22,7 @@
+  * of Arccore is initialized, the computations are launched on a queue whose
+  * execution policy is given by the `MFRONT_GPB_COMPARE_ARCANE_QUEUE`
+  * environment variable (see `getArcaneExecutionPolicy`) and the data are
+- * allocated in managed memory if Arccore is built with CUDA.
++ * allocated in managed memory if Arccore is built with CUDA or HIP.
+  *
+  * \date   20/10/2026
+  */
+@@ -52,6 +52,9 @@
+ #if defined(ARCCORE_HAS_CUDA)
+ #include <cuda_runtime.h>
+ #define GPU_API(f) cuda##f
++#elif defined(ARCCORE_HAS_HIP)
++#include <hip/hip_runtime.h>
++#define GPU_API(f) hip##f
+ #endif
+ #elif defined(__HIP__) || defined(MFRONT_GPB_COMPARE_USE_HIP)
+ #include <hip/hip_runtime.h>
+@@ -198,21 +201,26 @@ otherDeviceExecutionPolicy() {
+ 
+ /*!
+  * \return the execution policy of the queue of the tests, given by the
+- * `MFRONT_GPB_COMPARE_ARCANE_QUEUE` environment variable: `cuda`, `thread`
+- * or `sequential` (`cuda` by default if Arccore is built with CUDA, `thread`
+- * otherwise)
++ * `MFRONT_GPB_COMPARE_ARCANE_QUEUE` environment variable: `cuda` or `hip`
++ * (queue of the GPU, the default, if Arccore is built with CUDA or HIP),
++ * `thread` (the default otherwise) or `sequential`
+  */
+ static Arcane::Accelerator::eExecutionPolicy getArcaneExecutionPolicy() {
+   using Arcane::Accelerator::eExecutionPolicy;
+   const auto* const e = std::getenv("MFRONT_GPB_COMPARE_ARCANE_QUEUE");
+ #if defined(ARCCORE_HAS_CUDA)
+   const auto q = std::string_view{e == nullptr ? "cuda" : e};
++#elif defined(ARCCORE_HAS_HIP)
++  const auto q = std::string_view{e == nullptr ? "hip" : e};
+ #else
+   const auto q = std::string_view{e == nullptr ? "thread" : e};
+ #endif
+   if (q == "cuda") {
+     return eExecutionPolicy::CUDA;
+   }
++  if (q == "hip") {
++    return eExecutionPolicy::HIP;
++  }
+   if (q == "thread") {
+     return eExecutionPolicy::Thread;
+   }
+@@ -386,8 +394,8 @@ static const mfront_gp_AbstractBackendExecutionPolicy* executionPolicy() {
+ #if defined(MFRONT_GPB_COMPARE_USE_ARCANE)
+ /*!
+  * \return true if no computation is pending on the queue of the tests
+- * (checked on the native stream of a CUDA queue, the commands of the
+- * other queues are completed when launched)
++ * (checked on the native stream of a CUDA or HIP queue, the commands of
++ * the other queues are completed when launched)
+  */
+ static bool isQueueIdle() {
+ #if defined(ARCCORE_HAS_CUDA)
+@@ -397,17 +405,23 @@ static bool isQueueIdle() {
+         Arcane::Accelerator::AcceleratorUtils::toCudaNativeStream(getQueue());
+     return cudaStreamQuery(stream) == cudaSuccess;
+   }
++#elif defined(ARCCORE_HAS_HIP)
++  if (getQueue().executionPolicy() ==
++      Arcane::Accelerator::eExecutionPolicy::HIP) {
++    const auto stream =
++        Arcane::Accelerator::AcceleratorUtils::toHipNativeStream(getQueue());
++    return hipStreamQuery(stream) == hipSuccess;
++  }
+ #endif
+   return true;
+ }
+ 
+ /*!
+- * \return true if the computations are performed on a GPU by the CUDA
+- * runtime (CUDA queue)
++ * \return true if the computations are performed on a GPU (CUDA or HIP
++ * queue)
+  */
+ [[maybe_unused]] static bool computesOnGPU() {
+-  return getQueue().executionPolicy() ==
+-         Arcane::Accelerator::eExecutionPolicy::CUDA;
++  return getQueue().isAcceleratorPolicy();
+ }
+ #elif defined(GPU_API)
+ /*!
+diff --git a/test-suite/material-properties/generic-parallel/arcane/test.check b/test-suite/material-properties/generic-parallel/arcane/test.check
+index 65878b4e2..2d792ddb8 100644
+--- a/test-suite/material-properties/generic-parallel/arcane/test.check
++++ b/test-suite/material-properties/generic-parallel/arcane/test.check
+@@ -9,7 +9,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-arcane.json ../LinearDataInterpolationTest.mfront";
+ @Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-arcane.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-arcane.json";
+-@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=arcane -DMFRONT_GPMP_TEST_USE_ARCANE -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-arcane -L@TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -Lsrc -lGenericParallelUO2-arcane -lGenericParallelInconel600-arcane -lGenericParallelMaterialLaw-arcane @TFEL_ARCANE_LINKER_FLAGS@";
++@Command "@TFEL_ARCANE_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=arcane -DMFRONT_GPMP_TEST_USE_ARCANE -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-arcane -L@TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -Lsrc -lGenericParallelUO2-arcane -lGenericParallelInconel600-arcane -lGenericParallelMaterialLaw-arcane @TFEL_ARCANE_LINKER_FLAGS@";
+ // CUDA queue (default), `Thread` and `Sequential` queues (see the
+ // `ArcaneTestRuntime` structure of test-cxx.cxx)
+ @Command "./test-arcane test-arcane-arcane";
+@@ -18,7 +18,7 @@
+ 
+ // comparison with the `generic` interface (see compare.cxx)
+ @Command "sh ../build-libraries.sh @mfront@ config-arcane.json";
+-@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
++@Command "@TFEL_ARCANE_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
+ @Command "sh ../compare-all.sh ./compare arcane --tolerance=1e-13";
+ @Command "env MFRONT_GPB_COMPARE_ARCANE_QUEUE=thread sh ../compare-all.sh ./compare arcane --tolerance=1e-13";
+ @Command "env MFRONT_GPB_COMPARE_ARCANE_QUEUE=sequential sh ../compare-all.sh ./compare arcane --tolerance=1e-13";
+diff --git a/test-suite/material-properties/generic-parallel/test-cxx.cxx b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+index 2e62b2134..bdc09bce5 100644
+--- a/test-suite/material-properties/generic-parallel/test-cxx.cxx
++++ b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+@@ -36,9 +36,14 @@
+ #include <arccore/common/accelerator/Runner.h>
+ #include <arccore/accelerator/AcceleratorInitializer.h>
+ #include "MFront/GenericParallel/ArcaneBackendExecutionPolicy.hxx"
++// runtime of the GPU of Arccore
+ #if defined(ARCCORE_HAS_CUDA)
+ #include <cuda_runtime.h>
+-#endif /* defined(ARCCORE_HAS_CUDA) */
++#define MFRONT_GPMP_TEST_ARCANE_GPU_API(f) cuda##f
++#elif defined(ARCCORE_HAS_HIP)
++#include <hip/hip_runtime.h>
++#define MFRONT_GPMP_TEST_ARCANE_GPU_API(f) hip##f
++#endif
+ #endif /* MFRONT_GPMP_TEST_USE_ARCANE */
+ #include "MFront/GenericParallel/ParallelSTLBackendExecutionPolicy.hxx"
+ #include "MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx"
+@@ -166,8 +171,9 @@ struct TestAllocator {
+  * \brief accelerator runtime of Arccore (4 threads for the `Thread` queues),
+  * runner and queue of the tests, and execution policy on this queue. The
+  * execution policy of the queue is given by the
+- * `MFRONT_GPMP_TEST_ARCANE_QUEUE` environment variable: `cuda`, `thread` or
+- * `sequential` (`cuda` by default if Arccore is built with CUDA, `thread`
++ * `MFRONT_GPMP_TEST_ARCANE_QUEUE` environment variable: `cuda`, `hip`,
++ * `thread` or `sequential` (`cuda` or `hip` by default if Arccore is built
++ * with CUDA or HIP, `thread`
+  * otherwise). The members are destroyed before the runtime is finalized.
+  */
+ struct ArcaneTestRuntime {
+@@ -177,12 +183,17 @@ struct ArcaneTestRuntime {
+     const auto* const e = std::getenv("MFRONT_GPMP_TEST_ARCANE_QUEUE");
+ #if defined(ARCCORE_HAS_CUDA)
+     const auto q = std::string_view{e == nullptr ? "cuda" : e};
++#elif defined(ARCCORE_HAS_HIP)
++    const auto q = std::string_view{e == nullptr ? "hip" : e};
+ #else
+     const auto q = std::string_view{e == nullptr ? "thread" : e};
+ #endif
+     if (q == "cuda") {
+       return eExecutionPolicy::CUDA;
+     }
++    if (q == "hip") {
++      return eExecutionPolicy::HIP;
++    }
+     if (q == "sequential") {
+       return eExecutionPolicy::Sequential;
+     }
+@@ -209,7 +220,7 @@ struct ArcaneTestRuntime {
+   //! \brief runtime of the tests, created by `main`
+   static inline ArcaneTestRuntime* current = nullptr;
+ };
+-#if defined(ARCCORE_HAS_CUDA)
++#if defined(MFRONT_GPMP_TEST_ARCANE_GPU_API)
+ //! \brief allocator in managed memory, accessible by all the queues
+ template <typename T>
+ struct TestAllocator {
+@@ -219,21 +230,24 @@ struct TestAllocator {
+   TestAllocator(const TestAllocator<T2>&) noexcept {}
+   T* allocate(const std::size_t n) {
+     T* p = nullptr;
+-    if (cudaMallocManaged(&p, n * sizeof(T)) != cudaSuccess) {
++    if (MFRONT_GPMP_TEST_ARCANE_GPU_API(MallocManaged)(&p, n * sizeof(T)) !=
++        MFRONT_GPMP_TEST_ARCANE_GPU_API(Success)) {
+       throw std::bad_alloc();
+     }
+     return p;
+   }
+-  void deallocate(T* const p, const std::size_t) noexcept { cudaFree(p); }
++  void deallocate(T* const p, const std::size_t) noexcept {
++    static_cast<void>(MFRONT_GPMP_TEST_ARCANE_GPU_API(Free)(p));
++  }
+   template <typename T2>
+   bool operator==(const TestAllocator<T2>&) const noexcept {
+     return true;
+   }
+ };
+-#else  /* defined(ARCCORE_HAS_CUDA) */
++#else  /* defined(MFRONT_GPMP_TEST_ARCANE_GPU_API) */
+ template <typename T>
+ using TestAllocator = std::allocator<T>;
+-#endif /* defined(ARCCORE_HAS_CUDA) */
++#endif /* defined(MFRONT_GPMP_TEST_ARCANE_GPU_API) */
+ #else  /* MFRONT_GPMP_TEST_USE_KOKKOS */
+ template <typename T>
+ using TestAllocator = std::allocator<T>;
+@@ -536,26 +550,27 @@ struct BackendTest : public tfel::tests::TestCase {
+                                            initial_stack_size) == cudaSuccess);
+     }
+ #endif /* defined(MFRONT_GPMP_TEST_USE_RAJA) && defined(RAJA_CUDA_ACTIVE) */
+-#if defined(MFRONT_GPMP_TEST_USE_ARCANE) && defined(ARCCORE_HAS_CUDA)
+-    if (ArcaneTestRuntime::current->queue.executionPolicy() ==
+-        Arcane::Accelerator::eExecutionPolicy::CUDA) {
++#if defined(MFRONT_GPMP_TEST_USE_ARCANE) && \
++    defined(MFRONT_GPMP_TEST_ARCANE_GPU_API)
++    if (ArcaneTestRuntime::current->queue.isAcceleratorPolicy()) {
+       auto initial_stack_size = std::size_t{};
+-      TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&initial_stack_size,
+-                                           cudaLimitStackSize) == cudaSuccess);
++      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceGetLimit)(&initial_stack_size,
++                                           MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize)) == MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
+       // the kernels require at least 1024 bytes (see
+       // mfront::generic_parallel::gpu::ensureStackSize)
+-      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize, 256) ==
+-                        cudaSuccess);
++      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceSetLimit)(MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize), 256) ==
++                        MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
+       TFEL_TESTS_CHECK_EQUAL(evaluate(f, output, E.data(), 1, args,
+                                       contiguous<1>(), 2, policy, preserve),
+                              -7);
+       TFEL_TESTS_ASSERT(std::string(output.msg)
+                             .starts_with("the stack size of the threads of the "
+                                          "device must be at least"));
+-      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
+-                                           initial_stack_size) == cudaSuccess);
++      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceSetLimit)(MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize),
++                                           initial_stack_size) == MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
+     }
+-#endif /* defined(MFRONT_GPMP_TEST_USE_ARCANE) && defined(ARCCORE_HAS_CUDA) */
++#endif /* defined(MFRONT_GPMP_TEST_USE_ARCANE) && \
++          defined(MFRONT_GPMP_TEST_ARCANE_GPU_API) */
+ #ifdef __NVCOMPILER_OPENACC_GPU
+     // stack size of the threads of the GPU of OpenACC, set through the CUDA
+     // driver on the context of OpenACC (see `OpenACCStackSize.hxx`)
+-- 
+2.43.0
+

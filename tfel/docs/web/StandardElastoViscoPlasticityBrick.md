@@ -306,6 +306,13 @@ The viscoplastic flow is defined by:
 - one or more kinematic hardening rule (optional), denoted \(\tenseur{X}_{i}\)
 - one isotropic hardening rule (optional), denoted \(R_{i}\)
 
+#### Newton steps rejection
+
+The exponential nature of the hyperbolic sinus function may lead to
+divergence of the Newton method. To avoid this, one may specify a
+relative threshold denoted \(K_{sf}\): if the stress estimate is greater
+than \(K_{sf}\,K\), the step is rejected.
+
 ### The `HarmonicSumOfNortonHoffViscoplasticFlows` inelastic flow 
 
 The equivalent viscoplastic strain rate \(\dot{p}\) is defined as:
@@ -340,13 +347,6 @@ in which appear:
   }
 };
 ~~~~
-
-#### Newton steps rejection
-
-The exponential nature of the hyperbolic sinus function may lead to
-divergence of the Newton method. To avoid this, one may specify a
-relative threshold denoted \(K_{sf}\): if the stress estimate is greater
-than \(K_{sf}\,K\), the step is rejected.
 
 ### The `UserDefinedViscoplasticity` inelastic flow
 
@@ -383,7 +383,10 @@ threshold.
 If those derivatives are not provided, automatic differentiation will be
 used. The user shall be warned that the automatic differentiation
 provided by the `tfel::math::Evaluator` class may result in inefficient
-code.
+code. The functions `tgamma` and `lgamma` can't be differentiated: the
+derivatives must be provided if `vp` uses them. The functions `abs`,
+`max`, `min` and `H` are differentiated piecewise, the derivative of `H`
+being null.
 
 #### Example of usage {.unnumbered}
 
@@ -663,7 +666,7 @@ have been proposed by Cazacu and Barlat (see
   &\frac{1}{27}\,(b_1+b_2)\,s_{xx}^3+\frac{1}{27}\,(b_3+b_4)\,s_{yy}^3+\frac{1}{27}\,(2\,(b_1+b_4)-b_2-b_3)\,s_{zz}^3\\
   &-\frac{1}{9}\,(b_1\,s_{yy}+b_2s_{zz})\,s_{xx}^2\\
   &-\frac{1}{9}\,(b_3\,s_{zz}+b_4\,s_{xx})\,s_{yy}^2\\
-  &-\frac{1}{9}\,((b_1-b_2+b_4)\,s_{xx}+(b_1-b3+b_4)\,s_{yy})\,s_{zz}^3\\
+  &-\frac{1}{9}\,((b_1-b_2+b_4)\,s_{xx}+(b_1-b_3+b_4)\,s_{yy})\,s_{zz}^2\\
   &+\frac{2}{9}\,(b_1+b_4)\,s_{xx}\,s_{yy}\,s_{zz}\\
   &-\frac{s_{xz}^2}{3}\,(2\,b_9\,s_{yy}-b_8\,s_{zz}-(2\,b_9-b_8)\,s_{xx})\\
   &-\frac{s_{xy}^2}{3}\,(2\,b_{10}\,s_{zz}-b_5\,s_{yy}-(2\,b_{10}-b_5)\,s_{xx})\\
@@ -1054,7 +1057,10 @@ variable `R`.
 If this derivative is not provided, automatic differentiation will be
 used. The user shall be warned that the automatic differentiation
 provided by the `tfel::math::Evaluator` class may result in inefficient
-code.
+code. The functions `tgamma` and `lgamma` can't be differentiated: the
+derivative must be provided if `R` uses them. The functions `abs`,
+`max`, `min` and `H` are differentiated piecewise, the derivative of `H`
+being null.
 
 #### Example of usage {.unnumbered}
 
@@ -1088,8 +1094,9 @@ This isotropic hardening rule can be parametrised using three entries:
 - `interpolation`: which allows to select the interpolation type.
   Possible values are `linear` (default choice) and `cubic_spline`.
 - `extrapolation`: which allows to select the extrapolation type.
-  Possible values are `bound_to_last_value` (or `constant`) and
-  `extrapolation` (default choice).
+  Possible values are `bound_to_last_value` (or `constant`, or the
+  boolean value `false`) and `extrapolation` (or the boolean value
+  `true`, default choice).
 
 #### Example of usage
 
@@ -1292,12 +1299,12 @@ with:
 \)
 - \(
 \Psi^{\left(\tenseur{X}\right)}\left(\tenseur{X}\right)=
-\frac{\left<D\,J\left(\tenseur{X}\right)-\omega\,C\right>^{m}}{1-\omega}\,
+\frac{\left<D\,J\left(\tenseur{X}\right)-\omega\,C\right>^{m}}{\left(1-\omega\right)^{m}}\,
 \frac{1}{\left(D\,J\left(\tenseur{X}\right)\right)^{m}}
 \)
 - \(
 \Psi\left(\tenseur{a}\right)=
-\frac{\left<D\,J\left(\tenseur{a}\right)-\frac{3}{2}\omega\right>^{m}}{1-\omega}\,
+\frac{\left<D\,J\left(\tenseur{a}\right)-\frac{3}{2}\omega\right>^{m}}{\left(1-\omega\right)^{m}}\,
 \frac{1}{\left(D\,J\left(\tenseur{a}\right)\right)^{m}}
 \)
 
@@ -1310,9 +1317,83 @@ The following code can be added in a block defining an inelastic flow:
       C : 250e7,
       D : 100,
       m : 2,
-      w : 0.6,
+      w : 0.6
     }
 ~~~~
+
+#### Properties of this rule
+
+In this section, \(\Phi=1\). The dynamic recovery only acts above the
+threshold \(J\left(\tenseur{X}\right)=\omega\,C/D\). Under a monotonic
+loading, \(J\left(\tenseur{X}\right)\) saturates at \(C/D\), whatever the
+values of \(m\) and \(\omega\).
+
+Two particular cases are worth noting:
+
+- For \(m=1\), this is the rule used in @chaboche_cyclic_2012.
+- For \(\omega=0\), \(\Psi=1\): the exponent \(m\) has no effect, and this
+  is the `Armstrong-Frederick` rule.
+
+The values of \(m\) and \(\omega\) (option `w`) are not checked: \(\omega=1\)
+leads to a division by zero, and for \(m<1\), the derivative of \(\Psi\) is
+singular at the threshold.
+
+#### Comparison with the literature
+
+For \(m\neq 1\), this rule is not the same as the ones found in the
+literature, so parameters identified for one of them can't be used as they
+are in another one.
+
+Under a uniaxial loading and with \(\Phi=1\), the kinematic variable evolves
+as:
+
+\[
+\dot{X}=C\,\dot{\varepsilon}^{p}-R\,\dot{p}\,\mathrm{sign}\left(X\right)
+\]
+
+The three forms below only differ by the dynamic recovery \(R\), given as a
+function of \(x=D\,\left|X\right|/C\). They are identical for \(m=1\).
+
+| Source | \(R/C\) |
+|---|---|
+| This rule | \(\left<\dfrac{x-\omega}{1-\omega}\right>^{m}\,x^{1-m}\) |
+| @chaboche_cyclic_2012, equation 7, with \(m_{1}=m_{2}=m\) | \(D^{m-1}\,\left<\dfrac{x-\omega}{1-\omega}\right>^{m}\,x^{1-m}\) |
+| @chaboche_review_2008, equation 124 | \(\left<\dfrac{x-\omega}{1-\omega}\right>^{m}\) |
+
+**Equation 7 of @chaboche_cyclic_2012.** This paper only uses
+\(m_{1}=m_{2}=1\). With \(m_{1}=m_{2}=m\), its equation describes the same
+family of laws as this rule, but with other values of the parameters: the
+values \(\left(D,\omega\right)\) of the paper correspond to the values
+\(\left(D',\omega'\right)\) of this rule such that:
+
+\[
+\dfrac{\omega'}{D'}=\dfrac{\omega}{D}
+\quad\text{and}\quad
+\dfrac{D'}{\left(1-\omega'\right)^{m}}=\left(\dfrac{D}{1-\omega}\right)^{m}
+\]
+
+This rule has a single exponent: the case \(m_{1}\neq m_{2}\) can't be
+expressed.
+
+**Equation 124 of @chaboche_review_2008.** No change of the parameters
+removes the factor \(x^{1-m}\). Both forms have the same threshold and the
+same saturation, and their tensile curves are close: for
+\(C=2.5\,10^{9}\,\mathrm{Pa}\), \(D=100\), \(m=2\) and \(\omega=0.6\), the
+largest difference on \(X\) is \(0.33\,\mathrm{MPa}\).
+
+The ratcheting differs. The following table gives the plastic strain per
+stabilized cycle, with one kinematic variable with the same values of \(C\)
+and \(D\), an elastic limit of \(120\,\mathrm{MPa}\) and a stress between
+\(-132\,\mathrm{MPa}\) and \(144\,\mathrm{MPa}\). This single loading only
+gives an order of magnitude.
+
+| \(\omega\) | \(m\) | This rule | Equation 124 | Ratio |
+|---|---|---|---|---|
+| 0.6 | 1 | \(6.643\,10^{-3}\) | \(6.643\,10^{-3}\) | 1.00 |
+| 0.6 | 2 | \(3.736\,10^{-3}\) | \(2.958\,10^{-3}\) | 1.26 |
+| 0.6 | 4 | \(1.802\,10^{-3}\) | \(1.163\,10^{-3}\) | 1.55 |
+| 0.3 | 2 | \(1.095\,10^{-2}\) | \(6.971\,10^{-3}\) | 1.57 |
+| 0 | 2 | \(2.284\,10^{-2}\) | \(1.105\,10^{-2}\) | 2.07 |
 
 ### Delobelle-Robinet-Schaffler (DRS) kinematic hardening rule
 
@@ -1335,6 +1416,9 @@ same structure as the Hill tensors and are defined by \(6\) components
 (see [this page](tensors.html) for details).
 
 The `f` and `a0` parameters are optional and defaults to \(1\).
+
+This kinematic hardening rule requires the behaviour to be orthotropic
+(see the `@OrthotropicBehaviour` keyword).
 
 #### Example
 

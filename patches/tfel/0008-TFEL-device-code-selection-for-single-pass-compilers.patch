@@ -1,4 +1,4 @@
-From 59f368eae31499fbf0b6e113686fbb241363e293 Mon Sep 17 00:00:00 2001
+From 363ec1535b64fab9ee1ce2ed00d45c90bbaa81c9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:04:58 +0200
 Subject: [PATCH] TFEL: device code selection for single pass compilers
@@ -21,10 +21,10 @@ Subject: [PATCH] TFEL: device code selection for single pass compilers
  3 files changed, 22 insertions(+), 10 deletions(-)
 
 diff --git a/include/FSES/Utilities.ixx b/include/FSES/Utilities.ixx
-index d2498cb7f..17159306f 100644
+index 930252747..b10794469 100644
 --- a/include/FSES/Utilities.ixx
 +++ b/include/FSES/Utilities.ixx
-@@ -186,8 +186,8 @@ TFEL_HOST_DEVICE const GetMatrixNumericType_t<MatrixType>& at(const MatrixType&
+@@ -187,8 +187,8 @@ TFEL_HOST_DEVICE const GetMatrixNumericType_t<MatrixType>& at(const MatrixType&
  
  template <typename MatrixType, typename NumericType>
  TFEL_HOST_DEVICE void fill(MatrixType& m, const NumericType& v) {
@@ -67,7 +67,7 @@ index de8577e23..40ef04783 100644
 +
  #endif /* LIB_TFEL_CONFIG_HXX */
 diff --git a/include/TFEL/Material/BoundsCheck.hxx b/include/TFEL/Material/BoundsCheck.hxx
-index 08b85e5b5..4f9f4873c 100644
+index 39dc93d0d..610c08fdf 100644
 --- a/include/TFEL/Material/BoundsCheck.hxx
 +++ b/include/TFEL/Material/BoundsCheck.hxx
 @@ -312,10 +312,10 @@ namespace tfel::material {

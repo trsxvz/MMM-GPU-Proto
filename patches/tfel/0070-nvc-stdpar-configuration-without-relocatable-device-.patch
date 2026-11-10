@@ -1,4 +1,4 @@
-From ea734610beac2adfed0bfa7f71676a99d3a4699d Mon Sep 17 00:00:00 2001
+From 640f361e49abea95b61a37c0d54a9ab9a030a53d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 05:10:14 +0200
 Subject: [PATCH] nvc++ stdpar configuration without relocatable device code

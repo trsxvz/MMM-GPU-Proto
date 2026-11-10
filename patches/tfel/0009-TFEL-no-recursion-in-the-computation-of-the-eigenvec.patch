@@ -1,4 +1,4 @@
-From a289208437ef578c0b9f8943531bbaa8908d2947 Mon Sep 17 00:00:00 2001
+From 83bbc3ce13331d852cccc209d72df3dddbae5219 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:28:41 +0200
 Subject: [PATCH] TFEL: no recursion in the computation of the eigenvectors of
@@ -17,18 +17,18 @@ algorithm (`fses::syevj3`).
  1 file changed, 9 insertions(+), 1 deletion(-)
 
 diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-index b2e364f25..35b6a5f2f 100644
+index 5ad5113f6..9c64f99f3 100644
 --- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 @@ -27,6 +27,7 @@
  #include "TFEL/Math/tvector.hxx"
  #include "TFEL/Math/tmatrix.hxx"
- #include "TFEL/Math/stensor.hxx"
+ #include "TFEL/Math/Stensor/Internals/StensorComputeEigenValues.hxx"
 +#include "FSES/syevj3.hxx"
  
  namespace tfel::math::internals {
  
-@@ -528,9 +529,16 @@ namespace tfel::math::internals {
+@@ -556,9 +557,16 @@ namespace tfel::math::internals {
                     10 * std::numeric_limits<T>::min());
        if ((tfel::math::abs(det1) < prec) && (tfel::math::abs(det2) < prec) &&
            (tfel::math::abs(det3) < prec)) {

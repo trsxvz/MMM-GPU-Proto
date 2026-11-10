@@ -1,4 +1,4 @@
-From 4af2a0752e19e29ddca57139287069670f4bbb2c Mon Sep 17 00:00:00 2001
+From c75b150f20e8c5825c32cdfb617ef38b956517a8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:46:10 +0200
 Subject: [PATCH] Views on the variables of a state view, extraction
@@ -136,10 +136,10 @@ index 12c9d02..680b9d8 100644
                      const MaterialStateView& i,
                      FieldOperations& ops) {
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index fbf2927..867b483 100644
+index 5b8f11d..a403f8d 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -946,11 +946,8 @@ namespace mgis::behaviour {
+@@ -1081,11 +1081,8 @@ namespace mgis::behaviour {
            "extractInternalStateVariable: "
            "unmatched number of integration points or of components");
      }

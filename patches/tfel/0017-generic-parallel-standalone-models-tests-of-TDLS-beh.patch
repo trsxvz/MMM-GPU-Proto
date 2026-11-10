@@ -1,4 +1,4 @@
-From 2fe5eda26e5a086d15ac9af985f7424b1cc87ec0 Mon Sep 17 00:00:00 2001
+From 98ba396ccac6ebeaa636a69d29fb44c66d9967f0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
 Subject: [PATCH] generic-parallel: standalone models, tests of TDLS, behaviour
@@ -77,10 +77,10 @@ Subject: [PATCH] generic-parallel: standalone models, tests of TDLS, behaviour
  create mode 100644 test-suite/behaviours/generic-parallel/sycl-default-acpp/tdls/test.check
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 17742dc25..844c29c46 100644
+index 3d1c963e1..ba44a4235 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -404,6 +404,8 @@ if(enable-tdls)
+@@ -400,6 +400,8 @@ if(enable-tdls)
    find_package(tdls REQUIRED)
    option(enable-tdls-as-default-linear-system-solver-in-mfront
           "use TDLS as the default linear system solver in MFront" OFF)
@@ -186,10 +186,10 @@ index 03b2f07aa..5ba3ba164 100644
 +subdirectory of each configuration (`compare-tdls.sh` script) if `TFEL` is
 +built with `TDLS` support.
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 35030da9c..436fd683e 100644
+index 5186ddf2a..68308da81 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -137,6 +137,7 @@ install_mfront_header(MFront/GenericParallel/Behaviour KokkosBackend.hxx)
+@@ -142,6 +142,7 @@ install_mfront_header(MFront/GenericParallel/Behaviour KokkosBackend.hxx)
  install_mfront_header(MFront/GenericParallel/Behaviour ParallelSTLBackend.hxx)
  install_mfront_header(MFront/GenericParallel/Behaviour SYCLBackend.hxx)
  install_mfront_header(MFront GenericModelInterface.hxx)
@@ -197,7 +197,7 @@ index 35030da9c..436fd683e 100644
  install_mfront_header(MFront CastemModelInterface.hxx)
  install_mfront_header(MFront Castem21ModelInterface.hxx)
  install_mfront_header(MFront MTestFileGeneratorBase.hxx)
-@@ -258,6 +259,7 @@ install_mfront_header(MFront/GenericParallelBehaviour FiniteStrainIntegrators.hx
+@@ -263,6 +264,7 @@ install_mfront_header(MFront/GenericParallelBehaviour FiniteStrainIntegrators.hx
  install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour Kokkos.hxx)
@@ -369,10 +369,10 @@ index 000000000..0728e80d9
 +
 +#endif /* LIB_MFRONT_GENERICPARALLELMODELINTERFACE_HXX */
 diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
-index 595c0d38a..a0d209110 100644
+index d05892bcb..e8cf4857f 100644
 --- a/mfront/src/CMakeLists.txt
 +++ b/mfront/src/CMakeLists.txt
-@@ -228,6 +228,7 @@ set(TFELMFront_SOURCES
+@@ -237,6 +237,7 @@ set(TFELMFront_SOURCES
      GenericBehaviourSymbolsGenerator.cxx
      BehaviourRotationFunctions.cxx
      GenericModelInterface.cxx

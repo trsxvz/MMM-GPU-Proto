@@ -149,6 +149,9 @@ namespace mfront {
     }
     {
       GenericParallelBehaviourInterface bi;
+      // out of bounds policy of the library, as for the `generic` models
+      // and the `generic-parallel` behaviours
+      bi.writeSetOutOfBoundsPolicyFunctionDeclaration(os, name);
       GenericParallelBehaviourInterface::writeReportFunctionDeclaration(
           os, bi.getFunctionNameBasis(name));
     }
@@ -245,6 +248,9 @@ namespace mfront {
         os, bi.getFunctionNameBasis(name),
         generic_parallel::AbstractBackend::Runtime::BEHAVIOURS);
     sg.generateSymbols(os, bi, bd, fd, name, uh);
+    // out of bounds policy of the library, read on the host and given to
+    // the model
+    bi.writeGetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
     if (!md.sources.empty()) {
       os << md.sources << "\n\n";
     }
@@ -308,6 +314,7 @@ namespace mfront {
        << "#endif /* __cplusplus */\n\n";
     GenericParallelBehaviourInterface::writeReportFunction(
         os, bi.getFunctionNameBasis(name));
+    bi.writeSetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
     const auto initializer = getGenericModelParametersInitializerName(md);
     if (hasGenericModelParametersInitializer(md)) {
       os << "MFRONT_SHAREDOBJ int\n"
@@ -357,10 +364,9 @@ namespace mfront {
           ", mfront_batch_data");
       os << "using mfront_point_traits = " << point_traits << ";\n";
       write_parameters();
-      // the bounds are checked by the model with its default out of bounds
-      // policy, as in the `generic` interface
-      os << "const auto mfront_policy = tfel::material::"
-         << getDefaultOutOfBoundsPolicyAsString(md) << ";\n";
+      // out of bounds policy of the library, as for the behaviours
+      os << "const auto mfront_policy = " << bi.getFunctionNameBasis(name)
+         << "_getOutOfBoundsPolicy();\n";
       this->backend->writeCall(
           os, generic_parallel::AbstractBackend::Runtime::BEHAVIOURS,
           "integrateBatch",
@@ -378,7 +384,8 @@ namespace mfront {
            << "try{\n";
         write_parameters();
         os << "const mfront::gm::" << md.className
-           << " m(*d, mfront_parameters);\n"
+           << " m(*d, mfront_parameters, " << bi.getFunctionNameBasis(name)
+           << "_getOutOfBoundsPolicy());\n"
            << "if(!m.execute(*d)){\n"
            << "mfront::gb::reportError(*d, \"model execution failed\");\n"
            << "*(d->rdt) = 0.1;\n"

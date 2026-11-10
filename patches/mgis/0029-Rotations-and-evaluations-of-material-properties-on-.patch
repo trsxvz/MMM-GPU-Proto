@@ -1,4 +1,4 @@
-From f6ef9fad0543d574749cda8e5246327cc7c18ef2 Mon Sep 17 00:00:00 2001
+From 324f79e908b493d5ac3f1a1d023ebef5e148739e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:42:39 +0200
 Subject: [PATCH] Rotations and evaluations of material properties on views
@@ -21,16 +21,16 @@ Subject: [PATCH] Rotations and evaluations of material properties on views
 ---
  include/MGIS/Behaviour/Behaviour.hxx          |  559 ++++++
  .../MaterialProperty/MaterialProperty.hxx     |   63 +
- src/Behaviour.cxx                             | 1687 +++++++++++------
+ src/Behaviour.cxx                             | 1693 +++++++++++------
  src/MaterialProperty.cxx                      |  327 +++-
  tests/CMakeLists.txt                          |    7 +-
  tests/FieldOperationsCUDATest.cu              |  213 ++-
  tests/GenericParallelEvaluateTest.cxx         |  151 +-
  tests/GenericParallelIntegrateTest.cxx        |  368 +++-
- 8 files changed, 2746 insertions(+), 629 deletions(-)
+ 8 files changed, 2747 insertions(+), 634 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index 801538e..dae2f53 100644
+index 48e3242..a9c596d 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
 @@ -22,6 +22,7 @@
@@ -41,7 +41,7 @@ index 801538e..dae2f53 100644
  #include "MGIS/Behaviour/Hypothesis.hxx"
  #include "MGIS/Behaviour/Variable.hxx"
  #include "MGIS/Behaviour/RotationMatrix.hxx"
-@@ -332,6 +333,12 @@ namespace mgis::behaviour {
+@@ -331,6 +332,12 @@ namespace mgis::behaviour {
    /*!
     * \brief rotate an array of gradients from the global frame to the material
     * frame.
@@ -54,7 +54,7 @@ index 801538e..dae2f53 100644
     * \param[out,in] g: gradients
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
-@@ -868,6 +875,558 @@ namespace mgis::behaviour {
+@@ -867,6 +874,558 @@ namespace mgis::behaviour {
                                const std::span<const real> &,
                                const RotationMatrix3D &,
                                const MemoryLocation = MemoryLocation::HOST);
@@ -695,7 +695,7 @@ index 1131abf..0ebb193 100644
  
  #endif /* LIB_MGIS_MATERIALPROPERTY_MATERIALPROPERTY_HXX */
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 6a95239..2dfb2d0 100644
+index 995dbdf..c8c6d31 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -12,12 +12,14 @@
@@ -713,7 +713,7 @@ index 6a95239..2dfb2d0 100644
  #include <cstdlib>
  #include <iterator>
  #include "MGIS/Raise.hxx"
-@@ -340,47 +342,6 @@ namespace mgis::behaviour {
+@@ -340,48 +342,6 @@ namespace mgis::behaviour {
      return {};
    }  // end of loadFromDatabase
  
@@ -739,18 +739,19 @@ index 6a95239..2dfb2d0 100644
 -  }  // end of rotateGradients
 -
 -  static mgis::size_type checkRotateFunctionInputs(
--      const char *const m,
--      const std::span<const real> &mv,
--      const std::span<const real> &gv,
+-      const char* const m,
+-      const char* const what,
+-      const std::span<const real>& mv,
+-      const std::span<const real>& gv,
 -      const mgis::size_type vsize) {
 -    if (gv.size() == 0) {
--      mgis::raise(std::string(m) + ": no values given for the gradients");
+-      mgis::raise(std::string(m) + ": no values given for the " + what);
 -    }
 -    auto dv = std::div(static_cast<long long>(gv.size()), vsize);
 -    if (dv.rem != 0) {
 -      mgis::raise(std::string(m) +
--                  ": invalid array size in the global frame "
--                  "(not a multiple of the gradients size)");
+-                  ": invalid array size (not a multiple of the " + what +
+-                  " size)");
 -    }
 -    if (mv.size() != gv.size()) {
 -      mgis::raise(std::string(m) + ": unmatched array sizes");
@@ -761,7 +762,7 @@ index 6a95239..2dfb2d0 100644
    static void checkRotationMatrix2D(const char *const m,
                                      const RotationMatrix2D &r,
                                      const Behaviour &b,
-@@ -425,46 +386,6 @@ namespace mgis::behaviour {
+@@ -426,46 +386,6 @@ namespace mgis::behaviour {
      }
    }  // end of checkRotationMatrix3D
  
@@ -808,7 +809,7 @@ index 6a95239..2dfb2d0 100644
    /*!
     * \brief check that a rotation function of a batch is available
     * \param[in] m: calling function
-@@ -499,52 +420,6 @@ namespace mgis::behaviour {
+@@ -500,52 +420,6 @@ namespace mgis::behaviour {
      }
    }  // end of checkBatchRotationArraysLocation
  
@@ -861,7 +862,7 @@ index 6a95239..2dfb2d0 100644
    /*!
     * \return the number of rotation matrices described by a 2D rotation, and
     * the function building the rotation matrix of the `i`-th one
-@@ -626,8 +501,8 @@ namespace mgis::behaviour {
+@@ -627,8 +501,8 @@ namespace mgis::behaviour {
        const mgis::size_type nipts,
        std::pmr::memory_resource *const resource) {
      const auto [n, build] = getRotationMatricesBuilder(m, b, nipts, r);
@@ -872,7 +873,7 @@ index 6a95239..2dfb2d0 100644
      auto matrices = std::pmr::vector<real>(9 * n, mr);
      buildBatchRotationMatrices(matrices, build);
      return matrices;
-@@ -651,27 +526,307 @@ namespace mgis::behaviour {
+@@ -652,27 +526,307 @@ namespace mgis::behaviour {
                                        resource);
    }  // end of buildRotationMatrices
  
@@ -1189,7 +1190,7 @@ index 6a95239..2dfb2d0 100644
                    ": the rotation matrices built by MGIS are stored in the "
                    "memory of the host, which is not accessible by the "
                    "computations of the behaviour (memory space '" +
-@@ -680,8 +835,8 @@ namespace mgis::behaviour {
+@@ -681,8 +835,8 @@ namespace mgis::behaviour {
                    "buildRotationMatrices), or built by the asynchronous "
                    "rotations");
      }
@@ -1200,7 +1201,7 @@ index 6a95239..2dfb2d0 100644
                          getBatchExecutionOptions(p));
    }  // end of rotateBatch
  
-@@ -691,79 +846,221 @@ namespace mgis::behaviour {
+@@ -692,79 +846,221 @@ namespace mgis::behaviour {
     * in the memory allocated by the memory resource of the policy, kept by
     * the pending rotation
     * \return the pending rotation
@@ -1317,8 +1318,8 @@ index 6a95239..2dfb2d0 100644
 -    checkBatchRotationArraysLocation("rotateGradients", b, l);
 -    checkBehaviourRotateGradients(b);
 -    const auto gsize = getArraySize(b.gradients, b.hypothesis);
--    const auto nipts =
--        checkRotateFunctionInputs("rotateGradients", mg, gg, gsize);
+-    const auto nipts = checkRotateFunctionInputs("rotateGradients", "gradients",
+-                                                 mg, gg, gsize);
 -    if (r.size() == 0) {
 -      mgis::raise("rotateGradients: no values given for the rotation matrices");
 +    if ((d.hasContiguousComponents()) && (s.hasContiguousComponents())) {
@@ -1423,12 +1424,12 @@ index 6a95239..2dfb2d0 100644
 +    if (isGenericParallelBehaviour(b)) {
 +      rotateBatch(f, BatchExecutionPolicy{}, b, d, s, r, l);
 +      return;
-+    }
+     }
 +    checkPointRotationFunctions(f);
 +    const auto n = checkRotationViews(f, b, d, s, l);
 +    if (n == 0) {
 +      return;
-     }
++    }
 +    const auto matrices = getRotationMatricesBuilder(f.name, b, n, r);
 +    const auto &build = matrices.second;
 +    const auto get_matrix = [&build](const mgis::size_type i,
@@ -1472,7 +1473,7 @@ index 6a95239..2dfb2d0 100644
    }  // end of rotateGradients
  
    void rotateGradients(std::span<real> mg,
-@@ -771,27 +1068,9 @@ namespace mgis::behaviour {
+@@ -772,27 +1068,9 @@ namespace mgis::behaviour {
                         const std::span<const real> &gg,
                         const RotationMatrix2D &r,
                         const MemoryLocation l) {
@@ -1484,8 +1485,8 @@ index 6a95239..2dfb2d0 100644
 -    checkBatchRotationArraysLocation("rotateGradients", b, l);
 -    checkBehaviourRotateGradients(b);
 -    const auto gsize = getArraySize(b.gradients, b.hypothesis);
--    const auto nipts =
--        checkRotateFunctionInputs("rotateGradients", mg, gg, gsize);
+-    const auto nipts = checkRotateFunctionInputs("rotateGradients", "gradients",
+-                                                 mg, gg, gsize);
 -    checkRotationMatrix2D("rotateGradients", r, b, nipts);
 -    if (r.a.size() == 2u) {
 -      const auto m = buildRotationMatrix(r.a.data());
@@ -1503,7 +1504,7 @@ index 6a95239..2dfb2d0 100644
    }  // end of rotateGradients
  
    void rotateGradients(std::span<real> mg,
-@@ -799,106 +1078,113 @@ namespace mgis::behaviour {
+@@ -800,106 +1078,113 @@ namespace mgis::behaviour {
                         const std::span<const real> &gg,
                         const RotationMatrix3D &r,
                         const MemoryLocation l) {
@@ -1515,8 +1516,8 @@ index 6a95239..2dfb2d0 100644
 -    checkBatchRotationArraysLocation("rotateGradients", b, l);
 -    checkBehaviourRotateGradients(b);
 -    const auto gsize = getArraySize(b.gradients, b.hypothesis);
--    const auto nipts =
--        checkRotateFunctionInputs("rotateGradients", mg, gg, gsize);
+-    const auto nipts = checkRotateFunctionInputs("rotateGradients", "gradients",
+-                                                 mg, gg, gsize);
 -    checkRotationMatrix3D("rotateGradients", r, b, nipts);
 -    if ((r.a1.a.size() == 3u) && ((r.a2.a.size() == 3u))) {
 -      const auto m = buildRotationMatrix(r.a1.a.data(), r.a2.a.data());
@@ -1562,6 +1563,8 @@ index 6a95239..2dfb2d0 100644
 +  }  // end of rotateGradients
  
 -  void rotateThermodynamicForces(std::span<real> tf,
+-                                 const Behaviour &b,
+-                                 const RotationMatrix3D &r,
 +  void rotateGradients(const BatchExecutionPolicy &p,
 +                       std::span<real> mg,
 +                       const Behaviour &b,
@@ -1623,8 +1626,7 @@ index 6a95239..2dfb2d0 100644
 +  }  // end of rotateGradients
 +
 +  void rotateThermodynamicForces(std::span<real> tf,
-                                  const Behaviour &b,
--                                 const RotationMatrix3D &r,
++                                 const Behaviour &b,
 +                                 const std::span<const real> &r,
                                   const MemoryLocation l) {
      rotateThermodynamicForces(tf, b, tf, r, l);
@@ -1665,8 +1667,8 @@ index 6a95239..2dfb2d0 100644
 -    checkBatchRotationArraysLocation("rotateThermodynamicForces", b, l);
 -    checkBehaviourRotateThermodynamicForces(b);
 -    const auto tfsize = getArraySize(b.thermodynamic_forces, b.hypothesis);
--    const auto nipts = checkRotateFunctionInputs("rotateThermodynamicForces",
--                                                 mtf, gtf, tfsize);
+-    const auto nipts = checkRotateFunctionInputs(
+-        "rotateThermodynamicForces", "thermodynamic forces", mtf, gtf, tfsize);
 -    if (r.size() == 0) {
 -      mgis::raise(
 -          "rotateThermodynamicForces: "
@@ -1703,7 +1705,7 @@ index 6a95239..2dfb2d0 100644
    }  // end of rotateThermodynamicForces
  
    void rotateThermodynamicForces(std::span<real> gtf,
-@@ -906,29 +1192,9 @@ namespace mgis::behaviour {
+@@ -907,29 +1192,9 @@ namespace mgis::behaviour {
                                   const std::span<const real> &mtf,
                                   const RotationMatrix2D &r,
                                   const MemoryLocation l) {
@@ -1715,8 +1717,8 @@ index 6a95239..2dfb2d0 100644
 -    checkBatchRotationArraysLocation("rotateThermodynamicForces", b, l);
 -    checkBehaviourRotateThermodynamicForces(b);
 -    const auto tfsize = getArraySize(b.thermodynamic_forces, b.hypothesis);
--    const auto nipts = checkRotateFunctionInputs("rotateThermodynamicForces",
--                                                 gtf, mtf, tfsize);
+-    const auto nipts = checkRotateFunctionInputs(
+-        "rotateThermodynamicForces", "thermodynamic forces", gtf, mtf, tfsize);
 -    checkRotationMatrix2D("rotateThermodynamicForces", r, b, nipts);
 -    if (r.a.size() == 2u) {
 -      const auto m = buildRotationMatrix(r.a.data());
@@ -1736,7 +1738,7 @@ index 6a95239..2dfb2d0 100644
    }  // end of rotateThermodynamicForces
  
    void rotateThermodynamicForces(std::span<real> gtf,
-@@ -936,32 +1202,81 @@ namespace mgis::behaviour {
+@@ -937,32 +1202,81 @@ namespace mgis::behaviour {
                                   const std::span<const real> &mtf,
                                   const RotationMatrix3D &r,
                                   const MemoryLocation l) {
@@ -1748,8 +1750,8 @@ index 6a95239..2dfb2d0 100644
 -    checkBatchRotationArraysLocation("rotateThermodynamicForces", b, l);
 -    checkBehaviourRotateThermodynamicForces(b);
 -    const auto tfsize = getArraySize(b.thermodynamic_forces, b.hypothesis);
--    const auto nipts = checkRotateFunctionInputs("rotateThermodynamicForces",
--                                                 gtf, mtf, tfsize);
+-    const auto nipts = checkRotateFunctionInputs(
+-        "rotateThermodynamicForces", "thermodynamic forces", gtf, mtf, tfsize);
 -    checkRotationMatrix3D("rotateThermodynamicForces", r, b, nipts);
 -    if ((r.a1.a.size() == 3u) && ((r.a2.a.size() == 3u))) {
 -      const auto m = buildRotationMatrix(r.a1.a.data(), r.a2.a.data());
@@ -1844,7 +1846,7 @@ index 6a95239..2dfb2d0 100644
    }  // end of rotateThermodynamicForces
  
    void rotateTangentOperatorBlocks(std::span<real> K,
-@@ -985,61 +1300,15 @@ namespace mgis::behaviour {
+@@ -986,62 +1300,15 @@ namespace mgis::behaviour {
      rotateTangentOperatorBlocks(K, b, K, r, l);
    }  // end of rotateTangentOperatorBlocks
  
@@ -1853,7 +1855,7 @@ index 6a95239..2dfb2d0 100644
 -        (b.rotate_array_of_tangent_operator_blocks_ptr == nullptr)) {
 -      mgis::raise(
 -          "rotateTangentOperatorBlocks: no function performing the rotation of "
--          "the thermodynamic forces defined");
+-          "the tangent operator blocks defined");
 -    }
 -  }  // end of checkBehaviourRotateTangentOperatorBlocks
 -
@@ -1871,7 +1873,8 @@ index 6a95239..2dfb2d0 100644
 -    checkBehaviourRotateTangentOperatorBlocks(b);
 -    const auto Ksize = getTangentOperatorArraySize(b);
 -    const auto nipts =
--        checkRotateFunctionInputs("rotateTangentOperatorBlocks", mK, gK, Ksize);
+-        checkRotateFunctionInputs("rotateTangentOperatorBlocks",
+-                                  "tangent operator blocks", mK, gK, Ksize);
 -    if (r.size() == 0) {
 -      mgis::raise(
 -          "rotateTangentOperatorBlocks: "
@@ -1910,7 +1913,7 @@ index 6a95239..2dfb2d0 100644
    }  // end of rotateTangentOperatorBlocks
  
    void rotateTangentOperatorBlocks(std::span<real> gK,
-@@ -1047,29 +1316,9 @@ namespace mgis::behaviour {
+@@ -1049,30 +1316,9 @@ namespace mgis::behaviour {
                                     const std::span<const real> &mK,
                                     const RotationMatrix2D &r,
                                     const MemoryLocation l) {
@@ -1923,7 +1926,8 @@ index 6a95239..2dfb2d0 100644
 -    checkBehaviourRotateTangentOperatorBlocks(b);
 -    const auto Ksize = getTangentOperatorArraySize(b);
 -    const auto nipts =
--        checkRotateFunctionInputs("rotateTangentOperatorBlocks", gK, mK, Ksize);
+-        checkRotateFunctionInputs("rotateTangentOperatorBlocks",
+-                                  "tangent operator blocks", gK, mK, Ksize);
 -    checkRotationMatrix2D("rotateTangentOperatorBlocks", r, b, nipts);
 -    if (r.a.size() == 2u) {
 -      const auto m = buildRotationMatrix(r.a.data());
@@ -1943,7 +1947,7 @@ index 6a95239..2dfb2d0 100644
    }  // end of rotateTangentOperatorBlocks
  
    void rotateTangentOperatorBlocks(std::span<real> gK,
-@@ -1077,236 +1326,558 @@ namespace mgis::behaviour {
+@@ -1080,237 +1326,558 @@ namespace mgis::behaviour {
                                     const std::span<const real> &mK,
                                     const RotationMatrix3D &r,
                                     const MemoryLocation l) {
@@ -1956,7 +1960,8 @@ index 6a95239..2dfb2d0 100644
 -    checkBehaviourRotateTangentOperatorBlocks(b);
 -    const auto Ksize = getTangentOperatorArraySize(b);
 -    const auto nipts =
--        checkRotateFunctionInputs("rotateTangentOperatorBlocks", gK, mK, Ksize);
+-        checkRotateFunctionInputs("rotateTangentOperatorBlocks",
+-                                  "tangent operator blocks", gK, mK, Ksize);
 -    checkRotationMatrix3D("rotateTangentOperatorBlocks", r, b, nipts);
 -    if ((r.a1.a.size() == 3u) && ((r.a2.a.size() == 3u))) {
 -      const auto m = buildRotationMatrix(r.a1.a.data(), r.a2.a.data());
@@ -1976,8 +1981,8 @@ index 6a95239..2dfb2d0 100644
 +    const auto f = getTangentOperatorBlocksRotationFunctions(b);
 +    const auto [d, s] = getRotationViews(f, gK, mK);
 +    rotate(f, b, d, s, r, l);
-+  }  // end of rotateTangentOperatorBlocks
-+
+   }  // end of rotateTangentOperatorBlocks
+ 
 +  void rotateTangentOperatorBlocks(const BatchExecutionPolicy &p,
 +                                   std::span<real> gK,
 +                                   const Behaviour &b,
@@ -2024,8 +2029,8 @@ index 6a95239..2dfb2d0 100644
 +    return rotateBatch(
 +        f, p, b, d, s,
 +        getRotationMatricesView(f.name, r, d.getNumberOfPoints()), l);
-   }  // end of rotateTangentOperatorBlocks
- 
++  }  // end of rotateTangentOperatorBlocks
++
 +  PendingBatchComputation rotateTangentOperatorBlocks(
 +      const AsynchronousBatchExecutionPolicy &p,
 +      std::span<real> gK,
@@ -3056,10 +3061,10 @@ index 0a1ab71..4d28a04 100644
  
  }  // end of namespace mgis::material_property
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 59b0866..e2d5b88 100644
+index b5ea5d7..99efa2b 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -280,10 +280,13 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -279,10 +279,13 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
        add_test(NAME FieldOperationsCUDATest
          COMMAND FieldOperationsCUDATest
          "$<TARGET_FILE:GenericParallelBehaviourTestCUDA>"

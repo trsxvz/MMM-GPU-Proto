@@ -1,4 +1,4 @@
-From 2aa5c79a1af2df62d0c690129b0f7fbdc0e16fe7 Mon Sep 17 00:00:00 2001
+From 48272555b5b7b5f3594df6f07ef998e10bcd21c7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:01:32 +0200
 Subject: [PATCH] Finite strain behaviours: option to give the displacement
@@ -30,7 +30,7 @@ supports the option.
  .../FiniteStrainBehaviourOptions.hxx          |  18 +
  include/MGIS/LibrariesManager.hxx             |   9 +
  src/Behaviour.cxx                             |  28 +
- src/FiniteStrainSupport.cxx                   |  87 ++-
+ src/FiniteStrainSupport.cxx                   | 108 +++-
  src/LibrariesManager.cxx                      |  10 +
  src/MaterialStateManager.cxx                  |   5 +-
  src/State.cxx                                 |   5 +-
@@ -39,18 +39,18 @@ supports the option.
  tests/GreenLagrangeElasticity.mfront          |  67 +++
  tests/HenckyElasticity.mfront                 |  67 +++
  tests/SaintVenantKirchhoffElasticity.mfront   |  38 ++
- 15 files changed, 957 insertions(+), 17 deletions(-)
+ 15 files changed, 974 insertions(+), 21 deletions(-)
  create mode 100644 tests/DisplacementGradientTest.cxx
  create mode 100644 tests/GreenLagrangeElasticity.mfront
  create mode 100644 tests/HenckyElasticity.mfront
  create mode 100644 tests/SaintVenantKirchhoffElasticity.mfront
 
 diff --git a/docs/web/bindings-cxx.md b/docs/web/bindings-cxx.md
-index 793c9dd..45da285 100644
+index de7c069..40c2a45 100644
 --- a/docs/web/bindings-cxx.md
 +++ b/docs/web/bindings-cxx.md
 @@ -166,6 +166,33 @@ o.tangent_operator = FiniteStrainBehaviourOptions::DPK1_DF;
- const auto b = load(o, 'src/libBehaviour.so', 'Norton', h);
+ const auto b = load(o, "src/libBehaviour.so", "Plasticity", h);
  ~~~~
  
 +The `gradient` option selects the gradient given to the behaviour:
@@ -84,13 +84,13 @@ index 793c9dd..45da285 100644
  
  The `Behaviour` object contains all the metadata required to interact
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index b33d792..86cc8eb 100644
+index bf41474..4d8d8f9 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
-@@ -195,6 +195,12 @@ namespace mgis::behaviour {
-      *   is returned
-      * - if 1.5<options[1]<2.5, the derivative of the first Piola-Kirchoff
-      *   stress with respect to the deformation gradient is returned
+@@ -198,6 +198,12 @@ namespace mgis::behaviour {
+      * - if 2.5<options[1]<3.5, the derivative of the Kirchhoff stress with
+      *   respect to the spatial increment of the deformation gradient is
+      *   returned
 +     *
 +     * When the gradients are the displacement gradient \f(H = F - I\f)
 +     * (see `FiniteStrainBehaviourOptions::gradient`), options[0] is offset
@@ -100,7 +100,7 @@ index b33d792..86cc8eb 100644
       */
      std::vector<mgis::real> options;
    };  // end of struct Behaviour
-@@ -277,6 +283,14 @@ namespace mgis::behaviour {
+@@ -286,6 +292,14 @@ namespace mgis::behaviour {
                               const std::string &,
                               const std::string &,
                               const Hypothesis);
@@ -116,7 +116,7 @@ index b33d792..86cc8eb 100644
     * \brief options passed to the `loadFromDatabase` function
     */
 diff --git a/include/MGIS/Behaviour/BehaviourDataView.hxx b/include/MGIS/Behaviour/BehaviourDataView.hxx
-index 6ac254b..85f6db9 100644
+index 6167e42..98986a4 100644
 --- a/include/MGIS/Behaviour/BehaviourDataView.hxx
 +++ b/include/MGIS/Behaviour/BehaviourDataView.hxx
 @@ -88,6 +88,9 @@ struct mgis_bv_BehaviourDataView {
@@ -159,10 +159,10 @@ index bbbb222..2389bc6 100644
  
  }  // end of namespace mgis::behaviour
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index eb54e91..ab9d4f6 100644
+index 0a1dff5..d1a407f 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
-@@ -714,6 +714,15 @@ namespace mgis {
+@@ -715,6 +715,15 @@ namespace mgis {
      std::vector<int> getInternalStateVariablesTypes(const std::string &,
                                                      const std::string &,
                                                      const Hypothesis);
@@ -179,7 +179,7 @@ index eb54e91..ab9d4f6 100644
       * \return if the temperature has been removed for the external state
       * variables. This is the default behaviour of `MFront`
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 6a5e153..4d91009 100644
+index ffc48d8..8a009c9 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -198,6 +198,28 @@ namespace mgis::behaviour {
@@ -221,11 +221,11 @@ index 6a5e153..4d91009 100644
 +           (!b.options.empty()) && (b.options[0] > mgis::real{9.5});
 +  }  // end of usesDisplacementGradient
 +
-   std::optional<Behaviour> load(Context &ctx,
-                                 const std::string &l,
-                                 const std::string &f,
+   std::optional<Behaviour> load(Context& ctx,
+                                 const std::string& l,
+                                 const std::string& f,
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index 85ddebc..41fadd8 100644
+index cc689e9..fa7bfbb 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -14,6 +14,7 @@
@@ -236,7 +236,25 @@ index 85ddebc..41fadd8 100644
  #include "MGIS/Raise.hxx"
  #include "MGIS/MemoryLocation.hxx"
  #include "MGIS/Behaviour/Hypothesis.hxx"
-@@ -116,6 +117,54 @@ namespace mgis::behaviour {
+@@ -42,6 +43,17 @@ namespace mgis::behaviour {
+     }
+   }  // end of checkHostAccess
+ 
++  /*!
++   * \return the stress measure option of a finite strain behaviour
++   * (`options[0]`, see `Behaviour::options`), without the offset added when
++   * the gradients are the displacement gradient
++   * \param[in] b: behaviour, whose options must not be empty
++   */
++  static real getStressMeasureOption(const Behaviour& b) noexcept {
++    return usesDisplacementGradient(b) ? b.options[0] - real{10}
++                                       : b.options[0];
++  }  // end of getStressMeasureOption
++
+   void convertFiniteStrainStress_PK1_2D(real* const P,
+                                         const real* const F,
+                                         const real* const s) {
+@@ -116,6 +128,54 @@ namespace mgis::behaviour {
      return local.data();
    }  // end of getPointValues
  
@@ -291,7 +309,7 @@ index 85ddebc..41fadd8 100644
    /*!
     * \brief check a view used by the conversions of the finite strain
     * outputs
-@@ -203,14 +252,17 @@ namespace mgis::behaviour {
+@@ -203,14 +263,17 @@ namespace mgis::behaviour {
     * \brief compute the first Piola-Kirchhoff stress from the Cauchy stress
     * and the deformation gradient at the end of the time step
     * \param[out] P: first Piola-Kirchhoff stress
@@ -311,7 +329,7 @@ index 85ddebc..41fadd8 100644
      const auto tridimensional = h == Hypothesis::TRIDIMENSIONAL;
      const auto ss = getStensorSize(h);
      const auto ts = getTensorSize(h);
-@@ -226,7 +278,8 @@ namespace mgis::behaviour {
+@@ -226,7 +289,8 @@ namespace mgis::behaviour {
      auto ls = std::array<real, 6>{};
      auto lP = std::array<real, 9>{};
      for (size_type i = 0; i != n; ++i) {
@@ -321,7 +339,7 @@ index 85ddebc..41fadd8 100644
        const auto* const s_l = getPointValues(ls, s, i);
        auto* const P_l = P.hasContiguousComponents() ? &P(i, 0) : lP.data();
        if (tridimensional) {
-@@ -273,7 +326,7 @@ namespace mgis::behaviour {
+@@ -273,7 +337,7 @@ namespace mgis::behaviour {
            "convertFiniteStrainStress: "
            "unsupported hypothesis");
      }
@@ -330,7 +348,16 @@ index 85ddebc..41fadd8 100644
    }  // end of convertFiniteStrainStress
  
    void convertFiniteStrainStress(std::span<real>& s,
-@@ -325,7 +378,8 @@ namespace mgis::behaviour {
+@@ -294,7 +358,7 @@ namespace mgis::behaviour {
+     checkHostAccess("convertFiniteStrainStress", m);
+     // check the stress measure (see Behaviour::options)
+     if ((m.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+-        ((m.b.options.size() < 2) || (m.b.options[0] > 0.5))) {
++        ((m.b.options.size() < 2) || (getStressMeasureOption(m.b) > 0.5))) {
+       mgis::raise(
+           "convertFiniteStrainStress: "
+           "the behaviour must be loaded with the Cauchy stress as "
+@@ -333,7 +397,8 @@ namespace mgis::behaviour {
            "convertFiniteStrainStress: "
            "invalid array size");
      }
@@ -340,7 +367,7 @@ index 85ddebc..41fadd8 100644
                                       d.s1.thermodynamic_forces.data());
    }  // end of convertFiniteStrainStress_PK1_2D
  
-@@ -345,7 +399,8 @@ namespace mgis::behaviour {
+@@ -353,7 +418,8 @@ namespace mgis::behaviour {
            "convertFiniteStrainStress: "
            "invalid array size");
      }
@@ -350,7 +377,17 @@ index 85ddebc..41fadd8 100644
                                       d.s1.thermodynamic_forces.data());
    }  // end of convertFiniteStrainStress_PK1_3D
  
-@@ -839,16 +894,20 @@ namespace mgis::behaviour {
+@@ -362,7 +428,8 @@ namespace mgis::behaviour {
+                                  const FiniteStrainStress t) {
+     // check the stress measure (see Behaviour::options)
+     if ((d.s1.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+-        ((d.s1.b.options.size() < 2) || (d.s1.b.options[0] > 0.5))) {
++        ((d.s1.b.options.size() < 2) ||
++         (getStressMeasureOption(d.s1.b) > 0.5))) {
+       mgis::raise(
+           "convertFiniteStrainStress: "
+           "the behaviour must be loaded with the Cauchy stress as "
+@@ -855,16 +922,20 @@ namespace mgis::behaviour {
     * respect to the deformation gradient
     * \param[out] dP: derivative
     * \param[in] ds: tangent operator blocks computed by the behaviour
@@ -373,7 +410,7 @@ index 85ddebc..41fadd8 100644
      const auto tridimensional = h == Hypothesis::TRIDIMENSIONAL;
      const auto ss = getStensorSize(h);
      const auto ts = getTensorSize(h);
-@@ -864,7 +923,8 @@ namespace mgis::behaviour {
+@@ -880,7 +951,8 @@ namespace mgis::behaviour {
      auto ldP = std::array<real, 81>{};
      for (size_type i = 0; i != n; ++i) {
        const auto* const ds_l = getPointValues(lds, ds, i);
@@ -383,7 +420,7 @@ index 85ddebc..41fadd8 100644
        const auto* const s_l = getPointValues(ls, s, i);
        auto* const dP_l = dP.hasContiguousComponents() ? &dP(i, 0) : ldP.data();
        if (tridimensional) {
-@@ -914,7 +974,8 @@ namespace mgis::behaviour {
+@@ -930,7 +1002,8 @@ namespace mgis::behaviour {
            "convertFiniteStrainTangentOperator: "
            "unsupported hypothesis");
      }
@@ -393,7 +430,16 @@ index 85ddebc..41fadd8 100644
    }  // end of convertFiniteStrainTangentOperator
  
    void convertFiniteStrainTangentOperator(std::span<mgis::real>& K,
-@@ -973,8 +1034,9 @@ namespace mgis::behaviour {
+@@ -953,7 +1026,7 @@ namespace mgis::behaviour {
+     checkHostAccess("convertFiniteStrainTangentOperator", m);
+     // check the stress measure and tangent operator (see Behaviour::options)
+     if ((m.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+-        ((m.b.options.size() < 2) || (m.b.options[0] > 0.5) ||
++        ((m.b.options.size() < 2) || (getStressMeasureOption(m.b) > 0.5) ||
+          (m.b.options[1] > 0.5))) {
+       mgis::raise(
+           "convertFiniteStrainTangentOperator: "
+@@ -1004,8 +1077,9 @@ namespace mgis::behaviour {
            "convertFiniteStrainTangentOperator: "
            "invalid array size");
      }
@@ -404,7 +450,7 @@ index 85ddebc..41fadd8 100644
                                                d.s1.thermodynamic_forces.data());
    }  // end of convertFiniteStrainTangentOperator_PK1_2D
  
-@@ -996,8 +1058,9 @@ namespace mgis::behaviour {
+@@ -1027,8 +1101,9 @@ namespace mgis::behaviour {
            "convertFiniteStrainTangentOperator: "
            "invalid array size");
      }
@@ -415,8 +461,18 @@ index 85ddebc..41fadd8 100644
                                                d.s1.thermodynamic_forces.data());
    }  // end of convertFiniteStrainTangentOperator_PK1_3D
  
+@@ -1037,7 +1112,8 @@ namespace mgis::behaviour {
+                                           const FiniteStrainTangentOperator t) {
+     // check the stress measure and tangent operator (see Behaviour::options)
+     if ((d.s1.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+-        ((d.s1.b.options.size() < 2) || (d.s1.b.options[0] > 0.5) ||
++        ((d.s1.b.options.size() < 2) ||
++         (getStressMeasureOption(d.s1.b) > 0.5) ||
+          (d.s1.b.options[1] > 0.5))) {
+       mgis::raise(
+           "convertFiniteStrainTangentOperator: "
 diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
-index 6ffc90e..d4d80f8 100644
+index d02f412..6eb34e3 100644
 --- a/src/LibrariesManager.cxx
 +++ b/src/LibrariesManager.cxx
 @@ -1119,6 +1119,16 @@ namespace mgis {
@@ -437,10 +493,10 @@ index 6ffc90e..d4d80f8 100644
        const std::string &l, const std::string &b) {
      const auto s = b + "_TemperatureRemovedFromExternalStateVariables";
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 665cea7..f952ddb 100644
+index af7093b..f6cab1e 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -40,12 +40,13 @@ namespace mgis::behaviour {
+@@ -42,12 +42,13 @@ namespace mgis::behaviour {
    /*!
     * \brief set the deformation gradient to the identity at all the points,
     * for the finite strain behaviours whose gradient is the deformation
@@ -457,10 +513,10 @@ index 665cea7..f952ddb 100644
      }
      const auto F = getGradientsView(s);
 diff --git a/src/State.cxx b/src/State.cxx
-index d4e8991..0905de4 100644
+index f6081be..5814f55 100644
 --- a/src/State.cxx
 +++ b/src/State.cxx
-@@ -65,8 +65,11 @@ namespace mgis::behaviour {
+@@ -67,8 +67,11 @@ namespace mgis::behaviour {
      };
      constexpr const auto zero = real{0};
      init(this->gradients, this->b.gradients);
@@ -474,13 +530,13 @@ index d4e8991..0905de4 100644
      }
      init(this->thermodynamic_forces, this->b.thermodynamic_forces);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index a53b01e..dd57aab 100644
+index 06992e1..6ea981c 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -137,7 +137,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
-     PostProcessingTest
-     FiniteStrainPostProcessingTest
+@@ -136,7 +136,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      ComputeSpeedOfSound
+     DerivativeTypeVariableTest
+     TimeStepScalingFactorTest
 -    EnergyTest)
 +    EnergyTest
 +    SaintVenantKirchhoffElasticity
@@ -489,7 +545,7 @@ index a53b01e..dd57aab 100644
  
    mfront_behaviours_check_library(ModelTest ode_rk54)
  
-@@ -202,7 +205,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -201,7 +204,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
        TensorialExternalStateVariableTest
        ComputeSpeedOfSound
        EnergyTest
@@ -501,7 +557,7 @@ index a53b01e..dd57aab 100644
      add_executable(GenericParallelLoadTest EXCLUDE_FROM_ALL
        GenericParallelLoadTest.cxx)
      target_link_libraries(GenericParallelLoadTest PRIVATE MFrontGenericInterface)
-@@ -357,6 +363,31 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -356,6 +362,31 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      endif(enable-generic-parallel-cuda-tests)
    endif(EXISTS "${TFEL_INCLUDE_PATH}/MFront/GenericParallelBehaviour/BatchData.h")
  

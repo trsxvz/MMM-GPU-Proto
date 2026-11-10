@@ -1,4 +1,4 @@
-From 7ce9e3edfae07ee8049f563dadfac28cd9ec8017 Mon Sep 17 00:00:00 2001
+From fdc326eb54e9f431644949252a9ea72d631b4b55 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:10:49 +0200
 Subject: [PATCH] docs: incompatibilities introduced by the support of device
@@ -9,12 +9,12 @@ Subject: [PATCH] docs: incompatibilities introduced by the support of device
  1 file changed, 20 insertions(+)
 
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 4e002cd86..0db2482f2 100644
+index cce789122..540240cfa 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
-@@ -49,6 +49,26 @@ library, see below.
- 
- - `MFront`' interfaces have to implement a method named `setOptions`.
+@@ -160,6 +160,26 @@ library, see below.
+   correction affects their results: setting it to `false` restores the
+   previous derivatives.
  
 +The support of device code by `TFEL` and `MFront` (see the
 +`generic-parallel` interface for behaviours) leads to the following

@@ -1,4 +1,4 @@
-From 08bdbf856209c72209b1d9b78df2bf6d5bdcded4 Mon Sep 17 00:00:00 2001
+From aa75f2d6e8bdf8cc44d8ab55c4879492d68c2327 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 06:40:06 +0200
 Subject: [PATCH] generic-parallel: material properties using data or other
@@ -27,10 +27,10 @@ Subject: [PATCH] generic-parallel: material properties using data or other
  5 files changed, 33 insertions(+), 6 deletions(-)
 
 diff --git a/mfront/include/MFront/CodeGeneratorUtilities.hxx b/mfront/include/MFront/CodeGeneratorUtilities.hxx
-index 86ba441dd..3beccfad4 100644
+index 561fca687..2f5299823 100644
 --- a/mfront/include/MFront/CodeGeneratorUtilities.hxx
 +++ b/mfront/include/MFront/CodeGeneratorUtilities.hxx
-@@ -232,8 +232,23 @@ namespace mfront {
+@@ -231,8 +231,23 @@ namespace mfront {
    MFRONT_VISIBILITY_EXPORT void writeMaterialKnowledgeTypeSymbol(
        std::ostream&, const std::string_view, const MaterialKnowledgeType&);
  
@@ -78,10 +78,10 @@ index a91404869..ef7989226 100644
     * \brief an helper function which writes the declaration of some `TFEL`
     * standard scalar alias. The `tfel::config::ScalarTypes` class for details.
 diff --git a/mfront/src/CodeGeneratorUtilities.cxx b/mfront/src/CodeGeneratorUtilities.cxx
-index 785af81ab..2b0974f74 100644
+index de7bd78ab..dc6df03d8 100644
 --- a/mfront/src/CodeGeneratorUtilities.cxx
 +++ b/mfront/src/CodeGeneratorUtilities.cxx
-@@ -443,12 +443,19 @@ namespace mfront {
+@@ -458,12 +458,19 @@ namespace mfront {
    }  // end of writeMaterialKnowledgeTypeSymbol
  
    void writeMaterialLaws(std::ostream& os,

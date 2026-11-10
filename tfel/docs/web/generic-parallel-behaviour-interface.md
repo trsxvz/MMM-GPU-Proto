@@ -146,9 +146,10 @@ objects of each variable by `change_basis`.
 
 The library also exports the same symbols as the `generic` interface
 (names and types of the variables, parameters, etc.) and the functions
-changing the parameters and the out of bounds policy. The standalone
-models use their default out of bounds policy: no function changing it is
-generated for them. The `<name>_mfront_interface` symbol is equal to
+changing the parameters and the out of bounds policy, for the behaviours
+and for the standalone models, as the `generic` interface. The out of
+bounds policy is read on the host and given to the computations at each
+point. The `<name>_mfront_interface` symbol is equal to
 `GenericParallel`, for the behaviours and for the standalone models, so
 that a library of this interface can't be taken for a library of the
 `generic` interface. The `<name>_generic_parallel_backend` symbol gives the

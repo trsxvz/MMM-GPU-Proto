@@ -1,4 +1,4 @@
-From 21fa465b2d0395e7e9adf19af9a637306ecab30a Mon Sep 17 00:00:00 2001
+From 081e0c8cf1f4d28a1ee6717166e0f42e0d6bed86 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 19:38:21 +0200
 Subject: [PATCH] generic-parallel interfaces: shared SYCL copies and stack
@@ -327,10 +327,10 @@ index a759e65d7..97dd9afe8 100644
  ### Options
  
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 278f62336..ff1d1ef62 100644
+index 0e8089284..9c418ce8a 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
-@@ -749,8 +749,13 @@ details](generic-parallel-material-property-interface.html).
+@@ -976,8 +976,13 @@ details](generic-parallel-material-property-interface.html).
    of points where the evaluation failed, the first of them, and the number
    of points where a bound is violated with the warning policy. The
    kernels only update the statistics of the evaluation when an event
@@ -346,7 +346,7 @@ index 278f62336..ff1d1ef62 100644
  - the evaluation may be asynchronous: the statistics
    (`mfront_gpmp_Statistics`) are then analysed by the exported
    `<name>_generic_parallel_report` function.
-@@ -760,6 +765,11 @@ details](generic-parallel-material-property-interface.html).
+@@ -987,6 +992,11 @@ details](generic-parallel-material-property-interface.html).
  - a bound violated with the warning policy gives the status `1`, as with
    the `generic` interface.
  - the `stlpar` and `sycl` backends have a new `device_stack_size` option.
@@ -358,7 +358,7 @@ index 278f62336..ff1d1ef62 100644
  - the default number of threads per block of the `cuda` and `hip`
    backends is `128`, rounded up to a multiple of the warp size, as for the
    behaviours.
-@@ -785,7 +795,8 @@ the points are described by fields, which support several layouts (point
+@@ -1012,7 +1022,8 @@ the points are described by fields, which support several layouts (point
  by point, component by component, uniform values), and the material
  properties and the external state variables can be given variable by
  variable. The computations may be asynchronous: the statistics of the
@@ -369,10 +369,10 @@ index 278f62336..ff1d1ef62 100644
  and `<name>_generic_parallel_api_version` symbols. The configuration files
  are shared with the `generic-parallel` interface for material properties.
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index a496a1e14..f03077e50 100644
+index b74beae85..4fb947538 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -133,7 +133,10 @@ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
+@@ -138,7 +138,10 @@ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
  install_mfront_header(MFront BehaviourRotationFunctions.hxx)
  install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
  install_mfront_header(MFront/GenericParallel DeviceStackSize.hxx)

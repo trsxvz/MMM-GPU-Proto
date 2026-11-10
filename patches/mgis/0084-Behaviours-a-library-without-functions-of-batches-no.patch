@@ -1,4 +1,4 @@
-From a49d65d49c17d4351e1d83364929502b0a521147 Mon Sep 17 00:00:00 2001
+From f9efcd9aace1cbcac8d419dff0460040160219ac Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 04:10:01 +0200
 Subject: [PATCH] Behaviours: a library without functions of batches nor
@@ -12,7 +12,7 @@ generic-parallel interface older than version 3 (no
  1 file changed, 18 insertions(+)
 
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 4a71274..c36231c 100644
+index af54d43..93f154f 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -85,6 +85,24 @@ namespace mgis::behaviour {

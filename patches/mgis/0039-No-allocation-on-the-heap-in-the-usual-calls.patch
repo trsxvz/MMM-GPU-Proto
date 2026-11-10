@@ -1,4 +1,4 @@
-From b167ad0218907c8e9aca80fa3cb7567f97c529cb Mon Sep 17 00:00:00 2001
+From b6a7f0c380ae1ccf94fb37e96c3e6b71ceb73458 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:15:53 +0200
 Subject: [PATCH] No allocation on the heap in the usual calls
@@ -23,10 +23,10 @@ Subject: [PATCH] No allocation on the heap in the usual calls
  create mode 100644 tests/AllocationTest.cxx
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index a5acfd5..9b8edd5 100644
+index 800e3bd..e7ef9a2 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
-@@ -117,6 +117,28 @@ namespace mgis::behaviour::internals {
+@@ -124,6 +124,28 @@ namespace mgis::behaviour::internals {
      }
    }  // end of checkIntegrationPointsRange
  
@@ -55,7 +55,7 @@ index a5acfd5..9b8edd5 100644
    /*!
     * \brief check a view on the values of a group of variables
     * \param[in] f: name of the calling function
-@@ -128,7 +150,7 @@ namespace mgis::behaviour::internals {
+@@ -135,7 +157,7 @@ namespace mgis::behaviour::internals {
     */
    template <typename ValueType>
    static void checkFieldView(const std::string_view f,
@@ -64,7 +64,7 @@ index a5acfd5..9b8edd5 100644
                               const FieldView<ValueType>& v,
                               const size_type n,
                               const size_type nc,
-@@ -137,22 +159,20 @@ namespace mgis::behaviour::internals {
+@@ -144,22 +166,20 @@ namespace mgis::behaviour::internals {
        return;
      }
      if (v.empty()) {
@@ -93,7 +93,7 @@ index a5acfd5..9b8edd5 100644
                    " overlap (an output can't be uniform, and its strides "
                    "must give distinct values for each point and component)");
      }
-@@ -162,7 +182,10 @@ namespace mgis::behaviour::internals {
+@@ -169,7 +189,10 @@ namespace mgis::behaviour::internals {
     * \brief check the views of the material properties or of the external
     * state variables of a state
     * \param[in] f: name of the calling function
@@ -105,7 +105,7 @@ index a5acfd5..9b8edd5 100644
     * \param[in] values: views
     * \param[in] variables: variables
     * \param[in] h: modelling hypothesis
-@@ -171,19 +194,20 @@ namespace mgis::behaviour::internals {
+@@ -178,19 +201,20 @@ namespace mgis::behaviour::internals {
    static void checkVariablesViews(
        const std::string_view f,
        const std::string_view d,
@@ -129,7 +129,7 @@ index a5acfd5..9b8edd5 100644
      }
    }  // end of checkVariablesViews
  
-@@ -212,29 +236,30 @@ namespace mgis::behaviour::internals {
+@@ -219,29 +243,30 @@ namespace mgis::behaviour::internals {
      }
      const auto& b = *(v.b);
      const auto h = b.hypothesis;
@@ -174,7 +174,7 @@ index a5acfd5..9b8edd5 100644
    }  // end of checkMaterialStateView
  
    /*!
-@@ -287,18 +312,23 @@ namespace mgis::behaviour::internals {
+@@ -294,18 +319,23 @@ namespace mgis::behaviour::internals {
                                        const MaterialDataView& v,
                                        const BehaviourIntegrationOptions& opts) {
      if (isTangentOperatorRequested(*(v.b), opts)) {
@@ -202,7 +202,7 @@ index a5acfd5..9b8edd5 100644
                         v.s1.mass_density, v.n, 1, false);
        }
      }
-@@ -1375,8 +1405,8 @@ namespace mgis::behaviour {
+@@ -1382,8 +1412,8 @@ namespace mgis::behaviour {
      }
      internals::checkFieldView(
          "executeInitializeFunction",
@@ -213,7 +213,7 @@ index a5acfd5..9b8edd5 100644
    }  // end of checkInitializeFunctionInputs
  
    /*!
-@@ -1431,8 +1461,8 @@ namespace mgis::behaviour {
+@@ -1438,8 +1468,8 @@ namespace mgis::behaviour {
                                           const std::string_view n) {
      internals::checkFieldView(
          "executePostProcessing",
@@ -225,10 +225,10 @@ index a5acfd5..9b8edd5 100644
  
    /*!
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 867b483..70de7cc 100644
+index a403f8d..495a837 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -568,8 +568,11 @@ namespace mgis::behaviour {
+@@ -670,8 +670,11 @@ namespace mgis::behaviour {
     * the values of another one
     */
    struct ValuesUpdate {
@@ -242,7 +242,7 @@ index 867b483..70de7cc 100644
      //! \brief operations used to copy the arrays given by the calling code
      FieldOperations& ops;
      /*!
-@@ -771,10 +774,18 @@ namespace mgis::behaviour {
+@@ -907,10 +910,18 @@ namespace mgis::behaviour {
      return makeFieldView(e, FieldLayout::POINT_BY_POINT, n, 1);
    }  // end of getEnergiesView
  
@@ -265,7 +265,7 @@ index 867b483..70de7cc 100644
      if (o.layout != i.layout) {
        return ctx.registerErrorMessage(
            "updateValues: the arrays of the material state managers have "
-@@ -888,13 +899,24 @@ namespace mgis::behaviour {
+@@ -1023,13 +1034,24 @@ namespace mgis::behaviour {
        o.mass_density.reset();
      }
      return true;
@@ -292,7 +292,7 @@ index 867b483..70de7cc 100644
    }  // end of updateValues
  
    bool updateValues(Context& ctx,
-@@ -910,8 +932,12 @@ namespace mgis::behaviour {
+@@ -1045,8 +1067,12 @@ namespace mgis::behaviour {
    }  // end of updateValues
  
    void updateValues(MaterialStateManager& o, const MaterialStateManager& i) {
@@ -508,10 +508,10 @@ index 0000000..215779c
 +  return success ? EXIT_SUCCESS : EXIT_FAILURE;
 +}
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index c784804..c34114a 100644
+index 17e9d07..f0884d6 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -215,6 +215,21 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -214,6 +214,21 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
        PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest)
      set_test_environment(MaterialDataManagerLayoutTest)
  

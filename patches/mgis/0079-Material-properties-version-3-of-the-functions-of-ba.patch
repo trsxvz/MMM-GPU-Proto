@@ -1,4 +1,4 @@
-From 4886bddbe77e0f1dc089785c761f5ed46284a2d5 Mon Sep 17 00:00:00 2001
+From d4187f1a66be36c22fb681a6595c70b729def422 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 23:45:14 +0200
 Subject: [PATCH] Material properties: version 3 of the functions of batches of
@@ -120,7 +120,7 @@ index e5b976c..6018c0a 100644
  return the statuses `-2` (exception) and `-3` (error of the `C` library).
  
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 237f1c9..1926d95 100644
+index 1ff141d..a9703ce 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -143,6 +143,15 @@ namespace mgis {
@@ -177,7 +177,7 @@ index 237f1c9..1926d95 100644
      getBatchMaterialPropertyReportFunction(const std::string &,
                                             const std::string &);
      /*!
-@@ -1048,6 +1063,17 @@ namespace mgis {
+@@ -1049,6 +1064,17 @@ namespace mgis {
      const T *extract(const std::string &,
                       const std::string &,
                       const std::string &);
@@ -633,7 +633,7 @@ index 78615cb..a6fbcb3 100644
  
  }  // end of namespace mgis::material_property
 diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
-index d4d80f8..246698b 100644
+index 6eb34e3..89f8b38 100644
 --- a/src/LibrariesManager.cxx
 +++ b/src/LibrariesManager.cxx
 @@ -245,8 +245,15 @@ namespace mgis {
@@ -910,10 +910,10 @@ index 6a016f9..640b79c 100644
      alignas(std::max_align_t) std::array<std::byte, 2048> storage;
      std::pmr::monotonic_buffer_resource resource{storage.data(),
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 4e131a5..2455de6 100644
+index 05b338a..cebea41 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -325,6 +325,12 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -324,6 +324,12 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
        Inconel600_YoungModulus
        MaterialPropertyBoundCheck
        MaterialPropertyInvalidResult)
@@ -926,7 +926,7 @@ index 4e131a5..2455de6 100644
      add_executable(GenericParallelEvaluateTest EXCLUDE_FROM_ALL
        GenericParallelEvaluateTest.cxx)
      target_link_libraries(GenericParallelEvaluateTest
-@@ -332,10 +338,12 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -331,10 +337,12 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      add_test(NAME GenericParallelEvaluateTest
        COMMAND GenericParallelEvaluateTest
        "$<TARGET_FILE:GenericParallelMaterialPropertyTest>"

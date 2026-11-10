@@ -219,6 +219,7 @@ described in [docs/](docs/overview.md).
 | [2026-11-09, arcane backend with SYCL](#2026-11-09-arcane-backend-with-sycl) |
 | [2026-11-09, ArcaneFEM with the arcane backend in SYCL](#2026-11-09-arcanefem-with-the-arcane-backend-in-sycl) |
 | [2026-11-09, material properties on the primitives of the backends](#2026-11-09-material-properties-on-the-primitives-of-the-backends) |
+| [2026-11-09, TFEL onto master 60a42dd12, MGIS onto master b1afeb3](#2026-11-09-tfel-onto-master-60a42dd12-mgis-onto-master-b1afeb3) |
 
 ## Entries
 
@@ -6446,3 +6447,39 @@ Validation on the workstation, with the TFEL of `install/tfel-mmm-gpu`:
   configuration files; complete tests of `cuda-clang`, `stlpar-parunseq-gcc`
   and `sycl-default-acpp` pass (comparisons with the `generic` interface
   and TDLS).
+
+### 2026-11-09, TFEL onto master 60a42dd12, MGIS onto master b1afeb3
+
+- TFEL onto master `60a42dd12` (573 commits since `9b810aa15`, merges of
+  the corrections of the reviews of TFEL 5.2): 138 patches, one dropped
+  (already upstream). Upstream code adapted to the prototype: the code
+  generator of `MultipleIsotropicMisesFlows` raised an exception in device
+  code (now `return false` on the device, `tfel::raise` on the host,
+  folded into the patch making the generated code compatible with device
+  code); the generic-parallel models built with `generic_functions` export
+  the out of bounds policy of the library, as the generic models.
+- MGIS onto master `b1afeb3` (358 commits since `a30dbf5`, merges of the
+  corrections of the reviews of MGIS 3.2): 94 patches, four new ones
+  aligning the prototype on master (time step scaling factor of the
+  manager for the integrations of a material data view, `MGIS_NOEXCEPT`,
+  same checks in the finite strain conversions of the views, tolerances
+  of the tests of the review in float). `setMassDensity` follows the rule
+  of `setMaterialProperty` for the scalars (folded into its patch).
+- mfem-mgis, mm-opera-hpc and the examples: their masters did not move.
+- Defects found by the validation and fixed: with a build directory
+  configured before `enable-sanitize-options` became a list (or with
+  `-Denable-sanitize-options=OFF`), the false value was taken for the name
+  of a sanitizer (TFEL, new patch); `std::clamp` in the stress criterion of
+  Gurson-Tvergaard-Needleman, not available in the device code of the
+  `arcane` backend, replaced by `std::min`/`std::max` (folded).
+- Validation: 7831 tests of TFEL, 64 tests of MGIS in double and 60 in
+  float, 372 of mfem-mgis, 25 of the examples, 9 of mm-opera-hpc and 143
+  cases, all green; GPU suite of mfem-mgis with the kernels forced: 262 of
+  264, the two tests requiring the absence of a device failing as
+  expected. `-O3` matrix
+  (`results/generic-parallel-tests-2026-11-09-rebase-O3.txt`, still
+  running at the time of this entry): `arcane`, `cuda-clang`,
+  `cuda-nvcc`, `hip-clang-nvidia-platform`, `hip-hipcc`, `kokkos` and
+  `kokkos-host` green; `openacc-nvhpc-gpu` failed once on the TDLS
+  behaviours (runtime error, status `-7`) while test suites of mfem-mgis
+  were using the GPU, and passes alone (24 of 24 comparisons).

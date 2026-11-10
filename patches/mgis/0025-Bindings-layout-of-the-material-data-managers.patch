@@ -1,4 +1,4 @@
-From 41eaf3a02f9b352a4f3414698856d13ed1f7d115 Mon Sep 17 00:00:00 2001
+From 7a8126d34aa5552f369169308bd878d362e0dbb5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:07:59 +0200
 Subject: [PATCH] Bindings: layout of the material data managers
@@ -23,19 +23,19 @@ the three languages.
  bindings/fortran/src/mgis_behaviour.f90       |  82 +++++++++
  bindings/fortran/tests/CMakeLists.txt         |   1 +
  bindings/fortran/tests/LayoutTest-f.f90       |  62 +++++++
- .../include/MGIS/Python/NumPySupport.hxx      |  20 ++
- bindings/python/src/MaterialDataManager.cxx   |  15 ++
- bindings/python/src/MaterialStateManager.cxx  |  33 +---
- bindings/python/src/NumPySupport.cxx          |  19 ++
+ .../include/MGIS/Python/NumPySupport.hxx      |  24 +++
+ bindings/python/src/MaterialDataManager.cxx   |  14 ++
+ bindings/python/src/MaterialStateManager.cxx  |  35 +---
+ bindings/python/src/NumPySupport.cxx          |  21 +++
  bindings/python/tests/CMakeLists.txt          |   1 +
  bindings/python/tests/LayoutTest.py           |  56 ++++++
- 15 files changed, 521 insertions(+), 24 deletions(-)
+ 15 files changed, 526 insertions(+), 26 deletions(-)
  create mode 100644 bindings/c/tests/LayoutTest-c.c
  create mode 100644 bindings/fortran/tests/LayoutTest-f.f90
  create mode 100644 bindings/python/tests/LayoutTest.py
 
 diff --git a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
-index 59c88df..a26549f 100644
+index 3b4f12a..a0f624b 100644
 --- a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 +++ b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 @@ -66,6 +66,14 @@ mgis_status mgis_bv_material_data_manager_initializer_bind_tangent_operator(
@@ -51,10 +51,10 @@ index 59c88df..a26549f 100644
 +mgis_status mgis_bv_material_data_manager_initializer_set_layout(
 +    mgis_bv_MaterialDataManagerInitializer*, const mgis_bv_FieldLayout);
  /*!
-  * \brief set the state at the beginning of the time step
+  * \brief get the initializer of the state at the beginning of the time step
   * \param[out] s: pointer to a pointer to the state initializer
 diff --git a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
-index 86e83b8..b4d1569 100644
+index 44a582b..444546b 100644
 --- a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
 +++ b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
 @@ -52,6 +52,25 @@ typedef enum {
@@ -83,7 +83,7 @@ index 86e83b8..b4d1569 100644
  /*!
   * \brief bind the gradients to the given array
   * \param[in,out] s: initializer
-@@ -116,9 +135,18 @@ mgis_bv_material_state_manager_get_number_of_integration_points(
+@@ -123,9 +142,18 @@ mgis_bv_material_state_manager_get_number_of_integration_points(
   */
  MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_gradients(
      mgis_real**, mgis_bv_MaterialStateManager* const);
@@ -103,10 +103,10 @@ index 86e83b8..b4d1569 100644
  MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_gradients_stride(
      mgis_size_type* const, mgis_bv_MaterialStateManager* const);
 diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
-index bc861a6..b1852c7 100644
+index c89e7e9..1409399 100644
 --- a/bindings/c/src/MaterialDataManager.cxx
 +++ b/bindings/c/src/MaterialDataManager.cxx
-@@ -54,6 +54,24 @@ mgis_status mgis_bv_material_data_manager_initializer_bind_tangent_operator(
+@@ -55,6 +55,24 @@ mgis_status mgis_bv_material_data_manager_initializer_bind_tangent_operator(
    return mgis_report_success();
  }  // end of mgis_bv_material_data_manager_initializer_bind_tangent_operator
  
@@ -132,10 +132,10 @@ index bc861a6..b1852c7 100644
      mgis_bv_MaterialDataManagerInitializer* d,
      mgis_real* const p,
 diff --git a/bindings/c/src/MaterialStateManager.cxx b/bindings/c/src/MaterialStateManager.cxx
-index e2bade7..a629b2d 100644
+index 2984e93..3d0f0b1 100644
 --- a/bindings/c/src/MaterialStateManager.cxx
 +++ b/bindings/c/src/MaterialStateManager.cxx
-@@ -213,6 +213,18 @@ mgis_status mgis_bv_material_state_manager_get_internal_state_variables(
+@@ -222,6 +222,18 @@ mgis_status mgis_bv_material_state_manager_get_internal_state_variables(
    return mgis_report_success();
  }  // end of mgis_bv_material_state_manager_get_internal_state_variables
  
@@ -155,7 +155,7 @@ index e2bade7..a629b2d 100644
      mgis_size_type* const gs, mgis_bv_MaterialStateManager* const s) {
    if (s == nullptr) {
 diff --git a/bindings/c/tests/CMakeLists.txt b/bindings/c/tests/CMakeLists.txt
-index 46c8b5f..27b7e4b 100644
+index cb3f229..45740db 100644
 --- a/bindings/c/tests/CMakeLists.txt
 +++ b/bindings/c/tests/CMakeLists.txt
 @@ -61,6 +61,11 @@ add_executable(IntegrateTest-c
@@ -170,8 +170,8 @@ index 46c8b5f..27b7e4b 100644
  add_executable(IntegrateTest2-c
    EXCLUDE_FROM_ALL
    IntegrateTest2-c.c)
-@@ -248,6 +253,19 @@ else((CMAKE_HOST_WIN32) AND (NOT MSYS))
-     PROPERTY DEPENDS BehaviourTest)
+@@ -230,6 +235,19 @@ if((CMAKE_HOST_WIN32) AND (NOT MSYS))
+     PROPERTY ENVIRONMENT "PATH=$<TARGET_FILE_DIR:MFrontGenericInterface>\;$<TARGET_FILE_DIR:MFrontGenericInterface-c>\;${MGIS_PATH_STRING}")
  endif((CMAKE_HOST_WIN32) AND (NOT MSYS))
  
 +add_test(NAME LayoutTest-c
@@ -369,12 +369,12 @@ index 0000000..7b2d842
 +  return EXIT_SUCCESS;
 +}
 diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
-index dab70b7..b034788 100644
+index 17cee02..6908247 100644
 --- a/bindings/fortran/src/mgis_behaviour.f90
 +++ b/bindings/fortran/src/mgis_behaviour.f90
-@@ -42,6 +42,11 @@ module mgis_behaviour
-      enumerator :: UPDATE = 0
-      enumerator :: NOUPDATE = 1
+@@ -44,6 +44,11 @@ module mgis_behaviour
+      enumerator :: NOUPDATE = 0
+      enumerator :: UPDATE = 1
    end enum
 +  ! layout of the arrays of a material state manager
 +  enum, bind(C)
@@ -384,7 +384,7 @@ index dab70b7..b034788 100644
    enum, bind(C)
       enumerator :: PREDICTION_TANGENT_OPERATOR = -3
       enumerator :: PREDICTION_SECANT_OPERATOR = -2
-@@ -2737,6 +2742,28 @@ contains
+@@ -3584,6 +3589,28 @@ contains
      s = material_data_manager_initializer_bind_speed_of_sound_wrapper(d%ptr,p_ptr,nc)
    end function material_data_manager_initializer_bind_speed_of_sound
    !
@@ -413,9 +413,9 @@ index dab70b7..b034788 100644
    function free_material_data_manager_initializer(ptr) result(r)
      use, intrinsic :: iso_c_binding, only: c_associated
      use mgis
-@@ -3100,6 +3127,49 @@ contains
-     s = material_data_manager_get_state_1_wrapper(s1%ptr, d%ptr)
-   end function material_data_manager_get_state_1
+@@ -4023,6 +4050,49 @@ contains
+     r = material_state_manager_get_behaviour_wrapper(b%ptr, s%ptr)
+   end function material_state_manager_get_behaviour
    !
 +  function material_state_manager_get_layout(l, s) &
 +       result(r)
@@ -463,7 +463,7 @@ index dab70b7..b034788 100644
    function material_state_manager_get_number_of_integration_points(n, s) &
         result(r)
      use, intrinsic :: iso_c_binding, only: c_size_t
-@@ -3194,6 +3264,10 @@ contains
+@@ -4117,6 +4187,10 @@ contains
      if( r%exit_status .ne. MGIS_SUCCESS) then
         return
      end if
@@ -474,7 +474,7 @@ index dab70b7..b034788 100644
      call c_f_pointer(g_ptr, g, [gs, n])
    end function material_state_manager_get_gradients
    !
-@@ -3262,6 +3336,10 @@ contains
+@@ -4185,6 +4259,10 @@ contains
      if( r%exit_status .ne. MGIS_SUCCESS) then
         return
      end if
@@ -485,7 +485,7 @@ index dab70b7..b034788 100644
      call c_f_pointer(tf_ptr, tf, [tfs, n])
    end function material_state_manager_get_thermodynamic_forces
    !
-@@ -3501,6 +3579,10 @@ contains
+@@ -4602,6 +4680,10 @@ contains
      if( r%exit_status .ne. MGIS_SUCCESS) then
         return
      end if
@@ -497,17 +497,17 @@ index dab70b7..b034788 100644
    end function material_state_manager_get_internal_state_variables
    !
 diff --git a/bindings/fortran/tests/CMakeLists.txt b/bindings/fortran/tests/CMakeLists.txt
-index c5990cc..4d90116 100644
+index de29fba..05b8733 100644
 --- a/bindings/fortran/tests/CMakeLists.txt
 +++ b/bindings/fortran/tests/CMakeLists.txt
-@@ -59,6 +59,7 @@ test_fortran_bindings(StateTest2-f)
+@@ -45,6 +45,7 @@ test_fortran_bindings(StateTest2-f)
  test_fortran_bindings(IntegrateTest-f)
  test_fortran_bindings(IntegrateTest2-f)
  test_fortran_bindings(IntegrateTest3-f)
 +test_fortran_bindings(LayoutTest-f)
  test_fortran_bindings(IntegrateTest4-f)
  test_fortran_bindings(IntegrateTest5-f)
- test_fortran_bindings(ParameterTest-f)
+ test_fortran_bindings(UpdatePolicyTest-f)
 diff --git a/bindings/fortran/tests/LayoutTest-f.f90 b/bindings/fortran/tests/LayoutTest-f.f90
 new file mode 100644
 index 0000000..d4dff59
@@ -577,7 +577,7 @@ index 0000000..d4dff59
 +  end if
 +end program main
 diff --git a/bindings/python/include/MGIS/Python/NumPySupport.hxx b/bindings/python/include/MGIS/Python/NumPySupport.hxx
-index 7cd7b48..42d9820 100644
+index 8189c70..3430da5 100644
 --- a/bindings/python/include/MGIS/Python/NumPySupport.hxx
 +++ b/bindings/python/include/MGIS/Python/NumPySupport.hxx
 @@ -21,6 +21,7 @@
@@ -588,17 +588,19 @@ index 7cd7b48..42d9820 100644
  
  namespace mgis::python {
  
-@@ -111,6 +112,25 @@ namespace mgis::python {
- 
-   std::span<mgis::real> mgis_convert_to_span(const pybind11::array_t<double>&);
+@@ -136,6 +137,29 @@ namespace mgis::python {
+    */
+   std::span<mgis::real> mgis_convert_to_mutable_span(const pybind11::object&);
  
 +  /*!
 +   * \brief create a 2D-ndarray object (points, components) from a view,
 +   * with the strides of the view (point by point or component by
 +   * component). The ndarray does not own the data.
 +   * \param[in] v: view
++   * \param[in] base: object owning the values, kept alive by the ndarray
 +   */
-+  pybind11::array_t<double> wrapInNumPyArray(const FieldView<double>&);
++  pybind11::array_t<double> wrapInNumPyArray(const FieldView<double>&,
++                                             pybind11::handle);
 +  /*!
 +   * \brief create a 3D-ndarray object (points, rows, columns) from a view
 +   * whose components are the values of a matrix stored row by row, with the
@@ -606,22 +608,24 @@ index 7cd7b48..42d9820 100644
 +   * \param[in] v: view
 +   * \param[in] nr: number of rows
 +   * \param[in] nc: number of columns
++   * \param[in] base: object owning the values, kept alive by the ndarray
 +   */
 +  pybind11::array_t<double> wrapInNumPyArray(const FieldView<double>&,
 +                                             const mgis::size_type,
-+                                             const mgis::size_type);
++                                             const mgis::size_type,
++                                             pybind11::handle);
 +
  }  // end of namespace mgis::python
  
  #endif /* LIB_MGIS_PYTHON_NUMPYSUPPORT_HXX */
 diff --git a/bindings/python/src/MaterialDataManager.cxx b/bindings/python/src/MaterialDataManager.cxx
-index 95226d9..18486b2 100644
+index cd45b28..8fad71a 100644
 --- a/bindings/python/src/MaterialDataManager.cxx
 +++ b/bindings/python/src/MaterialDataManager.cxx
-@@ -43,6 +43,18 @@ static void MaterialDataManager_useExternalArrayOfSpeedOfSounds(
+@@ -44,6 +44,18 @@ static void MaterialDataManager_useExternalArrayOfSpeedOfSounds(
  
- static pybind11::object MaterialDataManager_getK(
-     mgis::behaviour::MaterialDataManager& d) {
+ static pybind11::object MaterialDataManager_getK(pybind11::object self) {
+   auto& d = self.cast<mgis::behaviour::MaterialDataManager&>();
 +  if (!d.K.empty()) {
 +    // the tangent operator blocks, in the layout of the manager
 +    const auto K = getTangentOperatorBlocksView(d);
@@ -630,38 +634,35 @@ index 95226d9..18486b2 100644
 +          getVariableSize(d.b.to_blocks.front().second, d.b.hypothesis);
 +      const auto nc =
 +          getVariableSize(d.b.to_blocks.front().first, d.b.hypothesis);
-+      return mgis::python::wrapInNumPyArray(K, nc, nl);
++      return mgis::python::wrapInNumPyArray(K, nc, nl, self);
 +    }
-+    return mgis::python::wrapInNumPyArray(K);
++    return mgis::python::wrapInNumPyArray(K, self);
 +  }
    if (d.b.to_blocks.size() == 1u) {
      const auto nl =
          getVariableSize(d.b.to_blocks.front().second, d.b.hypothesis);
-@@ -65,8 +77,10 @@ void declareMaterialDataManager(pybind11::module_& m) {
-   // exporting the MaterialDataManager class
-   pybind11::class_<MaterialDataManagerInitializer>(
-       m, "MaterialDataManagerInitializer")
-+      .def(pybind11::init<>())
-       .def_readonly("s0", &MaterialDataManagerInitializer::s0)
-       .def_readonly("s1", &MaterialDataManagerInitializer::s1)
+@@ -81,6 +93,7 @@ void declareMaterialDataManager(pybind11::module_& m) {
+                     "initializer of the state at the end of the time step "
+                     "(the arrays bound through it must be kept alive by the "
+                     "caller)")
 +      .def_readwrite("layout", &MaterialDataManagerInitializer::layout)
        .def("bindTangentOperator",
             &MaterialDataManagerInitializer_bindTangentOperator,
-            "use the given array to store the tangent operator blocks")
-@@ -101,6 +115,7 @@ void declareMaterialDataManager(pybind11::module_& m) {
-            "release the array of speed of sounds")
-       .def_readonly("n", &MaterialDataManager::n)
-       .def_readonly("number_of_integration_points", &MaterialDataManager::n)
+            "use the given array to store the tangent operator blocks",
+@@ -124,6 +137,7 @@ void declareMaterialDataManager(pybind11::module_& m) {
+       .def_readwrite("rdt", &MaterialDataManager::rdt,
+                      "maximal time step increase factor that the behaviour\n"
+                      "may propose")
 +      .def_readonly("layout", &MaterialDataManager::layout)
        .def_readonly("s0", &MaterialDataManager::s0)
        .def_readonly("s1", &MaterialDataManager::s1)
        .def_property_readonly("K", &MaterialDataManager_getK)
 diff --git a/bindings/python/src/MaterialStateManager.cxx b/bindings/python/src/MaterialStateManager.cxx
-index 6f7ec4f..6e3c244 100644
+index b0d3091..1ec0d21 100644
 --- a/bindings/python/src/MaterialStateManager.cxx
 +++ b/bindings/python/src/MaterialStateManager.cxx
-@@ -44,40 +44,19 @@ static void MaterialStateManagerInitializer_bindDissipatedEnergies(
-   i.dissipated_energies = mgis::python::mgis_convert_to_span(K);
+@@ -44,45 +44,22 @@ static void MaterialStateManagerInitializer_bindDissipatedEnergies(
+   i.dissipated_energies = mgis::python::mgis_convert_to_mutable_span(K);
  }  // end of MaterialStateManagerInitializer_bindDissipatedEnergies
  
 -/*!
@@ -669,45 +670,50 @@ index 6f7ec4f..6e3c244 100644
 - * \param[in] values: values
 - * \param[in] n: number of integration points
 - * \param[in] stride: number of values per integration point
+- * \param[in] base: object owning the values, kept alive by the ndarray
 - */
 -static pybind11::object MaterialStateManager_wrapPerIntegrationPointValues(
 -    std::span<mgis::real>& values,
 -    const mgis::size_type n,
--    const mgis::size_type stride) {
+-    const mgis::size_type stride,
+-    pybind11::handle base) {
 -  if (stride == 0) {
 -    // one empty row per integration point
 -    return pybind11::array_t<double>(
 -        std::vector<pybind11::ssize_t>{static_cast<pybind11::ssize_t>(n), 0});
 -  }
--  return mgis::python::wrapInNumPyArray(values, stride);
+-  return mgis::python::wrapInNumPyArray(values, stride, base);
 -}  // end of MaterialStateManager_wrapPerIntegrationPointValues
 -
  static pybind11::object MaterialStateManager_getGradients(
-     mgis::behaviour::MaterialStateManager& s) {
+     pybind11::object self) {
+   auto& s = self.cast<mgis::behaviour::MaterialStateManager&>();
 -  return MaterialStateManager_wrapPerIntegrationPointValues(
--      s.gradients, s.n, s.gradients_stride);
-+  return mgis::python::wrapInNumPyArray(getGradientsView(s));
+-      s.gradients, s.n, s.gradients_stride, self);
++  return mgis::python::wrapInNumPyArray(getGradientsView(s), self);
  }  // end of MaterialStateManager_getGradients
  
  static pybind11::object MaterialStateManager_getThermodynamicForces(
-     mgis::behaviour::MaterialStateManager& s) {
+     pybind11::object self) {
+   auto& s = self.cast<mgis::behaviour::MaterialStateManager&>();
 -  return MaterialStateManager_wrapPerIntegrationPointValues(
--      s.thermodynamic_forces, s.n, s.thermodynamic_forces_stride);
-+  return mgis::python::wrapInNumPyArray(getThermodynamicForcesView(s));
+-      s.thermodynamic_forces, s.n, s.thermodynamic_forces_stride, self);
++  return mgis::python::wrapInNumPyArray(getThermodynamicForcesView(s), self);
  }  // end of MaterialStateManager_getThermodynamicForces
  
  static pybind11::object MaterialStateManager_getInternalStateVariables(
-     mgis::behaviour::MaterialStateManager& s) {
+     pybind11::object self) {
+   auto& s = self.cast<mgis::behaviour::MaterialStateManager&>();
 -  return MaterialStateManager_wrapPerIntegrationPointValues(
--      s.internal_state_variables, s.n, s.internal_state_variables_stride);
-+  return mgis::python::wrapInNumPyArray(getInternalStateVariablesView(s));
+-      s.internal_state_variables, s.n, s.internal_state_variables_stride, self);
++  return mgis::python::wrapInNumPyArray(getInternalStateVariablesView(s), self);
  }  // end of MaterialStateManager_getInternalStateVariables
  
  static pybind11::object MaterialStateManager_getStoredEnergies(
-@@ -233,6 +212,11 @@ void declareMaterialStateManager(pybind11::module_& m) {
-       .def("bindDissipatedEnergies",
+@@ -328,6 +305,11 @@ void declareMaterialStateManager(pybind11::module_& m) {
             &MaterialStateManagerInitializer_bindDissipatedEnergies,
-            "use the given array to store the dissipated energies");
+            "use the given array to store the dissipated energies",
+            pybind11::keep_alive<1, 2>());
 +  // layout of the arrays
 +  pybind11::enum_<mgis::FieldLayout>(m, "FieldLayout")
 +      .value("POINT_BY_POINT", mgis::FieldLayout::POINT_BY_POINT)
@@ -715,9 +721,9 @@ index 6f7ec4f..6e3c244 100644
 +             mgis::FieldLayout::COMPONENT_BY_COMPONENT);
    // wrapping the MaterialStateManager class
    pybind11::class_<MaterialStateManager>(m, "MaterialStateManager")
-       .def(pybind11::init<const Behaviour&, const size_type>())
-@@ -240,6 +224,7 @@ void declareMaterialStateManager(pybind11::module_& m) {
-                           const MaterialStateManagerInitializer&>())
+       .def(pybind11::init<const Behaviour&, const size_type>(),
+@@ -337,6 +319,7 @@ void declareMaterialStateManager(pybind11::module_& m) {
+            pybind11::keep_alive<1, 2>(), pybind11::keep_alive<1, 4>())
        .def_readonly("n", &MaterialStateManager::n)
        .def_readonly("number_of_integration_points", &MaterialStateManager::n)
 +      .def_readonly("layout", &MaterialStateManager::layout)
@@ -725,35 +731,37 @@ index 6f7ec4f..6e3c244 100644
        .def_readonly("gradients_stride", &MaterialStateManager::gradients_stride)
        .def_property_readonly("thermodynamic_forces",
 diff --git a/bindings/python/src/NumPySupport.cxx b/bindings/python/src/NumPySupport.cxx
-index b37d6c3..d6c8a51 100644
+index f127e86..8e3f53b 100644
 --- a/bindings/python/src/NumPySupport.cxx
 +++ b/bindings/python/src/NumPySupport.cxx
-@@ -99,4 +99,23 @@ namespace mgis::python {
-     return {static_cast<double*>(i.ptr), static_cast<mgis_size_type>(i.size)};
-   }  // end of mgis_convert_to_span
+@@ -129,4 +129,25 @@ namespace mgis::python {
+     return mgis_convert_to_span(a);
+   }  // end of mgis_convert_to_mutable_span
  
-+  pybind11::array_t<double> wrapInNumPyArray(const FieldView<double>& v) {
++  pybind11::array_t<double> wrapInNumPyArray(const FieldView<double>& v,
++                                             pybind11::handle base) {
 +    constexpr auto s = sizeof(double);
 +    return pybind11::array_t<double>(
 +        {v.getNumberOfPoints(), v.getNumberOfComponents()},
 +        {v.getPointStride() * s, v.getComponentStride() * s}, v.data(),
-+        pybind11::none());
++        base);
 +  }  // end of wrapInNumPyArray
 +
 +  pybind11::array_t<double> wrapInNumPyArray(const FieldView<double>& v,
 +                                             const size_type nr,
-+                                             const size_type nc) {
++                                             const size_type nc,
++                                             pybind11::handle base) {
 +    constexpr auto s = sizeof(double);
 +    return pybind11::array_t<double>(
 +        {v.getNumberOfPoints(), nr, nc},
 +        {v.getPointStride() * s, nc * v.getComponentStride() * s,
 +         v.getComponentStride() * s},
-+        v.data(), pybind11::none());
++        v.data(), base);
 +  }  // end of wrapInNumPyArray
 +
  }  // end of namespace mgis::python
 diff --git a/bindings/python/tests/CMakeLists.txt b/bindings/python/tests/CMakeLists.txt
-index 8b7933d..9047150 100644
+index 8a957df..e9d6a14 100644
 --- a/bindings/python/tests/CMakeLists.txt
 +++ b/bindings/python/tests/CMakeLists.txt
 @@ -37,6 +37,7 @@ test_python_bindings(ParameterTest)

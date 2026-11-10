@@ -1,4 +1,4 @@
-From d10f1a18febc1c36e27ec58958fcd28d9bbd876c Mon Sep 17 00:00:00 2001
+From eafa14a8698ba053ba58885fc1a1ce48413d478d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:58:17 +0200
 Subject: [PATCH] views.md: accessors of the Fortran bindings refusing the

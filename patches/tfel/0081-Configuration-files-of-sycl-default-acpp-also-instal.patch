@@ -1,4 +1,4 @@
-From bc424a8e4d14f166e3482f979352a76127575f4e Mon Sep 17 00:00:00 2001
+From 7c7fac58e254808194b75b0b132edc2cdd9a4d01 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 17:29:52 +0200
 Subject: [PATCH] Configuration files of sycl-default-acpp also installed for
@@ -11,10 +11,10 @@ failed if sycl-default-acpp was not selected.
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index d3bca5378..1c59a6567 100644
+index a2aca8525..57c65c909 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
-@@ -161,8 +161,8 @@ The following configurations are supported for parallel computations:
+@@ -344,8 +344,8 @@ The following configurations are supported for parallel computations:
    programming model and AdaptiveCpp's `acpp` compiler.
  - `sycl-gpu-acpp`: tests of the `SYCL` backend for material properties on
    the GPU with AdaptiveCpp's `acpp` compiler. Those tests use the

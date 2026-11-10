@@ -1,4 +1,4 @@
-From 183606662d9ba26bdcda19452460004c0a3d1136 Mon Sep 17 00:00:00 2001
+From 184d7a3308e7b4d63d4ff6522fd0d59e35f36de3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 00:43:03 +0200
 Subject: [PATCH] updateInputValues: update of the values of a state except its
@@ -19,10 +19,10 @@ updateInputValues.
  3 files changed, 180 insertions(+), 94 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 47f9058..fb1c24c 100644
+index 6affecb..57ff257 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -644,6 +644,24 @@ namespace mgis::behaviour {
+@@ -711,6 +711,24 @@ namespace mgis::behaviour {
                                                 MaterialStateManager&,
                                                 const MaterialStateManager&,
                                                 FieldOperations&) noexcept;
@@ -48,10 +48,10 @@ index 47f9058..fb1c24c 100644
     * \brief extract an internal state variable
     *
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 8db4d68..8b041c3 100644
+index edceb2e..66184b9 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -782,22 +782,19 @@ namespace mgis::behaviour {
+@@ -918,22 +918,19 @@ namespace mgis::behaviour {
     * \param[in] i: input state
     * \param[in] ops: operations copying the arrays given by the calling code
     */
@@ -84,9 +84,9 @@ index 8db4d68..8b041c3 100644
 -                              isHostAccessible(o.memory_location) &&
 -                              isHostAccessible(i.memory_location)};
      auto check_mps =
-         [&ctx](
-             const Behaviour& b,
-@@ -817,34 +814,23 @@ namespace mgis::behaviour {
+         [&ctx](const Behaviour& b,
+                const std::map<std::string, FieldHolder, std::less<>>& mps)
+@@ -952,34 +949,23 @@ namespace mgis::behaviour {
        return ctx.registerErrorMessage(
            "the material state managers do not hold the same behaviour");
      }
@@ -138,7 +138,7 @@ index 8db4d68..8b041c3 100644
      auto pmp = o.material_properties.begin();
      while (pmp != o.material_properties.end()) {
        if (i.material_properties.count(pmp->first) == 0) {
-@@ -899,6 +885,57 @@ namespace mgis::behaviour {
+@@ -1034,6 +1020,57 @@ namespace mgis::behaviour {
        o.mass_density.reset();
      }
      return true;
@@ -196,7 +196,7 @@ index 8db4d68..8b041c3 100644
    }  // end of updateValuesImpl
  
    bool updateValues(Context& ctx,
-@@ -908,6 +945,21 @@ namespace mgis::behaviour {
+@@ -1043,6 +1080,21 @@ namespace mgis::behaviour {
      return updateValuesImpl(ctx, o, i, ops);
    }  // end of updateValues
  

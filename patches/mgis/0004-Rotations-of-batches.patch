@@ -1,4 +1,4 @@
-From 6302457160695d0d635792f8d1a1303ba0a47d45 Mon Sep 17 00:00:00 2001
+From c35f8866f391a7703bc214615e70a4d962853271 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:08:47 +0200
 Subject: [PATCH] Rotations of batches
@@ -20,7 +20,7 @@ given point by point, 3D material axes).
  2 files changed, 259 insertions(+)
 
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index a8793bf..4f70b56 100644
+index 606720d..3b79b4e 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -12,7 +12,9 @@
@@ -33,7 +33,7 @@ index a8793bf..4f70b56 100644
  #include <cstdlib>
  #include <iterator>
  #include "MGIS/Raise.hxx"
-@@ -447,6 +449,137 @@ namespace mgis::behaviour {
+@@ -448,6 +450,137 @@ namespace mgis::behaviour {
      }
    }  // end of checkRotationMatrix3D
  
@@ -171,7 +171,7 @@ index a8793bf..4f70b56 100644
    static void checkBehaviourRotateGradients(const Behaviour &b) {
      if ((b.rotate_gradients_ptr == nullptr) ||
          (b.rotate_array_of_gradients_ptr == nullptr)) {
-@@ -460,6 +593,11 @@ namespace mgis::behaviour {
+@@ -461,6 +594,11 @@ namespace mgis::behaviour {
                         const Behaviour &b,
                         const std::span<const real> &gg,
                         const std::span<const real> &r) {
@@ -182,8 +182,8 @@ index a8793bf..4f70b56 100644
 +    }
      checkBehaviourRotateGradients(b);
      const auto gsize = getArraySize(b.gradients, b.hypothesis);
-     const auto nipts =
-@@ -493,6 +631,11 @@ namespace mgis::behaviour {
+     const auto nipts = checkRotateFunctionInputs("rotateGradients", "gradients",
+@@ -494,6 +632,11 @@ namespace mgis::behaviour {
                         const Behaviour &b,
                         const std::span<const real> &gg,
                         const RotationMatrix2D &r) {
@@ -194,8 +194,8 @@ index a8793bf..4f70b56 100644
 +    }
      checkBehaviourRotateGradients(b);
      const auto gsize = getArraySize(b.gradients, b.hypothesis);
-     const auto nipts =
-@@ -514,6 +657,11 @@ namespace mgis::behaviour {
+     const auto nipts = checkRotateFunctionInputs("rotateGradients", "gradients",
+@@ -515,6 +658,11 @@ namespace mgis::behaviour {
                         const Behaviour &b,
                         const std::span<const real> &gg,
                         const RotationMatrix3D &r) {
@@ -206,8 +206,8 @@ index a8793bf..4f70b56 100644
 +    }
      checkBehaviourRotateGradients(b);
      const auto gsize = getArraySize(b.gradients, b.hypothesis);
-     const auto nipts =
-@@ -565,6 +713,12 @@ namespace mgis::behaviour {
+     const auto nipts = checkRotateFunctionInputs("rotateGradients", "gradients",
+@@ -566,6 +714,12 @@ namespace mgis::behaviour {
                                   const Behaviour &b,
                                   const std::span<const real> &mtf,
                                   const std::span<const real> &r) {
@@ -219,8 +219,8 @@ index a8793bf..4f70b56 100644
 +    }
      checkBehaviourRotateThermodynamicForces(b);
      const auto tfsize = getArraySize(b.thermodynamic_forces, b.hypothesis);
-     const auto nipts = checkRotateFunctionInputs("rotateThermodynamicForces",
-@@ -604,6 +758,12 @@ namespace mgis::behaviour {
+     const auto nipts = checkRotateFunctionInputs(
+@@ -605,6 +759,12 @@ namespace mgis::behaviour {
                                   const Behaviour &b,
                                   const std::span<const real> &mtf,
                                   const RotationMatrix2D &r) {
@@ -232,8 +232,8 @@ index a8793bf..4f70b56 100644
 +    }
      checkBehaviourRotateThermodynamicForces(b);
      const auto tfsize = getArraySize(b.thermodynamic_forces, b.hypothesis);
-     const auto nipts = checkRotateFunctionInputs("rotateThermodynamicForces",
-@@ -627,6 +787,12 @@ namespace mgis::behaviour {
+     const auto nipts = checkRotateFunctionInputs(
+@@ -628,6 +788,12 @@ namespace mgis::behaviour {
                                   const Behaviour &b,
                                   const std::span<const real> &mtf,
                                   const RotationMatrix3D &r) {
@@ -245,8 +245,8 @@ index a8793bf..4f70b56 100644
 +    }
      checkBehaviourRotateThermodynamicForces(b);
      const auto tfsize = getArraySize(b.thermodynamic_forces, b.hypothesis);
-     const auto nipts = checkRotateFunctionInputs("rotateThermodynamicForces",
-@@ -680,6 +846,12 @@ namespace mgis::behaviour {
+     const auto nipts = checkRotateFunctionInputs(
+@@ -681,6 +847,12 @@ namespace mgis::behaviour {
                                     const Behaviour &b,
                                     const std::span<const real> &mK,
                                     const std::span<const real> &r) {
@@ -259,7 +259,7 @@ index a8793bf..4f70b56 100644
      checkBehaviourRotateTangentOperatorBlocks(b);
      const auto Ksize = getTangentOperatorArraySize(b);
      const auto nipts =
-@@ -721,6 +893,12 @@ namespace mgis::behaviour {
+@@ -723,6 +895,12 @@ namespace mgis::behaviour {
                                     const Behaviour &b,
                                     const std::span<const real> &mK,
                                     const RotationMatrix2D &r) {
@@ -272,7 +272,7 @@ index a8793bf..4f70b56 100644
      checkBehaviourRotateTangentOperatorBlocks(b);
      const auto Ksize = getTangentOperatorArraySize(b);
      const auto nipts =
-@@ -744,6 +922,12 @@ namespace mgis::behaviour {
+@@ -747,6 +925,12 @@ namespace mgis::behaviour {
                                     const Behaviour &b,
                                     const std::span<const real> &mK,
                                     const RotationMatrix3D &r) {

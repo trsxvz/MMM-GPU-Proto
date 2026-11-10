@@ -1,4 +1,4 @@
-From 2541bdffba4b425b72a3eead9a4c85e705a16ae5 Mon Sep 17 00:00:00 2001
+From be940fbda94ffb00bb959f4c5dc4b01b274aa1c7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:10:27 +0200
 Subject: [PATCH] TFEL: Jacobi algorithm for multiple eigenvalues in device
@@ -13,10 +13,10 @@ results on CPUs are unchanged.
  1 file changed, 14 insertions(+), 7 deletions(-)
 
 diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-index 4440192c1..34c6ec003 100644
+index 95c6cd47d..4322de4a1 100644
 --- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-@@ -532,16 +532,23 @@ namespace tfel::math::internals {
+@@ -557,16 +557,23 @@ namespace tfel::math::internals {
                     10 * std::numeric_limits<T>::min());
        if ((tfel::math::abs(det1) < prec) && (tfel::math::abs(det2) < prec) &&
            (tfel::math::abs(det3) < prec)) {

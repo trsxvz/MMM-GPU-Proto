@@ -1,4 +1,4 @@
-From e389d39ab7f7450c483f14f87a9e4f0d0da34064 Mon Sep 17 00:00:00 2001
+From c15aabb566a3669aaa9e56c3577418c46cca27a5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:21:18 +0200
 Subject: [PATCH] Test of the batch rotations of finite strain behaviours
@@ -16,10 +16,10 @@ interface.
  create mode 100644 tests/OrthotropicFiniteStrainElasticity.mfront
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index ee218ab..e2f13d4 100644
+index 9df78ed..efd4d14 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -122,6 +122,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -117,6 +117,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      BehaviourTest
      Elasticity
      OrthotropicElasticity
@@ -27,7 +27,7 @@ index ee218ab..e2f13d4 100644
      Norton
      NortonFailure
      Plasticity
-@@ -143,6 +144,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -142,6 +143,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
    mfront_generic_parallel_behaviours_check_library(
      GenericParallelBehaviourTest stlpar
      Elasticity

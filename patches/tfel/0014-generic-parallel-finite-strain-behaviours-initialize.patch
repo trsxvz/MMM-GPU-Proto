@@ -1,4 +1,4 @@
-From eba79ea34efbe82e0d773d80b9eacc1a3abbef0c Mon Sep 17 00:00:00 2001
+From 2b8ceb72046337a82d959fa5f849119c7755ed42 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:34 +0200
 Subject: [PATCH] generic-parallel: finite strain behaviours, initialize
@@ -91,10 +91,10 @@ Subject: [PATCH] generic-parallel: finite strain behaviours, initialize
  create mode 100644 test-suite/behaviours/generic-parallel/compare-all.sh
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index 959b41845..0784090f9 100644
+index 5ed52aa87..d9707d3ea 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -599,7 +599,7 @@ if(TFEL_REQUIRES_HIP)
+@@ -606,7 +606,7 @@ if(TFEL_REQUIRES_HIP)
   if(HIP_PLATFORM STREQUAL "nvidia")
     set(TFEL_REQUIRES_CUDA ON)
     # hipcc calls nvcc
@@ -265,10 +265,10 @@ index fa30c7b35..6e5c0b346 100644
  }
 \ No newline at end of file
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 1f018ff6f..35030da9c 100644
+index c8385df91..5186ddf2a 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -127,6 +127,7 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty ParallelSTLBackend
+@@ -132,6 +132,7 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty ParallelSTLBackend
  install_mfront_header(MFront/GenericParallel/MaterialProperty SYCLBackend.hxx)
  install_mfront_header(MFront GenericBehaviourInterface.hxx)
  install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
@@ -276,7 +276,7 @@ index 1f018ff6f..35030da9c 100644
  install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
  install_mfront_header(MFront/GenericParallel DeviceStackSize.hxx)
  install_mfront_header(MFront/GenericParallel/Behaviour AbstractBackend.hxx)
-@@ -253,6 +254,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
+@@ -258,6 +259,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
  install_mfront_header(MFront/GenericBehaviour RotateTangentOperatorBlock.hxx)
  
  install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)

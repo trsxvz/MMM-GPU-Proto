@@ -1,4 +1,4 @@
-From d5fa8a426e6e4efe31baab1c74661312dd6352d9 Mon Sep 17 00:00:00 2001
+From a8bbd10838d65a93266fad07635737580ec7943c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 23:48:26 +0200
 Subject: [PATCH] Views on the data of a material: FieldView and
@@ -23,12 +23,12 @@ point.
  include/MGIS/FieldView.hxx                    |  247 ++
  include/MGIS/FieldView.ixx                    |  263 ++
  src/CMakeLists.txt                            |    1 +
- src/Integrate.cxx                             | 2463 ++++++++++-------
+ src/Integrate.cxx                             | 2465 ++++++++++-------
  src/MaterialDataManager.cxx                   |   35 +-
  src/MaterialDataView.cxx                      |  332 +++
  tests/CMakeLists.txt                          |   13 +
  tests/MaterialDataViewTest.cxx                |  780 ++++++
- 12 files changed, 3759 insertions(+), 969 deletions(-)
+ 12 files changed, 3759 insertions(+), 971 deletions(-)
  create mode 100644 include/MGIS/Behaviour/MaterialDataView.hxx
  create mode 100644 include/MGIS/FieldView.hxx
  create mode 100644 include/MGIS/FieldView.ixx
@@ -36,7 +36,7 @@ point.
  create mode 100644 tests/MaterialDataViewTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 96f80bb..0f1d391 100644
+index b52fe34..fcca86e 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -2,6 +2,8 @@ mgis_header(MGIS Config-c.h)
@@ -57,7 +57,7 @@ index 96f80bb..0f1d391 100644
  mgis_header(MGIS/MemoryResources CUDAManagedMemoryResource.hxx)
  mgis_header(MGIS/MemoryResources HIPManagedMemoryResource.hxx)
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index e1f9c20..51c987f 100644
+index 65977b5..fc95a4e 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -22,6 +22,7 @@
@@ -76,7 +76,7 @@ index e1f9c20..51c987f 100644
  
    namespace debug {
  
-@@ -898,6 +900,314 @@ namespace mgis::behaviour {
+@@ -903,6 +905,314 @@ namespace mgis::behaviour {
  
  }  // end of namespace mgis::behaviour
  
@@ -392,7 +392,7 @@ index e1f9c20..51c987f 100644
  
    /*!
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index b09fcb0..30aa502 100644
+index d62603e..42d9abc 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -66,6 +66,37 @@ namespace mgis::behaviour {
@@ -1212,7 +1212,7 @@ index 0000000..2abe2a6
 +
 +#endif /* LIB_MGIS_FIELDVIEW_IXX */
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 31775b0..7bb523d 100644
+index af6b8a1..0fa2c0c 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -25,6 +25,7 @@ list(APPEND MFrontGenericInterface_SOURCES
@@ -1224,7 +1224,7 @@ index 31775b0..7bb523d 100644
    FiniteStrainSupport.cxx
    Model.cxx
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 3ae2738..cca5339 100644
+index 32088bb..45e9aa2 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -12,7 +12,9 @@
@@ -1250,7 +1250,7 @@ index 3ae2738..cca5339 100644
  #include "MGIS/Behaviour/BatchDataView.hxx"
  #include "MGIS/Behaviour/BehaviourIntegrationFailureAnalyser.hxx"
  #include "MGIS/Behaviour/Integrate.hxx"
-@@ -58,261 +63,53 @@ namespace mgis::behaviour::internals {
+@@ -65,261 +70,53 @@ namespace mgis::behaviour::internals {
      return static_cast<int>(opts.integration_type);
    }  // end of encodeBehaviourIntegrationOptions
  
@@ -1549,7 +1549,7 @@ index 3ae2738..cca5339 100644
        mgis::raise(
            "checkIntegrationPointsRange: "
            "invalid upper bound ('" +
-@@ -321,218 +118,308 @@ namespace mgis::behaviour::internals {
+@@ -328,218 +125,308 @@ namespace mgis::behaviour::internals {
    }  // end of checkIntegrationPointsRange
  
    /*!
@@ -2023,7 +2023,7 @@ index 3ae2738..cca5339 100644
      d.s1.material_properties_by_variable = this->mps1.data();
      d.s1.external_state_variables_by_variable = this->esvs1.data();
      d.execution = x;
-@@ -585,27 +472,31 @@ namespace mgis::behaviour::internals {
+@@ -592,27 +479,31 @@ namespace mgis::behaviour::internals {
    }  // end of getBatchResult
  
    /*!
@@ -2062,7 +2062,7 @@ index 3ae2738..cca5339 100644
     * \return the result of the computations
     * \param[in] f: name of the calling function
     * \param[in] p: execution policy
-@@ -620,7 +511,7 @@ namespace mgis::behaviour::internals {
+@@ -627,7 +518,7 @@ namespace mgis::behaviour::internals {
    template <typename SubmitFunction>
    static BehaviourIntegrationResult executeBatch(const char* const f,
                                                   const BatchExecutionPolicy& p,
@@ -2071,7 +2071,7 @@ index 3ae2738..cca5339 100644
                                                   const size_type b,
                                                   const size_type e,
                                                   const std::optional<real> rdt,
-@@ -639,19 +530,19 @@ namespace mgis::behaviour::internals {
+@@ -646,19 +537,19 @@ namespace mgis::behaviour::internals {
  
    /*!
     * \brief submit computations on the points `[b, e)` of a material data
@@ -2094,7 +2094,7 @@ index 3ae2738..cca5339 100644
      auto r = PendingBatchComputation(p, f, b, rdt);
      if (b != e) {
        auto o = BatchOutputStatus{};
-@@ -663,336 +554,662 @@ namespace mgis::behaviour::internals {
+@@ -670,338 +561,662 @@ namespace mgis::behaviour::internals {
  
    /*!
     * \brief integrate a behaviour generated by the `generic-parallel`
@@ -2676,7 +2676,8 @@ index 3ae2738..cca5339 100644
 +      const debug::BehaviourIntegrationFailureAnalyser* const analyser) {
 +    auto d = initializeBehaviourDataView(ws);
      auto r = BehaviourIntegrationResult{};
--    auto rdt0 = r.time_step_increase_factor;
+-    r.time_step_increase_factor = m.rdt;
+-    const auto rdt0 = m.rdt;
 +    const auto rdt0 = r.time_step_increase_factor;
      const real Ke = encodeBehaviourIntegrationOptions(opts);
      real bopts[Behaviour::nopts + 1];  // option passed to the behaviour
@@ -2770,7 +2771,8 @@ index 3ae2738..cca5339 100644
 -    auto behaviour_evaluators = internals::buildBehaviourEvaluators(ws, m);
 -    // loop over integration points
 -    auto r = BehaviourIntegrationResult{};
--    auto rdt0 = r.time_step_increase_factor;
+-    r.time_step_increase_factor = m.rdt;
+-    const auto rdt0 = m.rdt;
 -    const real Ke = encodeBehaviourIntegrationOptions(opts);
 -    real bopts[Behaviour::nopts + 1];  // option passed to the behaviour
 -    for (auto i = b; i != e; ++i) {
@@ -2974,7 +2976,7 @@ index 3ae2738..cca5339 100644
  
  }  // namespace mgis::behaviour::internals
  
-@@ -1138,14 +1355,40 @@ namespace mgis::behaviour {
+@@ -1147,14 +1362,40 @@ namespace mgis::behaviour {
    }  // end of checkNoInitializeFunctionInputs
  
    /*!
@@ -3018,7 +3020,7 @@ index 3ae2738..cca5339 100644
        const MaterialDataManager& m,
        const BehaviourInitializeFunction& f,
        const std::string_view n,
-@@ -1157,17 +1400,269 @@ namespace mgis::behaviour {
+@@ -1166,17 +1407,269 @@ namespace mgis::behaviour {
            "invalid size of the inputs '" +
            std::string{n} + "'");
      }
@@ -3294,7 +3296,7 @@ index 3ae2738..cca5339 100644
    }  // end of executeInitializeFunction
  
    BehaviourIntegrationResult executeInitializeFunction(
-@@ -1176,45 +1671,39 @@ namespace mgis::behaviour {
+@@ -1185,45 +1678,39 @@ namespace mgis::behaviour {
        std::span<const real> inputs,
        const size_type b,
        const size_type e) {
@@ -3368,7 +3370,7 @@ index 3ae2738..cca5339 100644
    }  // end of executeInitializeFunctionOnBatch
  
    BehaviourIntegrationResult executeInitializeFunction(
-@@ -1223,7 +1712,7 @@ namespace mgis::behaviour {
+@@ -1232,7 +1719,7 @@ namespace mgis::behaviour {
        const std::string_view n,
        const size_type b,
        const size_type e) {
@@ -3377,7 +3379,7 @@ index 3ae2738..cca5339 100644
    }  // end of executeInitializeFunction
  
    BehaviourIntegrationResult executeInitializeFunction(
-@@ -1240,7 +1729,7 @@ namespace mgis::behaviour {
+@@ -1249,7 +1736,7 @@ namespace mgis::behaviour {
        const BatchExecutionPolicy& p,
        MaterialDataManager& m,
        const std::string_view n) {
@@ -3386,7 +3388,7 @@ index 3ae2738..cca5339 100644
    }  // end of executeInitializeFunction
  
    BehaviourIntegrationResult executeInitializeFunction(
-@@ -1257,7 +1746,7 @@ namespace mgis::behaviour {
+@@ -1266,7 +1753,7 @@ namespace mgis::behaviour {
        const std::string_view n,
        const size_type b,
        const size_type e) {
@@ -3395,7 +3397,7 @@ index 3ae2738..cca5339 100644
    }  // end of executeInitializeFunction
  
    PendingBatchComputation executeInitializeFunction(
-@@ -1274,7 +1763,7 @@ namespace mgis::behaviour {
+@@ -1283,7 +1770,7 @@ namespace mgis::behaviour {
        const AsynchronousBatchExecutionPolicy& p,
        MaterialDataManager& m,
        const std::string_view n) {
@@ -3404,7 +3406,7 @@ index 3ae2738..cca5339 100644
    }  // end of executeInitializeFunction
  
    PendingBatchComputation executeInitializeFunction(
-@@ -1297,123 +1786,188 @@ namespace mgis::behaviour {
+@@ -1306,123 +1793,188 @@ namespace mgis::behaviour {
      return executeInitializeFunction(m, n, inputs, 0, m.n);
    }  // end of executeInitializeFunction
  
@@ -3695,7 +3697,7 @@ index 3ae2738..cca5339 100644
    }  // end of integrate
  
    BehaviourIntegrationResult integrate(const BatchExecutionPolicy& p,
-@@ -1422,17 +1976,14 @@ namespace mgis::behaviour {
+@@ -1431,17 +1983,14 @@ namespace mgis::behaviour {
                                         const real dt,
                                         const size_type b,
                                         const size_type e) {
@@ -3715,7 +3717,7 @@ index 3ae2738..cca5339 100644
    }  // end of integrate
  
    PendingBatchComputation integrate(const AsynchronousBatchExecutionPolicy& p,
-@@ -1441,40 +1992,22 @@ namespace mgis::behaviour {
+@@ -1450,40 +1999,22 @@ namespace mgis::behaviour {
                                      const real dt,
                                      const size_type b,
                                      const size_type e) {
@@ -3764,7 +3766,7 @@ index 3ae2738..cca5339 100644
  
    BehaviourIntegrationResult integrate_debug(
        MaterialDataManager& m,
-@@ -1490,13 +2023,41 @@ namespace mgis::behaviour {
+@@ -1499,13 +2030,41 @@ namespace mgis::behaviour {
        MaterialDataManager& m,
        const BehaviourIntegrationOptions& opts,
        const real dt,
@@ -3811,7 +3813,7 @@ index 3ae2738..cca5339 100644
  
    MultiThreadedBehaviourIntegrationResult integrate(
        mgis::ThreadPool& p,
-@@ -1507,39 +2068,7 @@ namespace mgis::behaviour {
+@@ -1516,39 +2075,7 @@ namespace mgis::behaviour {
        return makeMultiThreadedResult(
            integrate(m.batch_execution_policy, m, opts, dt));
      }
@@ -3852,7 +3854,7 @@ index 3ae2738..cca5339 100644
    }  // end of integrate
  
    MultiThreadedBehaviourIntegrationResult integrate_debug(
-@@ -1557,39 +2086,7 @@ namespace mgis::behaviour {
+@@ -1566,39 +2093,7 @@ namespace mgis::behaviour {
        const BehaviourIntegrationOptions& opts,
        const real dt,
        const debug::BehaviourIntegrationFailureAnalyser& analyser) {
@@ -3893,7 +3895,7 @@ index 3ae2738..cca5339 100644
    }  // end of integrate_debug
  
    int integrate(mgis::ThreadPool& p,
-@@ -1733,17 +2230,9 @@ namespace mgis::behaviour {
+@@ -1742,17 +2237,9 @@ namespace mgis::behaviour {
      }
    }  // end of integrate debug
  
@@ -3914,7 +3916,7 @@ index 3ae2738..cca5339 100644
  
    int executePostProcessing(std::span<real> outputs,
                              BehaviourDataView& d,
-@@ -1763,42 +2252,113 @@ namespace mgis::behaviour {
+@@ -1772,42 +2259,113 @@ namespace mgis::behaviour {
      return (p.f)(outputs.data(), &d);
    }  // end of executePostProcessing
  
@@ -4051,7 +4053,7 @@ index 3ae2738..cca5339 100644
     */
    template <typename ExecutionPolicy>
    static auto executePostProcessingOnBatch(std::span<real> outputs,
-@@ -1807,12 +2367,11 @@ namespace mgis::behaviour {
+@@ -1816,12 +2374,11 @@ namespace mgis::behaviour {
                                             const std::string_view n,
                                             const size_type b,
                                             const size_type e) {
@@ -4068,7 +4070,7 @@ index 3ae2738..cca5339 100644
    }  // end of executePostProcessingOnBatch
  
    BehaviourIntegrationResult executePostProcessing(
-@@ -1851,12 +2410,6 @@ namespace mgis::behaviour {
+@@ -1860,12 +2417,6 @@ namespace mgis::behaviour {
      return executePostProcessingOnBatch(outputs, p, m, n, 0, m.n);
    }  // end of executePostProcessing
  
@@ -4081,7 +4083,7 @@ index 3ae2738..cca5339 100644
    MultiThreadedBehaviourIntegrationResult executePostProcessing(
        std::span<real> outputs,
        mgis::ThreadPool& p,
-@@ -1866,41 +2419,15 @@ namespace mgis::behaviour {
+@@ -1875,41 +2426,15 @@ namespace mgis::behaviour {
        return makeMultiThreadedResult(executePostProcessing(outputs, m, n));
      }
      const auto& post = getBehaviourPostProcessing(m.b, n);
@@ -4132,7 +4134,7 @@ index 3ae2738..cca5339 100644
  
  }  // end of namespace mgis::behaviour
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 8649bb3..24e5082 100644
+index 339cfa0..e7ddf16 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -13,6 +13,7 @@
@@ -4529,10 +4531,10 @@ index 0000000..02dee6e
 +
 +}  // end of namespace mgis::behaviour
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 1d1fe50..dd70d04 100644
+index 0ffa756..96907df 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -185,6 +185,19 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -184,6 +184,19 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      set_property(TEST GenericParallelIntegrateTest
        PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest ModelTest)
      set_test_environment(GenericParallelIntegrateTest)

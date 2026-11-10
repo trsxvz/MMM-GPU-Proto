@@ -1,4 +1,4 @@
-From 078ae4e517813abd9976dbb1d4984cb9d52de1ce Mon Sep 17 00:00:00 2001
+From 7dece1e8469f45e1e7b44366c120003791d53b80 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:01:32 +0200
 Subject: [PATCH] Initialize functions and post-processings: pass the behaviour
@@ -18,7 +18,7 @@ pointer. A local array is used.
  2 files changed, 40 insertions(+), 11 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 653f936..a2c20d3 100644
+index 88f1de2..53f786d 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -177,6 +177,9 @@ namespace mgis::behaviour {
@@ -41,7 +41,7 @@ index 653f936..a2c20d3 100644
     * \note Due to the structure of the `BehaviourDataView` structure in which
     * the state at the beginning of the time step is immutable, only the state
     * variables at the end of the time step can be updated. Hence, for
-@@ -790,6 +796,9 @@ namespace mgis::behaviour {
+@@ -794,6 +800,9 @@ namespace mgis::behaviour {
     * \param[in,out] d: behaviour data
     * \param[in] b: behaviour
     * \param[in] n: name of the post-processing
@@ -52,10 +52,10 @@ index 653f936..a2c20d3 100644
     * `generic-parallel` interface, which only provides functions of batches
     * of integration points.
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 6ad44aa..5586726 100644
+index d7d3555..f15449c 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
-@@ -1020,6 +1020,18 @@ namespace mgis::behaviour::internals {
+@@ -1027,6 +1027,18 @@ namespace mgis::behaviour::internals {
      return v;
    }  // end of initializeBehaviourDataView
  
@@ -74,7 +74,7 @@ index 6ad44aa..5586726 100644
    /*!
     * \brief integrate the behaviour point by point over the points `[b, e)`
     * of a material data view.
-@@ -1162,6 +1174,7 @@ namespace mgis::behaviour::internals {
+@@ -1169,6 +1181,7 @@ namespace mgis::behaviour::internals {
    template <bool gather>
    static BehaviourIntegrationResult executeInitializeFunctionPointwise(
        BehaviourIntegrationWorkSpace& ws,
@@ -82,7 +82,7 @@ index 6ad44aa..5586726 100644
        const PointwiseData& data,
        const BehaviourEvaluators& evaluators,
        const BehaviourInitializeFunction& f,
-@@ -1170,6 +1183,9 @@ namespace mgis::behaviour::internals {
+@@ -1177,6 +1190,9 @@ namespace mgis::behaviour::internals {
        const size_type e) {
      auto d = initializeBehaviourDataView(ws);
      d.rdt = nullptr;
@@ -92,7 +92,7 @@ index 6ad44aa..5586726 100644
      auto r = BehaviourIntegrationResult{};
      for (auto i = b; i != e; ++i) {
        evaluators.evaluate(ws, i);
-@@ -1227,11 +1243,11 @@ namespace mgis::behaviour::internals {
+@@ -1234,11 +1250,11 @@ namespace mgis::behaviour::internals {
      const auto i =
          PointValues<const real>(inputs, ws.initialize_function_inputs);
      if (data.gathers || i.gathers()) {
@@ -108,7 +108,7 @@ index 6ad44aa..5586726 100644
    }  // end of executeInitializeFunctionCheckedPointwise
  
    /*!
-@@ -1258,6 +1274,7 @@ namespace mgis::behaviour::internals {
+@@ -1265,6 +1281,7 @@ namespace mgis::behaviour::internals {
    static BehaviourIntegrationResult executePostProcessingPointwise(
        const PointValues<real>& outputs,
        BehaviourIntegrationWorkSpace& ws,
@@ -116,7 +116,7 @@ index 6ad44aa..5586726 100644
        const PointwiseData& data,
        const BehaviourEvaluators& evaluators,
        const BehaviourPostProcessing& p,
-@@ -1265,6 +1282,9 @@ namespace mgis::behaviour::internals {
+@@ -1272,6 +1289,9 @@ namespace mgis::behaviour::internals {
        const size_type e) {
      auto d = initializeBehaviourDataView(ws);
      d.rdt = nullptr;
@@ -126,7 +126,7 @@ index 6ad44aa..5586726 100644
      auto r = BehaviourIntegrationResult{};
      for (auto i = b; i != e; ++i) {
        evaluators.evaluate(ws, i);
-@@ -1323,11 +1343,11 @@ namespace mgis::behaviour::internals {
+@@ -1330,11 +1350,11 @@ namespace mgis::behaviour::internals {
      const auto data = PointwiseData(ws, v, false, false);
      const auto o = PointValues<real>(outputs, ws.postprocessing_outputs);
      if (data.gathers || o.gathers()) {
@@ -142,7 +142,7 @@ index 6ad44aa..5586726 100644
    }  // end of executePostProcessingCheckedPointwise
  
    /*!
-@@ -1449,7 +1469,7 @@ namespace mgis::behaviour {
+@@ -1456,7 +1476,7 @@ namespace mgis::behaviour {
      if (ifct.f == nullptr) {
        internals::raiseMissingFunctionOfAPoint("executeInitializeFunction");
      }
@@ -151,7 +151,7 @@ index 6ad44aa..5586726 100644
      const auto& f = ifct.f;
      return f(&d, nullptr);
    }  // end of executeInitializeFunction
-@@ -1468,7 +1488,7 @@ namespace mgis::behaviour {
+@@ -1475,7 +1495,7 @@ namespace mgis::behaviour {
      if (ifct.f == nullptr) {
        internals::raiseMissingFunctionOfAPoint("executeInitializeFunction");
      }
@@ -160,7 +160,7 @@ index 6ad44aa..5586726 100644
      const auto& f = ifct.f;
      return f(&d, inputs.data());
    }  // end of executeInitializeFunction
-@@ -2428,7 +2448,7 @@ namespace mgis::behaviour {
+@@ -2435,7 +2455,7 @@ namespace mgis::behaviour {
      if (p.f == nullptr) {
        internals::raiseMissingFunctionOfAPoint("executePostProcessing");
      }

@@ -1,4 +1,4 @@
-From 452bacc5d53fe85b994b625144f87e3e4ecd8c76 Mon Sep 17 00:00:00 2001
+From ef83b4b9a3561b0e1911dc54d14a0ad3a3ecf2f6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:53:06 +0200
 Subject: [PATCH] Convergence criteria of the behaviours bounded for float
@@ -17,7 +17,7 @@ converged before the first iteration, giving a null stress and a success.
  1 file changed, 40 insertions(+)
 
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 6a5e153..3dc713d 100644
+index ffc48d8..52e254c 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -22,8 +22,11 @@

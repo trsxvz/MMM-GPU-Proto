@@ -14,6 +14,8 @@
 #ifndef LIB_TFEL_MATERIAL_LOGARITHMICSTRAINHANDLER_HXX
 #define LIB_TFEL_MATERIAL_LOGARITHMICSTRAINHANDLER_HXX
 
+#include <limits>
+#include "TFEL/Math/General/ConstExprMathFunctions.hxx"
 #include "TFEL/Math/tensor.hxx"
 #include "TFEL/Math/tvector.hxx"
 #include "TFEL/Math/tmatrix.hxx"
@@ -86,8 +88,17 @@ namespace tfel::material {
     using TangentOperator = tfel::math::st2tost2<1u, stress>;
     //! a simple alias
     using size_type = unsigned short;
-    //! numerical parameter used to distinguish egal eigenvalues.
-    static constexpr real eps = 1.e-14;
+    /*!
+     * \brief relative criterion formerly used in 2D and 3D to check if
+     * eigenvalues are equal: two eigenvalues of the right Cauchy-Green
+     * tensor were considered equal if their difference was below `eps`
+     * times the largest eigenvalue. It is not used in 1D, where the
+     * eigenvalues of the right Cauchy-Green tensor are never compared, nor
+     * in 2D and 3D since the divided differences of the logarithm are
+     * computed without cancellation, and is kept for compatibility.
+     */
+    static constexpr real eps =
+        tfel::math::constexpr_fct::sqrt(std::numeric_limits<real>::epsilon());
     /*!
      * \brief constructor
      * \param[in] c:  setting
@@ -249,11 +260,14 @@ namespace tfel::material {
     //! a simple alias
     using size_type = unsigned short;
     /*!
-     * \brief criterion formerly used to check if eigenvalues are equal,
-     * unused since the divided differences of the logarithm are computed
-     * without cancellation, kept for compatibility
+     * \brief relative criterion formerly used to check if eigenvalues are
+     * equal (two eigenvalues of the right Cauchy-Green tensor were
+     * considered equal if their difference was below `eps` times the largest
+     * of them), unused since the divided differences of the logarithm are
+     * computed without cancellation, kept for compatibility
      */
-    static constexpr real eps = 1.e-14;
+    static constexpr real eps =
+        tfel::math::constexpr_fct::sqrt(std::numeric_limits<real>::epsilon());
     /*!
      * \brief constructor
      * \param[in] c:  setting
@@ -546,11 +560,14 @@ namespace tfel::material {
     //! a simple alias
     using size_type = unsigned short;
     /*!
-     * \brief criterion formerly used to check if eigenvalues are equal,
-     * unused since the divided differences of the logarithm are computed
-     * without cancellation, kept for compatibility
+     * \brief relative criterion formerly used to check if eigenvalues are
+     * equal (two eigenvalues of the right Cauchy-Green tensor were
+     * considered equal if their difference was below `eps` times the
+     * largest eigenvalue), unused since the divided differences of the
+     * logarithm are computed without cancellation, kept for compatibility
      */
-    static constexpr real eps = 1.e-14;
+    static constexpr real eps =
+        tfel::math::constexpr_fct::sqrt(std::numeric_limits<real>::epsilon());
     /*!
      * \brief constructor
      * \param[in] c:  setting

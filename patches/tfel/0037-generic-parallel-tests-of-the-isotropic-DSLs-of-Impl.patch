@@ -1,4 +1,4 @@
-From e91f3d32e0e9959be27bfb15eb41aff640530456 Mon Sep 17 00:00:00 2001
+From b2eabddc5c612640048731ac2663edd68a2eafe5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 08:51:50 +0200
 Subject: [PATCH] generic-parallel: tests of the isotropic DSLs, of

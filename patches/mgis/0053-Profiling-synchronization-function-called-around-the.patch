@@ -1,4 +1,4 @@
-From e9a511ae9fc406ce041f857d814ff3b0aa2e0b8b Mon Sep 17 00:00:00 2001
+From d3f01d0a09d9e32acb238dfec7bb4679435c052c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:59:35 +0200
 Subject: [PATCH] Profiling: synchronization function called around the timed
@@ -18,7 +18,7 @@ contexts). Test and documentation.
  4 files changed, 100 insertions(+)
 
 diff --git a/docs/web/profiling.md b/docs/web/profiling.md
-index 8850169..984a438 100644
+index b389340..eb94501 100644
 --- a/docs/web/profiling.md
 +++ b/docs/web/profiling.md
 @@ -65,6 +65,28 @@ In some specific debugging scenarios, a developer might want to force the profil
@@ -51,7 +51,7 @@ index 8850169..984a438 100644
  
  To prevent the profiling tree from growing indefinitely and consuming too much memory, the system automatically aggregates repeated calls to the same section within the same parent scope. 
 diff --git a/include/MGIS/Profiling.hxx b/include/MGIS/Profiling.hxx
-index a3af5ea..ab31705 100644
+index d68bba8..fc441bc 100644
 --- a/include/MGIS/Profiling.hxx
 +++ b/include/MGIS/Profiling.hxx
 @@ -32,6 +32,25 @@ namespace mgis {
@@ -81,10 +81,10 @@ index a3af5ea..ab31705 100644
      //! \brief Standard constructor (active or inactive depending on the
      //! 'enabled' flag)
 diff --git a/src/Profiling.cxx b/src/Profiling.cxx
-index e78bafb..27bcb82 100644
+index 62c9139..64753c3 100644
 --- a/src/Profiling.cxx
 +++ b/src/Profiling.cxx
-@@ -3,23 +3,48 @@
+@@ -3,11 +3,34 @@
   * \brief  This file implements the `Profiling` class
   */
  
@@ -118,8 +118,9 @@ index e78bafb..27bcb82 100644
 +
    ProfilingSection::ProfilingSection(Context& c,
                                       std::string n,
-                                      bool enabled) noexcept
-       : ctx_ptr(&c), active(enabled) {
+                                      bool enabled) MGIS_NOEXCEPT
+@@ -15,12 +38,14 @@ namespace mgis {
+         active(enabled) {
      if (this->active && this->ctx_ptr != nullptr) {
        this->ctx_ptr->pushProfilingNode(std::move(n));
 +      synchronize();

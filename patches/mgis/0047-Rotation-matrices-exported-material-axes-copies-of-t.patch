@@ -1,4 +1,4 @@
-From 0c75470b1e0e6f10c5edca74b4395a41e07b779d Mon Sep 17 00:00:00 2001
+From fc36aaad0a34e8406691bd9e70ee75ec659b60e0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:30:19 +0200
 Subject: [PATCH] Rotation matrices: exported material axes, copies of the
@@ -23,7 +23,7 @@ Subject: [PATCH] Rotation matrices: exported material axes, copies of the
  create mode 100644 tests/RotationMatrixCopyTest.cxx
 
 diff --git a/include/MGIS/Behaviour/RotationMatrix.hxx b/include/MGIS/Behaviour/RotationMatrix.hxx
-index cdc0185..fecc3c2 100644
+index 6c077b1..9f8b1e5 100644
 --- a/include/MGIS/Behaviour/RotationMatrix.hxx
 +++ b/include/MGIS/Behaviour/RotationMatrix.hxx
 @@ -39,11 +39,13 @@ namespace mgis::behaviour {
@@ -110,17 +110,17 @@ index d03afef..e000321 100644
  
  }  // end of namespace mgis::behaviour
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index c34114a..9ad3fc4 100644
+index f0884d6..94b0ac0 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -332,6 +332,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
-   add_library_test(IntegrateTest4 IntegrateTest4.cxx ModelTest)
    add_library_test(IntegrateTest5 IntegrateTest5.cxx ModelTest)
+   add_library_test(TangentOperatorTest TangentOperatorTest.cxx BehaviourTest)
    add_library_test(RotateFunctionsTest RotateFunctionsTest.cxx BehaviourTest)
 +  add_library_test(RotationMatrixCopyTest RotationMatrixCopyTest.cxx BehaviourTest)
    add_library_test(IntegrateDebugTest IntegrateDebugTest.cxx BehaviourTest)
+   add_library_test(EnergiesTest EnergiesTest.cxx BehaviourTest)
    add_library_test(FiniteStrainPostProcessingTest
-     FiniteStrainPostProcessingTest.cxx BehaviourTest)
 diff --git a/tests/RotationMatrixCopyTest.cxx b/tests/RotationMatrixCopyTest.cxx
 new file mode 100644
 index 0000000..3d79501

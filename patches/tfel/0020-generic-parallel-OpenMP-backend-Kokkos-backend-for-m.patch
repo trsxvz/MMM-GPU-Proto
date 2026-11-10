@@ -1,4 +1,4 @@
-From ae014e66093cff4cecce9c3018b75a12f841307f Mon Sep 17 00:00:00 2001
+From a80544f93827019db1821263ddcdb1de7d8c8d85 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 23:06:55 +0200
 Subject: [PATCH] generic-parallel: OpenMP backend, Kokkos backend for material
@@ -77,10 +77,10 @@ Subject: [PATCH] generic-parallel: OpenMP backend, Kokkos backend for material
  rename test-suite/material-properties/generic-parallel/{test-stlpar.cxx => test-cxx.cxx} (82%)
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index 0784090f9..8c57a7852 100644
+index d9707d3ea..7b105e2ff 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -548,10 +548,12 @@ set(_tfel-generic-parallel_supported_configurations
+@@ -555,10 +555,12 @@ set(_tfel-generic-parallel_supported_configurations
      "sycl-default-icpx"
      "sycl-default-acpp"
      "sycl-gpu-acpp"
@@ -95,7 +95,7 @@ index 0784090f9..8c57a7852 100644
  
  foreach(conf ${generic-parallel-configurations})
    if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
-@@ -657,13 +659,15 @@ if((_tfel-enable-generic-parallel-cuda-clang-configuration) OR
+@@ -664,13 +666,15 @@ if((_tfel-enable-generic-parallel-cuda-clang-configuration) OR
    define_tfel_cxx_compiler("clang++")
  endif()
  
@@ -283,10 +283,10 @@ index 000000000..121cdb4a9
 +  linker_flags: "-mp=gpu -gpu=mem:managed"
 +}
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 436fd683e..e16df8251 100644
+index 68308da81..b835c61f0 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -123,6 +123,8 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty CUDABackendBase.hx
+@@ -128,6 +128,8 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty CUDABackendBase.hx
  install_mfront_header(MFront/GenericParallel/MaterialProperty CUDABackend.hxx)
  install_mfront_header(MFront/GenericParallel/MaterialProperty CxxProgrammingModelBackendBase.hxx)
  install_mfront_header(MFront/GenericParallel/MaterialProperty HIPBackend.hxx)
@@ -295,7 +295,7 @@ index 436fd683e..e16df8251 100644
  install_mfront_header(MFront/GenericParallel/MaterialProperty ParallelSTLBackend.hxx)
  install_mfront_header(MFront/GenericParallel/MaterialProperty SYCLBackend.hxx)
  install_mfront_header(MFront GenericBehaviourInterface.hxx)
-@@ -134,6 +136,7 @@ install_mfront_header(MFront/GenericParallel/Behaviour AbstractBackend.hxx)
+@@ -139,6 +141,7 @@ install_mfront_header(MFront/GenericParallel/Behaviour AbstractBackend.hxx)
  install_mfront_header(MFront/GenericParallel/Behaviour BackendFactory.hxx)
  install_mfront_header(MFront/GenericParallel/Behaviour GPUBackend.hxx)
  install_mfront_header(MFront/GenericParallel/Behaviour KokkosBackend.hxx)
@@ -303,7 +303,7 @@ index 436fd683e..e16df8251 100644
  install_mfront_header(MFront/GenericParallel/Behaviour ParallelSTLBackend.hxx)
  install_mfront_header(MFront/GenericParallel/Behaviour SYCLBackend.hxx)
  install_mfront_header(MFront GenericModelInterface.hxx)
-@@ -260,6 +263,7 @@ install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
+@@ -265,6 +268,7 @@ install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour Kokkos.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour ModelIntegrator.hxx)
@@ -1464,10 +1464,10 @@ index 11daa526d..fd6f15280 100644
  
  }  // end of namespace mfront::gpb::stlpar
 diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
-index a0d209110..1ba1d73b0 100644
+index e8cf4857f..b5ef7f699 100644
 --- a/mfront/src/CMakeLists.txt
 +++ b/mfront/src/CMakeLists.txt
-@@ -215,6 +215,8 @@ set(TFELMFront_SOURCES
+@@ -224,6 +224,8 @@ set(TFELMFront_SOURCES
      GenericParallel/MaterialProperty/CUDABackend.cxx
      GenericParallel/MaterialProperty/HIPBackend.cxx
      GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
@@ -1476,7 +1476,7 @@ index a0d209110..1ba1d73b0 100644
      GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
      GenericParallel/MaterialProperty/SYCLBackend.cxx
      GenericBehaviourInterface.cxx
-@@ -223,6 +225,7 @@ set(TFELMFront_SOURCES
+@@ -232,6 +234,7 @@ set(TFELMFront_SOURCES
      GenericParallel/Behaviour/BackendFactory.cxx
      GenericParallel/Behaviour/GPUBackend.cxx
      GenericParallel/Behaviour/KokkosBackend.cxx

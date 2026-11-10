@@ -15,6 +15,7 @@
 #define LIB_TFEL_MATERIAL_LOGARITHMICSTRAINHANDLER_IXX
 
 #include <cmath>
+#include <algorithm>
 #include "TFEL/Math/st2tost2.hxx"
 #include "TFEL/Raise.hxx"
 #include "TFEL/ContractViolation.hxx"
@@ -759,7 +760,6 @@ namespace tfel::material {
       const auto Cse = this->convertToMaterialTangentModuli(Ks, T);
       auto Kr =
           convert<FSTOBase::ABAQUS, FSTOBase::DS_DEGL>(Cse, F0, this->F, sig);
-      Kr /= tfel::math::det(this->F);
       return Kr;
     }
     const auto N = getNTensors(this->m);
@@ -1296,7 +1296,6 @@ namespace tfel::material {
       const auto Cse = this->convertToMaterialTangentModuli(Ks, T);
       auto Kr =
           convert<FSTOBase::ABAQUS, FSTOBase::DS_DEGL>(Cse, F0, this->F, sig);
-      Kr /= tfel::math::det(this->F);
       return Kr;
     } else {
       const auto N = getNTensors(this->m);

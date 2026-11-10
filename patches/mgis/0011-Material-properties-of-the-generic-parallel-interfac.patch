@@ -1,4 +1,4 @@
-From c8f236cca671fed817ea77f5095c4521cc6eb223 Mon Sep 17 00:00:00 2001
+From 998a2aa50e80ef418a975069995ddc99fb944566 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 14:16:46 +0200
 Subject: [PATCH] Material properties of the generic-parallel interface
@@ -46,10 +46,10 @@ Subject: [PATCH] Material properties of the generic-parallel interface
  create mode 100644 include/MGIS/MemoryLocation.hxx
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 6b33e2c..12fba75 100644
+index 88fa648..1fe76d0 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -224,6 +224,7 @@ if(NOT disable-tfel)
+@@ -234,6 +234,7 @@ if(NOT disable-tfel)
      include(tfel)
      include(material-properties)
      include(behaviours)
@@ -58,7 +58,7 @@ index 6b33e2c..12fba75 100644
  endif(NOT disable-tfel)
  
 diff --git a/cmake/modules/behaviours.cmake b/cmake/modules/behaviours.cmake
-index 9ef54d1..17cc124 100644
+index 2ee41df..b696b29 100644
 --- a/cmake/modules/behaviours.cmake
 +++ b/cmake/modules/behaviours.cmake
 @@ -87,77 +87,3 @@ function(mfront_behaviours_check_library name)
@@ -247,7 +247,7 @@ index 0000000..ccebbc3
 +    ${backend} ${ARGN})
 +endfunction(mfront_generic_parallel_material_properties_check_library)
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index c483e95..1a6a48b 100644
+index 448a362..82f554d 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -1,5 +1,6 @@
@@ -293,7 +293,7 @@ index 34b8b75..73ae8b5 100644
    struct MGIS_EXPORT BehaviourDescription {
      /*!
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 2898885..e854a78 100644
+index ead5c86..ca12f08 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -27,7 +27,7 @@
@@ -306,10 +306,10 @@ index 2898885..e854a78 100644
  namespace mgis::behaviour {
  
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index cf9983c..3153fba 100644
+index feabdaf..d049c76 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -33,7 +33,7 @@
+@@ -38,7 +38,7 @@
  
  #ifdef MGIS_FUNCTION_SUPPORT
  #include "MGIS/Function/Function.hxx"
@@ -386,7 +386,7 @@ index 5376fbf..0000000
 -
 -#endif /* LIB_MGIS_BEHAVIOUR_MEMORYLOCATION_HXX */
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 21c8d65..6869a8c 100644
+index ad5270c..88aaab0 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -28,6 +28,7 @@
@@ -706,10 +706,10 @@ index 0000000..17a9ad1
 +
 +#endif /* LIB_MGIS_MEMORYLOCATION_HXX */
 diff --git a/src/BehaviourDescription.cxx b/src/BehaviourDescription.cxx
-index 75ebc6e..b499856 100644
+index c99458b..2722e84 100644
 --- a/src/BehaviourDescription.cxx
 +++ b/src/BehaviourDescription.cxx
-@@ -128,14 +128,7 @@ namespace mgis::behaviour {
+@@ -129,14 +129,7 @@ namespace mgis::behaviour {
  
    bool isMemoryLocationAccessible(const BehaviourDescription &d,
                                    const MemoryLocation l) noexcept {
@@ -725,7 +725,7 @@ index 75ebc6e..b499856 100644
    }  // end of isMemoryLocationAccessible
  
    void loadBehaviourDescription(BehaviourDescription &d,
-@@ -183,8 +176,7 @@ namespace mgis::behaviour {
+@@ -184,8 +177,7 @@ namespace mgis::behaviour {
                     std::to_string(MGIS_BV_GENERIC_PARALLEL_API_VERSION) + ")");
        d.backend = lm.getGenericParallelBackend(l, b);
        d.memory_space = lm.getGenericParallelMemorySpace(l, b);
@@ -736,10 +736,10 @@ index 75ebc6e..b499856 100644
      }
      d.tfel_version = lm.getTFELVersion(l, b);
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 702d5cc..4701bb6 100644
+index 96f9f02..647aef2 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
-@@ -459,17 +459,9 @@ namespace mgis::behaviour::internals {
+@@ -466,17 +466,9 @@ namespace mgis::behaviour::internals {
     */
    static void checkMemoryLocation(const MaterialDataManager& m) {
      if (!isMemoryLocationAccessible(m.b, m.memory_location)) {
@@ -759,7 +759,7 @@ index 702d5cc..4701bb6 100644
                    "behaviour (memory space '" +
                    m.b.memory_space +
 diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
-index d66ff98..c1efd04 100644
+index 1240229..9bc1a15 100644
 --- a/src/LibrariesManager.cxx
 +++ b/src/LibrariesManager.cxx
 @@ -245,6 +245,8 @@ namespace mgis {

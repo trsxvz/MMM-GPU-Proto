@@ -1,4 +1,4 @@
-From f5da309e46355229c26b25f1d7f7a0d8a5313268 Mon Sep 17 00:00:00 2001
+From b26265dd467dfd54d9cffc6f84a3143c6fc7a1b5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:24:57 +0200
 Subject: [PATCH] Views: points, block accessor, context, workspace header,
@@ -36,7 +36,7 @@ Subject: [PATCH] Views: points, block accessor, context, workspace header,
  create mode 100644 include/MGIS/Behaviour/BehaviourIntegrationWorkSpace.hxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 7706174..6ec2196 100644
+index c752d73..07167a1 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -51,6 +51,7 @@ mgis_header(MGIS/Behaviour BatchDataView.hxx)
@@ -162,7 +162,7 @@ index 0000000..eb01247
 +
 +#endif /* LIB_MGIS_BEHAVIOUR_BEHAVIOURINTEGRATIONWORKSPACE_HXX */
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 96bd8b5..a8afd36 100644
+index 366000d..7281405 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -19,6 +19,7 @@
@@ -182,7 +182,7 @@ index 96bd8b5..a8afd36 100644
    namespace debug {
  
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 5cf820e..b323e9e 100644
+index c7add4c..85f15f0 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -26,6 +26,7 @@
@@ -371,10 +371,10 @@ index 070fb98..75a6e7e 100644
     * \brief update a material data view: copy the arrays of the state at the
     * end of the time step in the arrays of the state at the beginning of the
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 591b607..8cfc943 100644
+index 711cac9..7747558 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -675,6 +675,21 @@ namespace mgis::behaviour {
+@@ -742,6 +742,21 @@ namespace mgis::behaviour {
        const FieldView<real>&,
        const mgis::behaviour::MaterialStateManager&,
        const std::string_view);
@@ -560,10 +560,10 @@ index 680b9d8..92b99cf 100644
                const UpdateArguments& args,
                FieldOperations& ops) {
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 70de7cc..3ec70c5 100644
+index 495a837..e52dc15 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -965,6 +965,15 @@ namespace mgis::behaviour {
+@@ -1100,6 +1100,15 @@ namespace mgis::behaviour {
      if (!isHostAccessible(s.memory_location)) {
        mgis::raise(getHostAccessErrorMessage("extractInternalStateVariable"));
      }
@@ -579,7 +579,7 @@ index 70de7cc..3ec70c5 100644
      const auto v = getInternalStateVariableView(s, n);
      if ((o.getNumberOfPoints() != v.getNumberOfPoints()) ||
          (o.getNumberOfComponents() != v.getNumberOfComponents())) {
-@@ -972,7 +981,6 @@ namespace mgis::behaviour {
+@@ -1107,7 +1116,6 @@ namespace mgis::behaviour {
            "extractInternalStateVariable: "
            "unmatched number of integration points or of components");
      }

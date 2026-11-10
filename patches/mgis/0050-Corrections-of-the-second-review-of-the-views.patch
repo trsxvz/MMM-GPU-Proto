@@ -1,4 +1,4 @@
-From 90143ad251b6bdb6c8c7f907339d4fef4d5ad271 Mon Sep 17 00:00:00 2001
+From 98ce4a7a80e21c7f7699cbca0e1fb7508f5eedbe Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:58:08 +0200
 Subject: [PATCH] Corrections of the second review of the views
@@ -30,11 +30,8 @@ Subject: [PATCH] Corrections of the second review of the views
   temporary function, non square and refused tangent operators in
   Fortran.
 ---
- .../MGIS/Behaviour/MaterialDataManager.h      |  8 ++
- bindings/c/src/MaterialDataManager.cxx        | 11 +++
- bindings/fortran/src/mgis_behaviour.f90       | 44 +++++++--
  bindings/fortran/tests/LayoutTest-f.f90       | 43 ++++++++-
- docs/web/release-notes-3.2.md                 | 19 ++--
+ docs/web/release-notes-3.2.md                 | 10 ++-
  include/MGIS/Behaviour/Integrate.hxx          | 12 ++-
  .../MGIS/Behaviour/MaterialDataManager.hxx    | 10 ++-
  include/MGIS/Behaviour/MaterialDataView.hxx   |  3 +
@@ -52,149 +49,8 @@ Subject: [PATCH] Corrections of the second review of the views
  tests/AllocationTest.cxx                      | 90 +++++++++++++++++++
  tests/MaterialDataManagerLayoutTest.cxx       | 16 +++-
  tests/MaterialDataViewTest.cxx                | 54 +++++++++++
- 22 files changed, 348 insertions(+), 52 deletions(-)
+ 19 files changed, 284 insertions(+), 44 deletions(-)
 
-diff --git a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
-index b67e777..f36587a 100644
---- a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
-+++ b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
-@@ -194,6 +194,14 @@ mgis_bv_material_data_manager_get_time_step_scaling_factor(
-  */
- MGIS_C_EXPORT mgis_status mgis_bv_material_data_manager_get_tangent_operator(
-     mgis_real * *const, mgis_bv_MaterialDataManager* const);
-+/*!
-+ * \param[out] s: a pointer where the number of values of the tangent
-+ * operator blocks at a point will be written
-+ * \param[in]  d: material data manager
-+ */
-+MGIS_C_EXPORT mgis_status
-+mgis_bv_material_data_manager_get_tangent_operator_stride(
-+    mgis_size_type* const, mgis_bv_MaterialDataManager* const);
- /*!
-  * \param[out] l: a pointer where the layout of the arrays will be written
-  * \param[in]  d: material data manager
-diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
-index bd11061..1285764 100644
---- a/bindings/c/src/MaterialDataManager.cxx
-+++ b/bindings/c/src/MaterialDataManager.cxx
-@@ -326,6 +326,17 @@ mgis_status mgis_bv_material_data_manager_get_tangent_operator(
-   return mgis_report_success();
- }  // end of mgis_bv_material_data_manager_get_tangent_operator
- 
-+mgis_status mgis_bv_material_data_manager_get_tangent_operator_stride(
-+    mgis_size_type* const ts, mgis_bv_MaterialDataManager* const d) {
-+  if (d == nullptr) {
-+    *ts = 0;
-+    return mgis_report_failure(
-+        "invalid argument (material data manager is null)");
-+  }
-+  *ts = mgis::behaviour::getTangentOperatorArraySize(d->b);
-+  return mgis_report_success();
-+}  // end of mgis_bv_material_data_manager_get_tangent_operator_stride
-+
- mgis_status mgis_bv_material_data_manager_get_layout(
-     mgis_bv_FieldLayout* const l, mgis_bv_MaterialDataManager* const d) {
-   if (d == nullptr) {
-diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
-index 12340b3..d643bb1 100644
---- a/bindings/fortran/src/mgis_behaviour.f90
-+++ b/bindings/fortran/src/mgis_behaviour.f90
-@@ -2136,7 +2136,7 @@ contains
-   ! \brief return the transpose of the tangent operator
-   function behaviour_data_get_tangent_operator(K, d) result(s)
-     use, intrinsic :: iso_c_binding, only: c_ptr, c_f_pointer
--    use mgis, only: mgis_status, MGIS_SUCCESS
-+    use mgis, only: mgis_status, MGIS_SUCCESS, report_failure
-     implicit none
-     interface
-        function behaviour_data_get_tangent_operator_wrapper(K, d) &
-@@ -2157,6 +2157,7 @@ contains
-     type(Behaviour) :: b
-     integer gs
-     integer ths
-+    integer nK
-     nullify(K)
-     s = behaviour_data_get_behaviour(b, d)
-     if( s%exit_status .ne. MGIS_SUCCESS) then
-@@ -2170,9 +2171,20 @@ contains
-     if( s%exit_status .ne. MGIS_SUCCESS) then
-        return
-     end if
-+    s = behaviour_get_tangent_operator_array_size(nK, b)
-+    if( s%exit_status .ne. MGIS_SUCCESS) then
-+       return
-+    end if
-+    if (nK .ne. ths * gs) then
-+       s = report_failure("behaviour_data_get_tangent_operator: " // &
-+            "the tangent operator is not made of a single block")
-+       return
-+    end if
-     s = behaviour_data_get_tangent_operator_wrapper(p, d%ptr)
-     if( s%exit_status .eq. MGIS_SUCCESS) then
--       call c_f_pointer(p,K,[ths,gs])
-+       ! the blocks are stored row by row: the Fortran array, stored column
-+       ! by column, is the transpose of the tangent operator
-+       call c_f_pointer(p,K,[gs,ths])
-     end if
-   end function behaviour_data_get_tangent_operator
-   !
-@@ -3699,8 +3711,8 @@ contains
-   end function material_state_manager_is_external_state_variable_uniform
-   ! \brief return the transpose of the tangent operator
-   function material_data_manager_get_tangent_operator(K, m) result(r)
--    use, intrinsic :: iso_c_binding, only: c_ptr, c_f_pointer
--    use mgis, only: mgis_status, MGIS_SUCCESS
-+    use, intrinsic :: iso_c_binding, only: c_ptr, c_f_pointer, c_size_t
-+    use mgis, only: mgis_status, MGIS_SUCCESS, report_failure
-     implicit none
-     interface
-        function material_data_manager_get_tangent_operator_wrapper(K, m) &
-@@ -3713,6 +3725,16 @@ contains
-          type(c_ptr), intent(in), value :: m
-          type(mgis_status) :: r
-        end function material_data_manager_get_tangent_operator_wrapper
-+       function material_data_manager_get_tangent_operator_stride_wrapper(s, m) &
-+            bind(c,name = 'mgis_bv_material_data_manager_get_tangent_operator_stride')&
-+            result(r)
-+         use, intrinsic :: iso_c_binding, only: c_ptr, c_size_t
-+         use mgis, only: mgis_status
-+         implicit none
-+         integer(kind=c_size_t), intent(out) :: s
-+         type(c_ptr), intent(in), value :: m
-+         type(mgis_status) :: r
-+       end function material_data_manager_get_tangent_operator_stride_wrapper
-     end interface
-     real(kind=8), dimension(:,:,:), pointer, intent(out) :: K
-     type(MaterialDataManager), intent(in) :: m
-@@ -3722,6 +3744,7 @@ contains
-     integer n
-     integer gs
-     integer ths
-+    integer(kind=c_size_t) nK
-     nullify(K)
-     r = material_data_manager_get_state_0(s0, m)
-     if( r%exit_status .ne. MGIS_SUCCESS) then
-@@ -3748,9 +3771,18 @@ contains
-     if( r%exit_status .ne. MGIS_SUCCESS) then
-        return
-     end if
--    if( r%exit_status .eq. MGIS_SUCCESS) then
--       call c_f_pointer(p,K,[ths,gs, n])
-+    r = material_data_manager_get_tangent_operator_stride_wrapper(nK, m %ptr)
-+    if( r%exit_status .ne. MGIS_SUCCESS) then
-+       return
-+    end if
-+    if (nK .ne. ths * gs) then
-+       r = report_failure("material_data_manager_get_tangent_operator: " // &
-+            "the tangent operator is not made of a single block")
-+       return
-     end if
-+    ! the blocks are stored row by row: the Fortran array, stored column by
-+    ! column, is the transpose of the tangent operator at each point
-+    call c_f_pointer(p,K,[gs, ths, n])
-   end function material_data_manager_get_tangent_operator
-   !
-   function free_material_data_manager(ptr) result(r)
 diff --git a/bindings/fortran/tests/LayoutTest-f.f90 b/bindings/fortran/tests/LayoutTest-f.f90
 index 2d2fbd3..aeedc42 100644
 --- a/bindings/fortran/tests/LayoutTest-f.f90
@@ -258,10 +114,10 @@ index 2d2fbd3..aeedc42 100644
    call check_status(free_behaviour(b))
    call check_status(free_thread_pool(p))
 diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
-index 405ad6b..aa8e27b 100644
+index 7e49699..3126f0d 100644
 --- a/docs/web/release-notes-3.2.md
 +++ b/docs/web/release-notes-3.2.md
-@@ -192,10 +192,12 @@ This is described in a dedicated [page](views.html). In short:
+@@ -374,10 +374,12 @@ This is described in a dedicated [page](views.html). In short:
  - the layout is exposed by the `C`, `Fortran` and `Python` bindings.
  
  Once the arrays are allocated, the synchronous functions processing
@@ -276,29 +132,13 @@ index 405ad6b..aa8e27b 100644
 +the backends of the `generic-parallel` interface may allocate their own
 +memory.
  
- # Bug fixes
- 
-@@ -203,8 +205,13 @@ views. This is checked by a test.
-   failed to link (`MaterialAxisStorage` was not exported), and the copy
-   of a material axis stored locally referred to the values of the
-   original.
--- The `Fortran` function `material_data_manager_get_tangent_operator`
--  returned an array whose first extent was not set.
-+- The `Fortran` functions `material_data_manager_get_tangent_operator`
-+  and `behaviour_data_get_tangent_operator` returned an array whose shape
-+  was only valid for a square tangent operator (and whose first extent was
-+  not set for a material data manager). They now return the transpose of
-+  the tangent operator (shape `[gs, ths]` at each point), and refuse a
-+  tangent operator which is not a single block of the derivatives of the
-+  thermodynamic forces with respect to the gradients.
- - The `Python` bindings read a strided `numpy` array given as an array of
-   values (for instance `a[::2]`) as a contiguous one: it is now refused.
+ # New features of the `MGIS/Behaviour` library
  
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 79c24b5..2def39e 100644
+index 00fdffd..f0e2493 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
-@@ -497,7 +497,8 @@ namespace mgis::behaviour {
+@@ -499,7 +499,8 @@ namespace mgis::behaviour {
     * \param[in] dt: time step
     *
     * \note if required, the memory associated with the tangent operator blocks
@@ -308,8 +148,8 @@ index 79c24b5..2def39e 100644
     * \note for a behaviour generated by the `generic-parallel` interface, the
     * points are processed as a batch with the execution policy of the
     * material data manager (see the overload taking an execution policy).
-@@ -614,7 +615,8 @@ namespace mgis::behaviour {
-    * \param[in] e: last index of the range
+@@ -617,7 +618,8 @@ namespace mgis::behaviour {
+    *               (the integration points of indices in [b, e) are treated)
     *
     * \note if required, the memory associated with the tangent operator blocks
 -   * is automatically allocated.
@@ -318,7 +158,7 @@ index 79c24b5..2def39e 100644
     * \note for a behaviour generated by the `generic-parallel` interface, the
     * points are processed as a batch with the execution policy of the
     * material data manager (see the overload taking an execution policy).
-@@ -798,7 +800,8 @@ namespace mgis::behaviour {
+@@ -802,7 +804,8 @@ namespace mgis::behaviour {
    /*!
     * \brief execute the given post-processing over a range of integration points
     * \param[out] outputs: post-processing results, in the layout of the material
@@ -327,8 +167,8 @@ index 79c24b5..2def39e 100644
 +   * are unspecified.
     * \param[in,out] d: material data manager
     * \param[in] n: name of the post-processing
-    * \param[in] b: first index of the range
-@@ -1164,7 +1167,8 @@ namespace mgis::behaviour {
+    * \param[in] b: index of the first integration point of the range
+@@ -1169,7 +1172,8 @@ namespace mgis::behaviour {
    /*!
     * \brief execute the given post-processing over the points `[b, e)` of a
     * material data view
@@ -339,10 +179,10 @@ index 79c24b5..2def39e 100644
     * \param[in] v: material data view
     * \param[in] n: name of the post-processing
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index b323e9e..3609a3d 100644
+index 85f15f0..76c35d9 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
-@@ -323,8 +323,9 @@ namespace mgis::behaviour {
+@@ -329,8 +329,9 @@ namespace mgis::behaviour {
    /*!
     * \brief update the behaviour data, as the previous overload, the arrays
     * given by the calling code being copied and filled by the given
@@ -354,7 +194,7 @@ index b323e9e..3609a3d 100644
     * \param[in,out] m: material data manager
     * \param[in] ops: operations
     */
-@@ -343,8 +344,9 @@ namespace mgis::behaviour {
+@@ -349,8 +350,9 @@ namespace mgis::behaviour {
    /*!
     * \brief revert the behaviour data, as the previous overload, the arrays
     * given by the calling code being copied and filled by the given
@@ -381,10 +221,10 @@ index 75a6e7e..bae9d58 100644
    MGIS_EXPORT void updateValues(const MaterialStateView&,
                                  const MaterialStateView&,
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 8cfc943..47f9058 100644
+index 7747558..6affecb 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -627,7 +627,10 @@ namespace mgis::behaviour {
+@@ -694,7 +694,10 @@ namespace mgis::behaviour {
     *
     * The operations may be asynchronous: the calling code must synchronize
     * them before reading the values on the host, and no computation using the
@@ -397,7 +237,7 @@ index 8cfc943..47f9058 100644
     * \param[out] o: output state
     * \param[in] i: input state
 diff --git a/include/MGIS/Behaviour/RotationMatrix.hxx b/include/MGIS/Behaviour/RotationMatrix.hxx
-index fecc3c2..5e7f52c 100644
+index 9f8b1e5..0423c73 100644
 --- a/include/MGIS/Behaviour/RotationMatrix.hxx
 +++ b/include/MGIS/Behaviour/RotationMatrix.hxx
 @@ -44,7 +44,10 @@ namespace mgis::behaviour {
@@ -536,10 +376,10 @@ index 8867c67..b2279f9 100644
     * \return a constant view on the values of a function stored point by
     * point
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 74f66b6..ae8a24c 100644
+index 5db7526..2ba7177 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
-@@ -199,6 +199,7 @@ namespace mgis::behaviour::internals {
+@@ -206,6 +206,7 @@ namespace mgis::behaviour::internals {
     * property"
     * \param[in] ds: description of the variables, for instance "material
     * properties"
@@ -547,7 +387,7 @@ index 74f66b6..ae8a24c 100644
     * \param[in] values: views
     * \param[in] variables: variables
     * \param[in] h: modelling hypothesis
-@@ -208,19 +209,21 @@ namespace mgis::behaviour::internals {
+@@ -215,19 +216,21 @@ namespace mgis::behaviour::internals {
        const std::string_view f,
        const std::string_view d,
        const std::string_view ds,
@@ -573,7 +413,7 @@ index 74f66b6..ae8a24c 100644
      }
    }  // end of checkVariablesViews
  
-@@ -269,10 +272,10 @@ namespace mgis::behaviour::internals {
+@@ -276,10 +279,10 @@ namespace mgis::behaviour::internals {
                       s.dissipated_energies, v.n, 1, final_state);
      }
      checkVariablesViews(f, "the material property", "material properties",
@@ -588,7 +428,7 @@ index 74f66b6..ae8a24c 100644
  
    /*!
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index ff8e086..6300c05 100644
+index 443ab33..47c1778 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -402,6 +402,10 @@ namespace mgis::behaviour {
@@ -603,10 +443,10 @@ index ff8e086..6300c05 100644
          if (K.empty()) {
            mgis::raise(
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 3ec70c5..8db4d68 100644
+index e52dc15..edceb2e 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -610,7 +610,7 @@ namespace mgis::behaviour {
+@@ -712,7 +712,7 @@ namespace mgis::behaviour {
          u.ops.copy(FieldView<real>(to, 1, nv, nv, 1),
                     FieldView<const real>(from, 1, nv, nv, 1));
        } catch (std::exception& e) {
@@ -615,7 +455,7 @@ index 3ec70c5..8db4d68 100644
        } catch (...) {
          return u.ctx.registerErrorMessage("unknown exception");
        }
-@@ -757,7 +757,7 @@ namespace mgis::behaviour {
+@@ -893,7 +893,7 @@ namespace mgis::behaviour {
      try {
        u.ops.copy(view(o), view(i));
      } catch (std::exception& e) {

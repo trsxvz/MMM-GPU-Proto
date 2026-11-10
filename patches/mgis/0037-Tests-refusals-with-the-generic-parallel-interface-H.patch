@@ -1,4 +1,4 @@
-From e739e9accb568eef709a9d7c12e2bde7ba266b44 Mon Sep 17 00:00:00 2001
+From 38d492879b798c39a0e2de8fe0e27790c9671380 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:07:49 +0200
 Subject: [PATCH] Tests: refusals with the generic-parallel interface, HDF5

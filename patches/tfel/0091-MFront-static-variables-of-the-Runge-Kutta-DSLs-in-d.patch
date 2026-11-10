@@ -1,4 +1,4 @@
-From 8fc22f4fd6eba62c6aeede6fa78d22de227b45c5 Mon Sep 17 00:00:00 2001
+From 1ec83d841847959295a973b2e8dc9d0116d2b943 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:07:34 +0200
 Subject: [PATCH] MFront: static variables of the Runge-Kutta DSLs in device
@@ -51,10 +51,10 @@ index cb5a34ec3..49eca7ccf 100644
  #ifdef TFEL_DEVICE_CODE
  #define TFEL_STATIC_VARIABLE(v) (decltype(v){v})
 diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
-index fe885d9a4..424fc022b 100644
+index b0f4792dc..20e11bf83 100644
 --- a/mfront/src/BehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
-@@ -2849,8 +2849,8 @@ namespace mfront {
+@@ -3006,8 +3006,8 @@ namespace mfront {
            out << "tfel::math::base_type_cast(this->" << pi->name << ")";
          } else if (c == BehaviourDescription::MaterialPropertyInput::
                              STATICVARIABLE) {
@@ -65,7 +65,7 @@ index fe885d9a4..424fc022b 100644
          } else {
            throw_if(true,
                     "thermal expansion coefficients must depend "
-@@ -5480,7 +5480,8 @@ namespace mfront {
+@@ -5650,7 +5650,8 @@ namespace mfront {
               << " = this->" << source << " + this->d" << source << ";\n";
          } else if (md.isStaticVariableName(source)) {
            os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
@@ -75,7 +75,7 @@ index fe885d9a4..424fc022b 100644
          } else {
            os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
               << " = this->" << source << ";\n";
-@@ -5560,7 +5561,8 @@ namespace mfront {
+@@ -5730,7 +5731,8 @@ namespace mfront {
               << " = this->d" << source << ";\n";
          } else if (md.isStaticVariableName(source)) {
            os << "mfront_behaviour_variable_" << b.name << ". " << esv.name
@@ -86,19 +86,19 @@ index fe885d9a4..424fc022b 100644
               << " = " << esv.type << "{};\n";
          } else {
 diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-index d8a5f8ca4..effab80e3 100644
+index a4c189204..770e48537 100644
 --- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
 +++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-@@ -150,7 +150,7 @@ namespace mfront {
-                      (i.category == MaterialPropertyInput::PARAMETER)) {
-             return "this->" + i.name;
-           } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
--            return cn + "::" + i.name;
-+            return "TFEL_STATIC_VARIABLE(" + cn + "::" + i.name + ")";
-           } else {
-             tfel::raise(
-                 "modifyVariableForStiffnessTensorComputation: "
-@@ -182,7 +182,7 @@ namespace mfront {
+@@ -170,7 +170,7 @@ namespace mfront {
+                  (i.category == MaterialPropertyInput::PARAMETER)) {
+         return "this->" + i.name;
+       } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
+-        return cn + "::" + i.name;
++        return "TFEL_STATIC_VARIABLE(" + cn + "::" + i.name + ")";
+       } else {
+         tfel::raise(
+             "modifyVariableForStiffnessTensorComputation: "
+@@ -202,7 +202,7 @@ namespace mfront {
                   (i.category == MaterialPropertyInput::PARAMETER)) {
          return "this->" + i.name;
        } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
@@ -107,7 +107,7 @@ index d8a5f8ca4..effab80e3 100644
        } else {
          tfel::raise(
              "modifyVariableForStiffnessTensorComputation2: "
-@@ -1624,15 +1624,18 @@ namespace mfront {
+@@ -1668,15 +1668,18 @@ namespace mfront {
         << "2>(((sigf)-(this->sig))|((sigf)-(this->sig))) / errabs;\n"
         << "const auto sqra = tfel::math::power<1, 2>(ra);\n"
         << "// test for convergence\n"
@@ -131,7 +131,7 @@ index d8a5f8ca4..effab80e3 100644
         << "dt_ /= sqra;\n";
      if (getDebugMode()) {
        os << "cout << \"" << this->bd.getClassName()
-@@ -1667,15 +1670,20 @@ namespace mfront {
+@@ -1714,15 +1717,20 @@ namespace mfront {
         << "converged=true;\n"
         << "}\n"
         << "if(!converged){\n"
@@ -157,7 +157,7 @@ index d8a5f8ca4..effab80e3 100644
      os << "dt_ /= sqra;\n";
      if (getDebugMode()) {
        os << "cout << \"" << this->bd.getClassName()
-@@ -1686,11 +1694,13 @@ namespace mfront {
+@@ -1733,11 +1741,13 @@ namespace mfront {
         << "}\n"
         << "}\n"
         << "} else { \n"

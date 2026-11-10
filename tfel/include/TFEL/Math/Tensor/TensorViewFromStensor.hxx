@@ -46,21 +46,20 @@ namespace tfel::math {
     TFEL_HOST_DEVICE constexpr Expr& operator=(Expr&&) = default;
 
     [[nodiscard]] TFEL_HOST_DEVICE constexpr ValueType operator[](
-        const unsigned short i) const {
+        const unsigned short i) const noexcept {
       return this->operator()(i);
     }
 
     [[nodiscard]] TFEL_HOST_DEVICE constexpr ValueType operator()(
-        const unsigned short i) const {
+        const unsigned short i) const noexcept {
       // component of the symmetric tensor associated with each component of
       // the tensor, the off-diagonal components being divided by the square
       // root of two. A switch statement is avoided: nvc++ 25.11 (-mp=gpu,
       // -O2 and above) fails on it when this operator is inlined in a product
-      // of tensors (internal compiler error).
+      // of tensors (internal compiler error). Invalid indices give zero.
       constexpr unsigned short indices[9] = {0, 1, 2, 3, 3, 4, 4, 5, 5};
       if (i >= TensorDimeToSize<N>::value) {
-        return internals::reportInvalidTensorIndex<TensorInvalidIndexException,
-                                                   ValueType>();
+        return ValueType(0);
       }
       const auto v = this->s(indices[i]);
       return (i < 3) ? v : v * Cste<ValueType>::isqrt2;

@@ -18,15 +18,9 @@ export MAKEFLAGS=-j4
 B=$PROTO_TFEL_BUILD
 if [ -f "$B/CMakeCache.txt" ]; then
   cd "$B" || exit 1
-  CONFS=$(grep '^CONFIGURATIONS=' "$P/build-tfel.sh" | sed 's/^CONFIGURATIONS="\(.*\)"$/\1/' | sed 's/\$CONFIGURATIONS;//' | paste -sd';')
-  # raja and arcane are added by build-tfel.sh only if RAJA and Arccore are
-  # installed: same rules
-  if [ -d "$P/deps/spack/mmm-raja/.spack-env/view/lib/cmake/raja" ]; then
-    CONFS="$CONFS;raja"
-  fi
-  if [ -f "$P/install/arccore/include/arccore/arccore_config.h" ]; then
-    CONFS="$CONFS;arcane"
-  fi
+  # configurations of the machine profile (raja and arcane are added there if
+  # RAJA and Arccore are installed), as build-tfel.sh
+  CONFS=$(source "$PROTO_MACHINE_DIR/tfel.sh" > /dev/null 2>&1 && echo "$CONFIGURATIONS")
   (export PATH=$PROTO_SPACK_VIEW/bin:$PROTO_CUDA/bin:$PATH HIP_PLATFORM=nvidia CUDA_PATH=$PROTO_HIP_CUDA
    cmake -Dgeneric-parallel-configurations="$CONFS" \
      -DTFEL_CLANGXX_COMPILER=$PROTO_LLVM/bin/clang++ \

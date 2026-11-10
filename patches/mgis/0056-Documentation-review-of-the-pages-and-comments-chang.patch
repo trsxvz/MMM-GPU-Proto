@@ -1,4 +1,4 @@
-From 2f5aea232d9d875c09b7c35347257802fb45b39c Mon Sep 17 00:00:00 2001
+From 347ce0767265d77a783a8d53799daa3e69f9acda Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 16:46:22 +0200
 Subject: [PATCH] Documentation: review of the pages and comments changed by
@@ -27,8 +27,8 @@ left for later):
 No code is changed: the sources without their comments are identical.
 ---
  CMakeLists.txt                                |   8 +-
- INSTALL-cmake.md                              |  29 +-
- README.md                                     |  11 +-
+ INSTALL-cmake.md                              |  25 +-
+ README.md                                     |   5 +
  .../behaviour-integration-failure-analysis.md |   5 +
  docs/web/bindings-cxx.md                      |  31 ++-
  docs/web/bindings-python-small_strain.md      |  19 ++
@@ -36,14 +36,14 @@ No code is changed: the sources without their comments are identical.
  docs/web/functions.md                         |  25 +-
  docs/web/generic-parallel.md                  |  75 ++++--
  docs/web/index.md                             |  17 +-
- docs/web/install.md                           |  39 ++-
+ docs/web/install.md                           |  35 ++-
  docs/web/orthotropic-behaviours.md            |  22 +-
- docs/web/profiling.md                         |   9 +-
- docs/web/release-notes-3.2.md                 |  56 ++--
+ docs/web/profiling.md                         |   5 +-
+ docs/web/release-notes-3.2.md                 |  50 +++-
  docs/web/views.md                             |  55 ++--
  include/MGIS/BatchExecutionPolicy.hxx         |  13 +-
  include/MGIS/Behaviour/BatchDataView.hxx      |  30 ++-
- include/MGIS/Behaviour/Behaviour.hxx          | 255 ++++++++++++------
+ include/MGIS/Behaviour/Behaviour.hxx          | 245 +++++++++++++-----
  .../MGIS/Behaviour/BehaviourDescription.hxx   |  20 +-
  .../BehaviourIntegrationWorkSpace.hxx         |  16 +-
  .../MGIS/Behaviour/FiniteStrainSupport.hxx    |  30 ++-
@@ -52,7 +52,7 @@ No code is changed: the sources without their comments are identical.
  include/MGIS/Behaviour/MaterialDataView.hxx   |  65 +++--
  .../Behaviour/MaterialFunctionManager.hxx     |  72 ++++-
  .../Behaviour/MaterialFunctionManager.ixx     |   6 +-
- .../MGIS/Behaviour/MaterialStateManager.hxx   |  95 +++++--
+ .../MGIS/Behaviour/MaterialStateManager.hxx   |  95 ++++---
  .../Behaviour/PendingBatchComputation.hxx     |   7 +-
  include/MGIS/Behaviour/RotationMatrix.hxx     |  19 +-
  include/MGIS/FieldOperations.hxx              |   2 +
@@ -62,9 +62,9 @@ No code is changed: the sources without their comments are identical.
  include/MGIS/FieldView.hxx                    |  38 ++-
  include/MGIS/FieldView.ixx                    |   2 +-
  include/MGIS/Function/FieldViewSupport.hxx    |  28 +-
- include/MGIS/LibrariesManager.hxx             |  28 +-
+ include/MGIS/LibrariesManager.hxx             |  24 +-
  .../BatchMaterialPropertyFctPtr.hxx           |  39 ++-
- .../MaterialProperty/MaterialProperty.hxx     |  58 ++--
+ .../MaterialProperty/MaterialProperty.hxx     |  58 +++--
  .../MGIS/MaterialProperty/OutputStatus.hxx    |   8 +-
  .../PendingBatchEvaluation.hxx                |  12 +-
  include/MGIS/MemoryLocation.hxx               |  21 +-
@@ -73,20 +73,20 @@ No code is changed: the sources without their comments are identical.
  .../SYCLSharedMemoryResource.hxx              |   3 +-
  include/MGIS/Model/Model.hxx                  |   8 +-
  include/MGIS/Profiling.hxx                    |  12 +-
- mgis.doxygen                                  |  25 +-
+ mgis.doxygen                                  |  17 +-
  src/Behaviour.cxx                             |  11 +-
  src/Integrate.cxx                             |   8 +-
  src/MaterialDataManager.cxx                   |  21 +-
  src/MaterialProperty.cxx                      |  18 +-
- src/MaterialStateManager.cxx                  |  73 ++++-
+ src/MaterialStateManager.cxx                  |  69 ++++-
  src/Profiling.cxx                             |   3 +-
- 54 files changed, 1186 insertions(+), 506 deletions(-)
+ 54 files changed, 1162 insertions(+), 480 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 12fba75..cf29b58 100644
+index 1fe76d0..8bbccf0 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -23,10 +23,12 @@ set(CXX_STANDARD_REQUIRED ON)
+@@ -29,10 +29,12 @@ endif()
  
  # enable tests
  option(enable-testing "" ON)
@@ -103,7 +103,7 @@ index 12fba75..cf29b58 100644
  # portable-build
  option(enable-portable-build "produce binary that can be shared between various machine (same architecture, same gcc version, different processors" OFF)
 diff --git a/INSTALL-cmake.md b/INSTALL-cmake.md
-index 8fe875c..e0dd24c 100644
+index 913a283..42805eb 100644
 --- a/INSTALL-cmake.md
 +++ b/INSTALL-cmake.md
 @@ -17,12 +17,12 @@ The simplest way to compile this package is:
@@ -121,7 +121,7 @@ index 8fe875c..e0dd24c 100644
     messages telling which features it is checking for.
  
  2. Type `make` to compile the package.
-@@ -52,7 +52,7 @@ Options
+@@ -53,7 +53,7 @@ Options
    `FEniCS`, usage of the `Python` bindings are encouraged.
  - `enable-julia-bindings`: compiles the `Julia` bindings. This requires
    the `CxxWrap` library to be available.
@@ -130,14 +130,10 @@ index 8fe875c..e0dd24c 100644
    pandoc is found)
  - `enable-portable-build`: do not use processor specific flags.
  - `enable-static`: compiles static libraries
-@@ -69,11 +69,14 @@ Options
-    is enabled and if `TFEL` libraries are available.
- - `enable-exceptions`: use exceptions to report contract violation and error reporting.
-    By default, contract violation leads to abort the program.
--- `enable-parallel-stl-algorithms`: by default, STL algorithms are used if available
-+- `enable-parallel-stl-algorithms`: enable the parallel algorithms of the
-+  standard library in `MGIS/Function` (default=OFF). With `libstdc++`,
-+  this requires the `TBB` library.
+@@ -75,10 +75,11 @@ Options
+   `MGIS/Function` algorithms taking an execution policy of the standard
+   library (default=ON). With `libstdc++`, this requires `TBB`: if `TBB`
+   is not available, configure with `-Denable-parallel-stl-algorithms=OFF`.
 +- `enable-openmp`: links the `MGIS` library with `OpenMP` (default=OFF).
  - `enable-cuda-algorithms`: add support for algorithms expressed in
    `CUDA` programming model.
@@ -147,7 +143,7 @@ index 8fe875c..e0dd24c 100644
    `MGIS` still tries by default to support `HDF5` but configuration will
    not fail if the `HDF5` library is not found. See
    `enable-hdf5-automatic-support` for details.
-@@ -81,17 +84,19 @@ Options
+@@ -86,17 +87,19 @@ Options
    support `HDF5` even if `enable-hdf5-support` is not set.
  - `enable-generic-parallel-cuda-tests`: test the behaviours, models and
    material properties generated by the `generic-parallel` interface of
@@ -173,30 +169,12 @@ index 8fe875c..e0dd24c 100644
 +======================
  
  - `CMAKE_BUILD_TYPE`           : two values are supported `Release` and `Debug`
- - `CASTEM_INSTALL_PATH`        : specify where the castem has been installed
+ - `CMAKE_TOOLCHAIN_FILE`       : specify a tool chain file
 diff --git a/README.md b/README.md
-index 8ffc3f4..d4ebb2c 100644
+index d575fe0..2eadda2 100644
 --- a/README.md
 +++ b/README.md
-@@ -19,7 +19,7 @@ The official website can be found here:
- 
- ## The `MFrontGenericInterface` `C++` library
- 
--The project is build around the `MFrontGenericInterface` library. This
-+The project is built around the `MFrontGenericInterface` library. This
- library provides two main functions:
- 
- - the `mgis::behaviour::load` functions loads `MFront` behaviours from
-@@ -32,7 +32,7 @@ library provides two main functions:
-   of the integration point at the beginning and at the end of the time
-   step.
- 
--The library also supports handling a group of integration points though
-+The library also supports handling a group of integration points through
- the `mgis::behaviour::MaterialStateManager` and
- `mgis::behaviour::MaterialDataManager` classes.
- 
-@@ -43,6 +43,11 @@ integration points, on CPUs or on GPUs. The functions acting on a
+@@ -57,6 +57,11 @@ integration points, on CPUs or on GPUs. The functions acting on a
  evaluated on a set of points by the `mgis::material_property::evaluate`
  function. See <https://thelfer.github.io/mgis/web/generic-parallel.html>.
  
@@ -207,18 +185,9 @@ index 8ffc3f4..d4ebb2c 100644
 +
  ## Bindings
  
- ### Existing 
-@@ -87,6 +92,8 @@ The following branches are available:
- 
- - The `master` branch follows the evolution of the `master` branch of
-   the `TFEL` project
-+- The `rliv-3.1` follows the evolution of the 5.1.x series of the `TFEL`
-+  project.
- - The `rliv-3.0` follows the evolution of the 5.0.x series of the `TFEL`
-   project.
- - The `rliv-2.2` follows the evolution of the 4.2.x series of the `TFEL`
+ ### Existing
 diff --git a/docs/web/behaviour-integration-failure-analysis.md b/docs/web/behaviour-integration-failure-analysis.md
-index 4de5fb6..f8d1d3c 100644
+index 7d322ad..5ab7aed 100644
 --- a/docs/web/behaviour-integration-failure-analysis.md
 +++ b/docs/web/behaviour-integration-failure-analysis.md
 @@ -65,6 +65,11 @@ The same `MFront` file, compiled with the `generic` interface, gives the
@@ -234,10 +203,10 @@ index 4de5fb6..f8d1d3c 100644
  ## Description of the default analyser {#sec:mgis:integration_failure:default_analyser}
  
 diff --git a/docs/web/bindings-cxx.md b/docs/web/bindings-cxx.md
-index 7722221..793c9dd 100644
+index 53fa94b..de7c069 100644
 --- a/docs/web/bindings-cxx.md
 +++ b/docs/web/bindings-cxx.md
-@@ -386,7 +386,7 @@ const auto o = getVariableOffset(b.isvs, "EquivalentViscoplasticStrain",
+@@ -409,7 +409,7 @@ const auto o = getVariableOffset(b.isvs, "EquivalentViscoplasticStrain",
  
  The same applies to material properties, external state variables, etc...
  
@@ -246,7 +215,7 @@ index 7722221..793c9dd 100644
  
  The `update` function overwrites the `s0` member, i.e. the state at the
  beginning of the time step, with `s1`,  i.e. the state at the
-@@ -418,7 +418,7 @@ where `n` is the number of integration points.
+@@ -441,7 +441,7 @@ where `n` is the number of integration points.
  
  The `MaterialDataManager` structure has data members that have the same
  names and meanings than those of the `BehaviourData` structure, except
@@ -255,7 +224,7 @@ index 7722221..793c9dd 100644
  particular, the `MaterialDataManager` structure contains two data
  members called `s0` and `s1` containing the state of integration point.
  
-@@ -432,9 +432,12 @@ case, one can have a look at the `MaterialDataManagerInitializer`
+@@ -455,9 +455,12 @@ case, one can have a look at the `MaterialDataManagerInitializer`
  class. This class also declares the memory location of the arrays (host,
  device or shared memory) and can give a memory resource used to allocate
  the arrays which are not given. See [this page](generic-parallel.html)
@@ -270,7 +239,7 @@ index 7722221..793c9dd 100644
  
  The `update` function overwrites the `s0` member, i.e. the state at the
  beginning of the time step, with `s1`,  i.e. the state at the
-@@ -448,6 +451,8 @@ time step.
+@@ -471,6 +474,8 @@ time step.
  
  The `update` and `revert` functions copy the values on the host: they
  throw an exception if the arrays are located in the memory of a device.
@@ -279,7 +248,7 @@ index 7722221..793c9dd 100644
  
  ## Third case: manual allocation
  
-@@ -478,23 +483,25 @@ int integrate(BehaviourDataView&, const Behaviour&);
+@@ -501,23 +506,25 @@ int integrate(BehaviourDataView&, const Behaviour&);
  ~~~~
  
  The user may refer to the `IntegrateTest.cxx` file to have an example on
@@ -310,7 +279,7 @@ index 7722221..793c9dd 100644
  throws an exception. See [this page](generic-parallel.html).
  
  > **Note**
-@@ -520,7 +527,7 @@ containing:
+@@ -543,7 +550,7 @@ containing:
  - the list of inputs of the initialize function, if any.
  
  The `getInitializeFunctionVariablesArraySize` function returns the size
@@ -319,7 +288,7 @@ index 7722221..793c9dd 100644
  integration point.
  
  The `allocateInitializeFunctionVariables` functions return an array able
-@@ -543,7 +550,7 @@ the points as a batch, as the `integrate` function.
+@@ -566,7 +573,7 @@ the points as a batch, as the `integrate` function.
  > The `BehaviourDataView` class imposes that the initial state is immutable.
  > Thus, initialize functions can thus only initialize the state of the material
  > at the end of the time step. In most case, the call to the selected
@@ -328,7 +297,7 @@ index 7722221..793c9dd 100644
  
  # Support for behaviours' post-processings {#sec:mgis:2.1:postprocessings}
  
-@@ -559,7 +566,7 @@ postprocessing and a small data structure containing:
+@@ -582,7 +589,7 @@ postprocessing and a small data structure containing:
  - the list of outputs of the postprocessing.
  
  The `getPostProcessingVariablesArraySize` function returns the size
@@ -338,7 +307,7 @@ index 7722221..793c9dd 100644
  
  The `allocatePostProcessingVariables` functions return an array able to
 diff --git a/docs/web/bindings-python-small_strain.md b/docs/web/bindings-python-small_strain.md
-index 9c34c45..28f1fdf 100644
+index 788f416..8d7d23f 100644
 --- a/docs/web/bindings-python-small_strain.md
 +++ b/docs/web/bindings-python-small_strain.md
 @@ -404,6 +404,25 @@ Internal state variables:
@@ -368,7 +337,7 @@ index 9c34c45..28f1fdf 100644
  
  In order to perform the behaviour integration, we need to declare the
 diff --git a/docs/web/error_handling.md b/docs/web/error_handling.md
-index 447b68d..a0f7f28 100644
+index e9c1cbd..38548fa 100644
 --- a/docs/web/error_handling.md
 +++ b/docs/web/error_handling.md
 @@ -26,7 +26,11 @@ This section describes the error handling strategy introduced in
@@ -385,10 +354,10 @@ index 447b68d..a0f7f28 100644
  Some other standard strategies provided by the standard have also been
  discarded, although their design have inspired the proposed solution.
 diff --git a/docs/web/functions.md b/docs/web/functions.md
-index 496134e..15fa58f 100644
+index 8660ac3..70f83c7 100644
 --- a/docs/web/functions.md
 +++ b/docs/web/functions.md
-@@ -209,8 +209,11 @@ In a element-major pattern, values usually are stored as follows:
+@@ -261,8 +261,11 @@ In a element-major pattern, values usually are stored as follows:
  +------------++------------++---------++------------+      +------------++------------++---------++------------+
  ~~~~
  
@@ -402,7 +371,7 @@ index 496134e..15fa58f 100644
  
  ## The `Function` class
  
-@@ -260,11 +263,19 @@ the memory on which it is built. The user is responsible for:
+@@ -312,11 +315,19 @@ the memory on which it is built. The user is responsible for:
  - releasing the underlying memory.
  
  This data structure is very close to an element-major storage (see
@@ -594,10 +563,10 @@ index 10b96a5..80220df 100644
  auto resource = mgis::memory_resources::CUDAManagedMemoryResource{};
  const auto b =
 diff --git a/docs/web/index.md b/docs/web/index.md
-index 85fe371..9e41170 100644
+index 56090da..19f52d3 100644
 --- a/docs/web/index.md
 +++ b/docs/web/index.md
-@@ -41,7 +41,7 @@ and proprietary codes.
+@@ -50,7 +50,7 @@ library independent of `TFEL`.
  
  # The `MFrontGenericInterface` `C++` library
  
@@ -606,7 +575,7 @@ index 85fe371..9e41170 100644
  library provides two main functions:
  
  - the `mgis::behaviour::load` functions loads `MFront` behaviours from
-@@ -54,7 +54,7 @@ library provides two main functions:
+@@ -63,7 +63,7 @@ library provides two main functions:
    of the integration point at the beginning and at the end of the time
    step.
  
@@ -615,7 +584,7 @@ index 85fe371..9e41170 100644
  the `mgis::behaviour::MaterialStateManager` and
  `mgis::behaviour::MaterialDataManager` classes.
  
-@@ -117,6 +117,7 @@ The following bindings are available:
+@@ -126,6 +126,7 @@ The following bindings are available:
  - `python` binding: this binding also provide an interface to `FEniCS` which is 
    discussed [here along with a collection of commented demos](mgis_fenics.html)
  - `fortran` binding
@@ -623,7 +592,7 @@ index 85fe371..9e41170 100644
  
  ## Future bindings (contributors are welcomed)
  
-@@ -130,6 +131,18 @@ The following bindings are under consideration:
+@@ -139,6 +140,18 @@ The following bindings are under consideration:
  
  - the `master` branch follows the evolution of the `master` branch of
    the `TFEL` project
@@ -643,10 +612,10 @@ index 85fe371..9e41170 100644
    project.
  - the `rliv-1.0` follows the evolution of the 3.2.x series of the `TFEL`
 diff --git a/docs/web/install.md b/docs/web/install.md
-index 9323c23..b01d281 100644
+index 762daf5..c91240b 100644
 --- a/docs/web/install.md
 +++ b/docs/web/install.md
-@@ -34,12 +34,12 @@ The simplest way to compile this package is:
+@@ -35,12 +35,12 @@ The simplest way to compile this package is:
     However, we strongly recommend building `MGIS` out of the source
     tree as follows:
     
@@ -661,14 +630,10 @@ index 9323c23..b01d281 100644
     messages telling which features it is checking for.
  
  2. Type `make` to compile the package.
-@@ -65,7 +65,19 @@ The simplest way to compile this package is:
-    is enabled and if `TFEL` libraries are available.
- - `enable-exceptions`: use exceptions to report contract violation and error reporting.
-    By default, contract violation leads to abort the program.
--- `enable-parallel-stl-algorithms`: by default, STL algorithms are used if available
-+- `enable-parallel-stl-algorithms`: enable the parallel algorithms of the
-+  standard library in `MGIS/Function` (default=OFF). With `libstdc++`,
-+  this requires the `TBB` library.
+@@ -70,6 +70,16 @@ The simplest way to compile this package is:
+   `MGIS/Function` algorithms taking an execution policy of the standard
+   library (default=ON). With `libstdc++`, this requires `TBB`: if `TBB`
+   is not available, configure with `-Denable-parallel-stl-algorithms=OFF`.
 +- `enable-openmp`: links the `MGIS` library with `OpenMP` (default=OFF).
 +- `enable-cuda-algorithms`: add support for algorithms expressed in
 +  `CUDA` programming model (default=OFF).
@@ -682,7 +647,7 @@ index 9323c23..b01d281 100644
  - `enable-c-bindings`: compiles the `C` bindings (default=OFF)
  - `enable-fortran-bindings`: compiles bindings for the `Fortran2003`
    language (default=OFF)
-@@ -76,31 +88,34 @@ The simplest way to compile this package is:
+@@ -81,32 +91,35 @@ The simplest way to compile this package is:
    `FEniCS`, usage of the `Python` bindings are encouraged.
  - `enable-julia-bindings`: compiles the `Julia` bindings. This requires
    the `CxxWrap` library to be available.
@@ -693,7 +658,8 @@ index 9323c23..b01d281 100644
  - `enable-static`: compiles static libraries
 +- `enable-testing`: enable compilation of tests (default=ON)
  - `enable-doxygen-doc`: enable the generation of the API documentation
-   using with `Doxygen`.
+   using with `Doxygen`. The documentation is generated by `make doc`
+   and installed by a subsequent `make install`.
  - `enable-generic-parallel-cuda-tests`: test the behaviours, models and
    material properties generated by the `generic-parallel` interface of
 -  `MFront` with the `cuda` backend. This requires a `CUDA` compiler and an
@@ -725,12 +691,12 @@ index 9323c23..b01d281 100644
 +## `cmake` useful variables
  
  - `CMAKE_BUILD_TYPE`           : two values are supported `Release` and `Debug`
- - `CASTEM_INSTALL_PATH`        : specify where the castem has been installed
+ - `CMAKE_TOOLCHAIN_FILE`       : specify a tool chain file
 diff --git a/docs/web/orthotropic-behaviours.md b/docs/web/orthotropic-behaviours.md
-index 032d4bc..5a0c903 100644
+index 8afb22d..4bff342 100644
 --- a/docs/web/orthotropic-behaviours.md
 +++ b/docs/web/orthotropic-behaviours.md
-@@ -213,13 +213,15 @@ The following helper functions are thus provided:
+@@ -222,13 +222,15 @@ The following helper functions are thus provided:
  - `rotateThermodynamicForces`
  - `rotateTangentOperatorBlocks`
  
@@ -749,7 +715,7 @@ index 032d4bc..5a0c903 100644
  
  For a behaviour generated by the `generic-parallel` interface, those
  functions rotate all the points by one call of the batch rotation
-@@ -232,7 +234,12 @@ accessible by the computations of the behaviour. The matrices of the
+@@ -241,7 +243,12 @@ accessible by the computations of the behaviour. The matrices of the
  `RotationMatrix2D` and `RotationMatrix3D` objects are built on the host at
  each call: for repeated rotations on a GPU, the matrices shall be built
  once by `buildRotationMatrices` and given as an array (see [this
@@ -763,7 +729,7 @@ index 032d4bc..5a0c903 100644
  
  Those functions are perfectly fine for managing the rotations of the
  gradients of a set of integration points. However, their overhead is
-@@ -320,8 +327,11 @@ functions:
+@@ -329,8 +336,11 @@ functions:
  - `rotateThermodynamicForces`
  - `rotateTangentOperatorBlocks`
  
@@ -778,20 +744,9 @@ index 032d4bc..5a0c903 100644
  For convenience, those functions are also available as members of the
  `Behaviour` class.
 diff --git a/docs/web/profiling.md b/docs/web/profiling.md
-index 984a438..b59d1e8 100644
+index eb94501..44932b8 100644
 --- a/docs/web/profiling.md
 +++ b/docs/web/profiling.md
-@@ -31,8 +31,8 @@ The result of the profiling is not a flat list of timers, but a hierarchical tre
- 
- - `name`: A `std::string` representing the name of the profiled section.
- - `time_in_seconds`: A `double` accumulating the total time spent in this section.
--- `calls`: An `unsigned int` counting the number of times this section was executed.
--- `children`: A `std::vector` of `std::shared_ptr<ProfilingData>`, representing the nested profiled sections called within the current one.
-+- `calls`: A `std::size_t` counting the number of times this section was executed.
-+- `children`: A `std::vector` of `std::unique_ptr<ProfilingData>`, representing the nested profiled sections called within the current one.
- 
- # Managing the Profiling State
- 
 @@ -84,8 +84,9 @@ mgis::setProfilingSynchronization(&synchronizeDevice);
  The function is shared by all contexts. By default, no function is set
  (no synchronization). The synchronization has a cost: it only happens in
@@ -805,10 +760,10 @@ index 984a438..b59d1e8 100644
  # Aggregation and Loops
  
 diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
-index aa8e27b..57bfea4 100644
+index 3126f0d..e926679 100644
 --- a/docs/web/release-notes-3.2.md
 +++ b/docs/web/release-notes-3.2.md
-@@ -49,7 +49,7 @@ This version is meant to be used with `TFEL` Version 5.2.
+@@ -189,7 +189,7 @@ use the new comparator or `auto`.
  
  ### Support for `CUDA` in `MGIS/Function`
  
@@ -817,7 +772,7 @@ index aa8e27b..57bfea4 100644
  `enable-cuda-algorithms`.
  
  ### Tests of the `generic-parallel` interface with `CUDA`
-@@ -57,19 +57,20 @@ Support for `CUDA` in `MGIS/Function` is enable by
+@@ -197,19 +197,20 @@ Support for `CUDA` in `MGIS/Function` is enable by
  The `enable-generic-parallel-cuda-tests` option enables the tests of the
  behaviours, models and material properties generated by the
  `generic-parallel` interface of `MFront` with the `cuda` backend. Those
@@ -841,7 +796,7 @@ index aa8e27b..57bfea4 100644
  
  ## `Doxygen` documentation
  
-@@ -156,6 +157,11 @@ properties). In short:
+@@ -338,6 +339,11 @@ properties). In short:
    points, as a batch for a `generic-parallel` material property, point by
    point otherwise. Its result gives the status and the index of the first
    point where the evaluation failed, for both interfaces;
@@ -853,7 +808,7 @@ index aa8e27b..57bfea4 100644
  - the functions acting on a single point report an error for a
    `generic-parallel` library instead of calling a null pointer.
  
-@@ -178,14 +184,24 @@ This is described in a dedicated [page](views.html). In short:
+@@ -360,14 +366,24 @@ This is described in a dedicated [page](views.html). In short:
    (integration, initialize functions, post-processings, end of time step,
    extraction of internal state variables, conversions of the finite strain
    stresses and tangent operators) also act on a material data view.
@@ -881,7 +836,7 @@ index aa8e27b..57bfea4 100644
  - `MaterialFunctionManager` takes an initializer, and gives strided
    coalesced views of `mgis::function` for the managers stored component
    by component;
-@@ -193,11 +209,21 @@ This is described in a dedicated [page](views.html). In short:
+@@ -375,11 +391,21 @@ This is described in a dedicated [page](views.html). In short:
  
  Once the arrays are allocated, the synchronous functions processing
  points without thread pool (integration, initialize functions,
@@ -906,21 +861,8 @@ index aa8e27b..57bfea4 100644
 +counted in the section which launched them. `getProfilingSynchronization`
 +returns this function.
  
- # Bug fixes
+ # New features of the `MGIS/Behaviour` library
  
-@@ -461,9 +487,9 @@ For more details, see <https://github.com/thelfer/MFrontGenericInterfaceSupport/
- 
- - The checks of the material axes of the `RotationMatrix2D` and
-   `RotationMatrix3D` objects were inverted, and the number of points was
--  compared to a remainder instead of a quotient: no such object could be
--  built.
--- A material property can be given by a `std::span` of one value, as an
-+  compared to a remainder instead of a quotient: no valid object could
-+  be built.
-+- A material property can be given by a `std::span` of one value, as a
-   uniform value.
- - The failure of an initialize function or of a post-processing at an
-   integration point now sets the exit status to `-1` (see the known
 diff --git a/docs/web/views.md b/docs/web/views.md
 index ac435f7..7338217 100644
 --- a/docs/web/views.md
@@ -1123,7 +1065,7 @@ index a9ef694..95643cb 100644
     */
    inline BatchOutputStatus getBatchOutputStatus(
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index dae2f53..b33d792 100644
+index a9c596d..bf41474 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
 @@ -50,9 +50,9 @@ namespace mgis::behaviour {
@@ -1162,7 +1104,7 @@ index dae2f53..b33d792 100644
      Behaviour &operator=(const Behaviour &);
      //! \brief destructor
      ~Behaviour();
-@@ -207,6 +207,8 @@ namespace mgis::behaviour {
+@@ -213,6 +213,8 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour name
     * \param[in] h: modelling hypothesis
     * \return the behaviour description
@@ -1171,18 +1113,7 @@ index dae2f53..b33d792 100644
     * \note for a behaviour generated by the `generic-parallel` interface, the
     * functions processing batches of integration points are loaded (members
     * `batch_*`) and the pointers to the functions of a point are null (see
-@@ -220,18 +222,13 @@ namespace mgis::behaviour {
-   /*!
-    * \brief load the description of a finite strain behaviour from a library
-    *
--   * \note This method can also be used to load a finite strain behaviour.
--   * In this case, the default options are used (the stress measure is Cauchy,
--   * the tangent operator is the derivative of the Cauchy stress with respect
--   * to the deformation gradient).
--   *
-    * \param[in] ctx: execution context
-    * \param[in] o: options
-    * \param[in] l: library name
+@@ -232,7 +234,7 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour name
     * \param[in] h: modelling hypothesis
     * \return the behaviour description
@@ -1191,7 +1122,7 @@ index dae2f53..b33d792 100644
     * meaningful here
     * \note for a behaviour generated by the `generic-parallel` interface, the
     * functions processing batches of integration points are loaded (members
-@@ -251,6 +248,8 @@ namespace mgis::behaviour {
+@@ -255,6 +257,8 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour name
     * \param[in] h: modelling hypothesis
     * \return the behaviour description
@@ -1200,17 +1131,7 @@ index dae2f53..b33d792 100644
     * \note for a behaviour generated by the `generic-parallel` interface, the
     * functions processing batches of integration points are loaded (members
     * `batch_*`) and the pointers to the functions of a point are null (see
-@@ -262,17 +261,12 @@ namespace mgis::behaviour {
-   /*!
-    * \brief load the description of a finite strain behaviour from a library
-    *
--   * \note This method can also be used to load a finite strain behaviour.
--   * In this case, the default options are used (the stress measure is Cauchy,
--   * the tangent operator is the derivative of the Cauchy stress with respect
--   * to the deformation gradient).
--   *
-    * \param[in] o: options
-    * \param[in] l: library name
+@@ -271,7 +275,7 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour name
     * \param[in] h: modelling hypothesis
     * \return the behaviour description
@@ -1219,7 +1140,7 @@ index dae2f53..b33d792 100644
     * meaningful here
     * \note for a behaviour generated by the `generic-parallel` interface, the
     * functions processing batches of integration points are loaded (members
-@@ -343,16 +337,16 @@ namespace mgis::behaviour {
+@@ -342,16 +346,16 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1240,7 +1161,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateGradients(std::span<real>,
                                     const Behaviour &,
-@@ -366,6 +360,9 @@ namespace mgis::behaviour {
+@@ -365,6 +369,9 @@ namespace mgis::behaviour {
     * \param[in] gg: array of gradients in the global frame
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1250,7 +1171,7 @@ index dae2f53..b33d792 100644
     * \note the rotation matrix argument can be given as:
     * - an array of size 9 which is interpreted as a 3x3 rotation matrix.
     * - an array of size 9*n where n is the number of integration
-@@ -383,6 +380,13 @@ namespace mgis::behaviour {
+@@ -382,6 +389,13 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1264,7 +1185,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateGradients(std::span<real>,
                                     const Behaviour &,
-@@ -396,6 +400,13 @@ namespace mgis::behaviour {
+@@ -395,6 +409,13 @@ namespace mgis::behaviour {
     * \param[in] gg: array of gradients in the global frame
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1278,7 +1199,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateGradients(std::span<real>,
                                     const Behaviour &,
-@@ -409,6 +420,13 @@ namespace mgis::behaviour {
+@@ -408,6 +429,13 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1292,7 +1213,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateGradients(std::span<real>,
                                     const Behaviour &,
-@@ -422,6 +440,13 @@ namespace mgis::behaviour {
+@@ -421,6 +449,13 @@ namespace mgis::behaviour {
     * \param[in] gg: array of gradients in the global frame
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1306,7 +1227,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateGradients(std::span<real>,
                                     const Behaviour &,
-@@ -429,19 +454,18 @@ namespace mgis::behaviour {
+@@ -428,19 +463,18 @@ namespace mgis::behaviour {
                                     const RotationMatrix3D &,
                                     const MemoryLocation = MemoryLocation::HOST);
    /*!
@@ -1333,7 +1254,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateThermodynamicForces(
        std::span<real>,
-@@ -449,13 +473,19 @@ namespace mgis::behaviour {
+@@ -448,13 +482,19 @@ namespace mgis::behaviour {
        const std::span<const real> &,
        const MemoryLocation = MemoryLocation::HOST);
    /*!
@@ -1357,7 +1278,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateThermodynamicForces(
        std::span<real>,
-@@ -463,13 +493,19 @@ namespace mgis::behaviour {
+@@ -462,13 +502,19 @@ namespace mgis::behaviour {
        const RotationMatrix2D &,
        const MemoryLocation = MemoryLocation::HOST);
    /*!
@@ -1381,7 +1302,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateThermodynamicForces(
        std::span<real>,
-@@ -477,14 +513,16 @@ namespace mgis::behaviour {
+@@ -476,14 +522,16 @@ namespace mgis::behaviour {
        const RotationMatrix3D &,
        const MemoryLocation = MemoryLocation::HOST);
    /*!
@@ -1403,7 +1324,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateThermodynamicForces(
        std::span<real>,
-@@ -493,14 +531,20 @@ namespace mgis::behaviour {
+@@ -492,14 +540,20 @@ namespace mgis::behaviour {
        const std::span<const real> &,
        const MemoryLocation = MemoryLocation::HOST);
    /*!
@@ -1429,7 +1350,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateThermodynamicForces(
        std::span<real>,
-@@ -509,14 +553,20 @@ namespace mgis::behaviour {
+@@ -508,14 +562,20 @@ namespace mgis::behaviour {
        const RotationMatrix2D &,
        const MemoryLocation = MemoryLocation::HOST);
    /*!
@@ -1455,7 +1376,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateThermodynamicForces(
        std::span<real>,
-@@ -531,12 +581,12 @@ namespace mgis::behaviour {
+@@ -530,12 +590,12 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1472,7 +1393,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateTangentOperatorBlocks(
        std::span<real>,
-@@ -550,6 +600,13 @@ namespace mgis::behaviour {
+@@ -549,6 +609,13 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1486,7 +1407,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateTangentOperatorBlocks(
        std::span<real>,
-@@ -563,6 +620,13 @@ namespace mgis::behaviour {
+@@ -562,6 +629,13 @@ namespace mgis::behaviour {
     * \param[in] b: behaviour description
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1500,7 +1421,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateTangentOperatorBlocks(
        std::span<real>,
-@@ -577,6 +641,9 @@ namespace mgis::behaviour {
+@@ -576,6 +650,9 @@ namespace mgis::behaviour {
     * \param[in] mK: tangent operator blocks in the material frame
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1510,21 +1431,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateTangentOperatorBlocks(
        std::span<real>,
-@@ -592,6 +659,13 @@ namespace mgis::behaviour {
-    * \param[in] mK: tangent operator blocks in the material frame
-    * \param[in] r: rotation matrix from the global frame to the material
-    * frame.
-+   * \param[in] l: location of the arrays (`HOST` by default), which must be
-+   * accessible by the computations of the behaviour (see
-+   * `isMemoryLocationAccessible`)
-+   * \note for a behaviour generated by the `generic-parallel` interface, the
-+   * rotation matrices are built at each call in the memory of the host,
-+   * which must be accessible by the computations of the behaviour (see
-+   * `buildRotationMatrices`).
-    */
-   MGIS_EXPORT void rotateTangentOperatorBlocks(
-       std::span<real>,
-@@ -607,6 +681,13 @@ namespace mgis::behaviour {
+@@ -591,6 +668,13 @@ namespace mgis::behaviour {
     * \param[in] mK: tangent operator blocks in the material frame
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1538,7 +1445,21 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateTangentOperatorBlocks(
        std::span<real>,
-@@ -616,7 +697,7 @@ namespace mgis::behaviour {
+@@ -606,6 +690,13 @@ namespace mgis::behaviour {
+    * \param[in] mK: tangent operator blocks in the material frame
+    * \param[in] r: rotation matrix from the global frame to the material
+    * frame.
++   * \param[in] l: location of the arrays (`HOST` by default), which must be
++   * accessible by the computations of the behaviour (see
++   * `isMemoryLocationAccessible`)
++   * \note for a behaviour generated by the `generic-parallel` interface, the
++   * rotation matrices are built at each call in the memory of the host,
++   * which must be accessible by the computations of the behaviour (see
++   * `buildRotationMatrices`).
+    */
+   MGIS_EXPORT void rotateTangentOperatorBlocks(
+       std::span<real>,
+@@ -615,7 +706,7 @@ namespace mgis::behaviour {
        const MemoryLocation = MemoryLocation::HOST);
    /*!
     * \return the rotation matrices described by material axes, as an array
@@ -1547,7 +1468,7 @@ index dae2f53..b33d792 100644
     * per integration point otherwise. This array can be given to the
     * rotation functions of a batch, so that the matrices are built once for
     * repeated rotations.
-@@ -707,6 +788,7 @@ namespace mgis::behaviour {
+@@ -706,6 +797,7 @@ namespace mgis::behaviour {
     * `gtf`
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1555,7 +1476,7 @@ index dae2f53..b33d792 100644
     * \note for a finite strain behaviour, the stress measure and the type of
     * tangent operator chosen when the behaviour was loaded are used (see
     * `FiniteStrainBehaviourOptions`), as by the other overloads.
-@@ -753,6 +835,7 @@ namespace mgis::behaviour {
+@@ -752,6 +844,7 @@ namespace mgis::behaviour {
     * be `gK`
     * \param[in] r: rotation matrix from the global frame to the material
     * frame.
@@ -1563,7 +1484,7 @@ index dae2f53..b33d792 100644
     * \note for a finite strain behaviour, the stress measure and the type of
     * tangent operator chosen when the behaviour was loaded are used (see
     * `FiniteStrainBehaviourOptions`), as by the other overloads.
-@@ -792,9 +875,10 @@ namespace mgis::behaviour {
+@@ -791,9 +884,10 @@ namespace mgis::behaviour {
     * \brief submit the rotation of the gradients of a batch of integration
     * points from the global frame to the material frame, asynchronously.
     *
@@ -1577,7 +1498,7 @@ index dae2f53..b33d792 100644
     * `AsynchronousBatchExecutionPolicy`). The rotations never fail: the
     * returned object keeps the memory used by the computations until they
     * are completed.
-@@ -882,7 +966,7 @@ namespace mgis::behaviour {
+@@ -881,7 +975,7 @@ namespace mgis::behaviour {
     * The values and the rotation matrices are described by views with
     * arbitrary strides (see `FieldView`), for instance the arrays of a
     * material data manager stored component by component. The views must
@@ -1586,7 +1507,7 @@ index dae2f53..b33d792 100644
     * described by a view with a null point stride (see
     * `makeUniformFieldView`). Nothing is done if there is no point. The
     * source may be the destination (same view): the rotation is then
-@@ -899,8 +983,9 @@ namespace mgis::behaviour {
+@@ -898,8 +992,9 @@ namespace mgis::behaviour {
     * \param[in] gg: gradients in the global frame, which may be `mg`
     * \param[in] r: rotation matrices from the global frame to the material
     * frame (9 components per point, as for the overloads taking arrays)
@@ -1598,7 +1519,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateGradients(const FieldView<real> &,
                                     const Behaviour &,
-@@ -948,8 +1033,9 @@ namespace mgis::behaviour {
+@@ -947,8 +1042,9 @@ namespace mgis::behaviour {
     * \param[in] gg: gradients in the global frame, which may be `mg`
     * \param[in] r: rotation matrices from the global frame to the material
     * frame (9 components per point, as for the overloads taking arrays)
@@ -1610,7 +1531,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateGradients(const BatchExecutionPolicy &,
                                     const FieldView<real> &,
-@@ -1008,8 +1094,9 @@ namespace mgis::behaviour {
+@@ -1007,8 +1103,9 @@ namespace mgis::behaviour {
     * \param[in] gg: gradients in the global frame, which may be `mg`
     * \param[in] r: rotation matrices from the global frame to the material
     * frame (9 components per point, as for the overloads taking arrays)
@@ -1622,7 +1543,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT PendingBatchComputation
    rotateGradients(const AsynchronousBatchExecutionPolicy &,
-@@ -1069,8 +1156,9 @@ namespace mgis::behaviour {
+@@ -1068,8 +1165,9 @@ namespace mgis::behaviour {
     * `gtf`
     * \param[in] r: rotation matrices from the global frame to the material
     * frame (9 components per point, as for the overloads taking arrays)
@@ -1634,7 +1555,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateThermodynamicForces(
        const FieldView<real> &,
-@@ -1125,8 +1213,9 @@ namespace mgis::behaviour {
+@@ -1124,8 +1222,9 @@ namespace mgis::behaviour {
     * `gtf`
     * \param[in] r: rotation matrices from the global frame to the material
     * frame (9 components per point, as for the overloads taking arrays)
@@ -1646,7 +1567,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateThermodynamicForces(
        const BatchExecutionPolicy &,
-@@ -1192,8 +1281,9 @@ namespace mgis::behaviour {
+@@ -1191,8 +1290,9 @@ namespace mgis::behaviour {
     * `gtf`
     * \param[in] r: rotation matrices from the global frame to the material
     * frame (9 components per point, as for the overloads taking arrays)
@@ -1658,7 +1579,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT PendingBatchComputation
    rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
-@@ -1253,8 +1343,9 @@ namespace mgis::behaviour {
+@@ -1252,8 +1352,9 @@ namespace mgis::behaviour {
     * `gK`
     * \param[in] r: rotation matrices from the global frame to the material
     * frame (9 components per point, as for the overloads taking arrays)
@@ -1670,7 +1591,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateTangentOperatorBlocks(
        const FieldView<real> &,
-@@ -1309,8 +1400,9 @@ namespace mgis::behaviour {
+@@ -1308,8 +1409,9 @@ namespace mgis::behaviour {
     * `gK`
     * \param[in] r: rotation matrices from the global frame to the material
     * frame (9 components per point, as for the overloads taking arrays)
@@ -1682,7 +1603,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT void rotateTangentOperatorBlocks(
        const BatchExecutionPolicy &,
-@@ -1376,8 +1468,9 @@ namespace mgis::behaviour {
+@@ -1375,8 +1477,9 @@ namespace mgis::behaviour {
     * `gK`
     * \param[in] r: rotation matrices from the global frame to the material
     * frame (9 components per point, as for the overloads taking arrays)
@@ -1694,7 +1615,7 @@ index dae2f53..b33d792 100644
     */
    MGIS_EXPORT PendingBatchComputation
    rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
-@@ -1458,7 +1551,7 @@ namespace mgis::behaviour {
+@@ -1457,7 +1560,7 @@ namespace mgis::behaviour {
     * \return the size of an array able to contain the inputs of an
     * initialize function.
     * \param[in] b: behaviour
@@ -1794,10 +1715,10 @@ index eb01247..59b5218 100644
      /*!
       * \brief behaviour for which the workspace has been built. The functions
 diff --git a/include/MGIS/Behaviour/FiniteStrainSupport.hxx b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
-index b156a62..59a15cb 100644
+index 9a9195a..828ea8a 100644
 --- a/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 +++ b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
-@@ -85,21 +85,31 @@ namespace mgis::behaviour {
+@@ -91,21 +91,31 @@ namespace mgis::behaviour {
        const MaterialDataManager&,
        const FiniteStrainTangentOperator);
    /*!
@@ -1831,7 +1752,7 @@ index b156a62..59a15cb 100644
     */
    MGIS_EXPORT void convertFiniteStrainTangentOperator(
        const FieldView<real>&,
-@@ -123,20 +133,32 @@ namespace mgis::behaviour {
+@@ -135,20 +145,32 @@ namespace mgis::behaviour {
        const BehaviourData&,
        const FiniteStrainTangentOperator);
    /*!
@@ -1867,7 +1788,7 @@ index b156a62..59a15cb 100644
    MGIS_EXPORT void convertFiniteStrainTangentOperator(
        const FieldView<real>&,
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 2def39e..653f936 100644
+index f0e2493..88f1de2 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -92,9 +92,9 @@ namespace mgis::behaviour {
@@ -1944,7 +1865,7 @@ index 2def39e..653f936 100644
     * \param[in] n: name of the initialize function
     * \note the initialize function is expected to have no inputs
     * \note Due to the structure of the `BehaviourDataView` structure in which
-@@ -269,7 +271,7 @@ namespace mgis::behaviour {
+@@ -271,7 +273,7 @@ namespace mgis::behaviour {
                              const size_type);
    /*!
     * \brief execute the given initialize function over all integration points
@@ -1953,7 +1874,7 @@ index 2def39e..653f936 100644
     * \param[in,out] p: thread pool
     * \param[in,out] d: material data manager
     * \param[in] n: name of the initialize function
-@@ -283,7 +285,7 @@ namespace mgis::behaviour {
+@@ -285,7 +287,7 @@ namespace mgis::behaviour {
        ThreadPool&, MaterialDataManager&, const std::string_view);
    /*!
     * \brief execute the given initialize function over all integration points
@@ -1962,7 +1883,7 @@ index 2def39e..653f936 100644
     * \param[in,out] p: thread pool
     * \param[in,out] d: material data manager
     * \param[in] n: name of the initialize function
-@@ -375,8 +377,9 @@ namespace mgis::behaviour {
+@@ -377,8 +379,9 @@ namespace mgis::behaviour {
     * of a material data manager, as a batch, asynchronously.
     *
     * The arguments and the checks are the ones of the overloads taking a
@@ -1974,7 +1895,7 @@ index 2def39e..653f936 100644
     * `AsynchronousBatchExecutionPolicy`).
     *
     * \param[in] p: execution policy
-@@ -416,7 +419,7 @@ namespace mgis::behaviour {
+@@ -418,7 +421,7 @@ namespace mgis::behaviour {
     * -  1: integration succeeded and results are reliable
     *
     * \param[in,out] d: behaviour data
@@ -1983,7 +1904,7 @@ index 2def39e..653f936 100644
     *
     * \note: the type of integration to be performed, must be
     * explicitely set in d.K[0], as follows (see the `IntegrationType` enum).
-@@ -464,7 +467,7 @@ namespace mgis::behaviour {
+@@ -466,7 +469,7 @@ namespace mgis::behaviour {
     * -  1: integration succeeded and results are reliable
     *
     * \param[in,out] d: behaviour data
@@ -1992,7 +1913,7 @@ index 2def39e..653f936 100644
     * \note an exception is thrown for a behaviour generated by the
     * `generic-parallel` interface, which only provides functions of batches
     * of integration points.
-@@ -480,7 +483,7 @@ namespace mgis::behaviour {
+@@ -482,7 +485,7 @@ namespace mgis::behaviour {
     * -  1: integration succeeded and results are reliable
     *
     * \param[in,out] d: behaviour data
@@ -2001,7 +1922,7 @@ index 2def39e..653f936 100644
     * \note an exception is thrown for a behaviour generated by the
     * `generic-parallel` interface, which only provides functions of batches
     * of integration points.
-@@ -497,8 +500,9 @@ namespace mgis::behaviour {
+@@ -499,8 +502,9 @@ namespace mgis::behaviour {
     * \param[in] dt: time step
     *
     * \note if required, the memory associated with the tangent operator blocks
@@ -2013,7 +1934,7 @@ index 2def39e..653f936 100644
     * \note for a behaviour generated by the `generic-parallel` interface, the
     * points are processed as a batch with the execution policy of the
     * material data manager (see the overload taking an execution policy).
-@@ -531,8 +535,12 @@ namespace mgis::behaviour {
+@@ -533,8 +537,12 @@ namespace mgis::behaviour {
     * \note if required, the memory associated with the tangent operator blocks
     * and with the speed of sound is automatically allocated (see
     * `MaterialDataManagerInitializer::resource`).
@@ -2028,7 +1949,7 @@ index 2def39e..653f936 100644
     * \note an exception is thrown if the behaviour has not been generated by
     * the `generic-parallel` interface.
     */
-@@ -566,8 +574,9 @@ namespace mgis::behaviour {
+@@ -568,8 +576,9 @@ namespace mgis::behaviour {
     * manager, as a batch, asynchronously.
     *
     * The arguments and the checks are the ones of the overloads taking a
@@ -2040,8 +1961,8 @@ index 2def39e..653f936 100644
     * `AsynchronousBatchExecutionPolicy`). The outputs (thermodynamic forces,
     * internal state variables, tangent operators, etc.) must not be read
     * before.
-@@ -615,8 +624,9 @@ namespace mgis::behaviour {
-    * \param[in] e: last index of the range
+@@ -618,8 +627,9 @@ namespace mgis::behaviour {
+    *               (the integration points of indices in [b, e) are treated)
     *
     * \note if required, the memory associated with the tangent operator blocks
 -   * is automatically allocated. The tangent operator blocks of a point where
@@ -2052,7 +1973,7 @@ index 2def39e..653f936 100644
     * \note for a behaviour generated by the `generic-parallel` interface, the
     * points are processed as a batch with the execution policy of the
     * material data manager (see the overload taking an execution policy).
-@@ -658,7 +668,7 @@ namespace mgis::behaviour {
+@@ -661,7 +671,7 @@ namespace mgis::behaviour {
     * \param[in] dt: time step
     *
     * \note if required, the memory associated with the tangent operator blocks
@@ -2061,7 +1982,7 @@ index 2def39e..653f936 100644
     * \note for a behaviour generated by the `generic-parallel` interface, the
     * thread pool is not used: the points are processed as one batch with the
     * execution policy of the material data manager, and the result holds a
-@@ -745,6 +755,9 @@ namespace mgis::behaviour {
+@@ -749,6 +759,9 @@ namespace mgis::behaviour {
     *
     * \note if required, the memory associated with the tangent operator blocks
     * is automatically allocated.
@@ -2071,7 +1992,7 @@ index 2def39e..653f936 100644
     */
    MGIS_EXPORT int integrate(MaterialDataManager&,
                              const IntegrationType,
-@@ -775,7 +788,7 @@ namespace mgis::behaviour {
+@@ -779,7 +792,7 @@ namespace mgis::behaviour {
     * \brief execute the given post-processing
     * \param[out] outputs: post-processing results
     * \param[in,out] d: behaviour data
@@ -2080,7 +2001,7 @@ index 2def39e..653f936 100644
     * \param[in] n: name of the post-processing
     * \note an exception is thrown for a behaviour generated by the
     * `generic-parallel` interface, which only provides functions of batches
-@@ -818,7 +831,7 @@ namespace mgis::behaviour {
+@@ -823,7 +836,7 @@ namespace mgis::behaviour {
                          const size_type);
    /*!
     * \brief execute the given post-processing over all integration points using
@@ -2089,7 +2010,7 @@ index 2def39e..653f936 100644
     * \param[out] outputs: post-processing results, in the layout of the material
     * data manager
     * \param[in,out] p: thread pool
-@@ -887,8 +900,9 @@ namespace mgis::behaviour {
+@@ -892,8 +905,9 @@ namespace mgis::behaviour {
     * material data manager, as a batch, asynchronously.
     *
     * The arguments and the checks are the ones of the overloads taking a
@@ -2101,7 +2022,7 @@ index 2def39e..653f936 100644
     * `AsynchronousBatchExecutionPolicy`). The outputs must not be read
     * before.
     *
-@@ -1069,8 +1083,9 @@ namespace mgis::behaviour {
+@@ -1074,8 +1088,9 @@ namespace mgis::behaviour {
     * end of the time step for a behaviour generated by the `generic-parallel`
     * interface. For the other behaviours, a missing mass density is null, as
     * for the material data managers.
@@ -2113,7 +2034,7 @@ index 2def39e..653f936 100644
     */
    MGIS_EXPORT BehaviourIntegrationResult
    integrate(BehaviourIntegrationWorkSpace&,
-@@ -1088,7 +1103,10 @@ namespace mgis::behaviour {
+@@ -1093,7 +1108,10 @@ namespace mgis::behaviour {
    /*!
     * \brief integrate a behaviour generated by the `generic-parallel`
     * interface over the points `[b, e)` of a material data view, as a batch
@@ -2125,7 +2046,7 @@ index 2def39e..653f936 100644
     * \param[in] p: execution policy
     * \param[in] v: material data view
     * \param[in] opts: description of the operation to be performed
-@@ -1235,7 +1253,8 @@ namespace mgis::behaviour::internals {
+@@ -1240,7 +1258,8 @@ namespace mgis::behaviour::internals {
     * \brief report that a function of an integration point is not available,
     * because the behaviour has been generated by the `generic-parallel`
     * interface, which only provides functions of batches of integration points
@@ -2136,7 +2057,7 @@ index 2def39e..653f936 100644
     */
    MGIS_EXPORT void raiseMissingFunctionOfAPoint(const char* const);
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 3609a3d..d080d88 100644
+index 76c35d9..1f2086b 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -44,7 +44,10 @@ namespace mgis::behaviour {
@@ -2198,8 +2119,8 @@ index 3609a3d..d080d88 100644
 +     */
      std::span<real> K;
      /*!
-      * \brief proposed time step increment increase factor
-@@ -261,7 +270,9 @@ namespace mgis::behaviour {
+      * \brief maximal time step increase factor that the behaviour may propose
+@@ -266,7 +275,9 @@ namespace mgis::behaviour {
      const FieldLayout layout = FieldLayout::POINT_BY_POINT;
      /*!
       * \brief the size of the stiffness matrix for one integration point (the
@@ -2210,7 +2131,7 @@ index 3609a3d..d080d88 100644
       */
      const size_type K_stride;
      //! \brief underlying behaviour
-@@ -322,10 +333,11 @@ namespace mgis::behaviour {
+@@ -328,10 +339,11 @@ namespace mgis::behaviour {
    MGIS_EXPORT void revert(MaterialDataManager&);
    /*!
     * \brief update the behaviour data, as the previous overload, the arrays
@@ -2226,7 +2147,7 @@ index 3609a3d..d080d88 100644
     * \param[in,out] m: material data manager
     * \param[in] ops: operations
     */
-@@ -343,10 +355,11 @@ namespace mgis::behaviour {
+@@ -349,10 +361,11 @@ namespace mgis::behaviour {
                            FieldOperations&);
    /*!
     * \brief revert the behaviour data, as the previous overload, the arrays
@@ -2242,7 +2163,7 @@ index 3609a3d..d080d88 100644
     * \param[in,out] m: material data manager
     * \param[in] ops: operations
     */
-@@ -391,7 +404,9 @@ namespace mgis::behaviour {
+@@ -397,7 +410,9 @@ namespace mgis::behaviour {
     * \brief save a `MaterialDataManager` to an HDF5 group
     *
     * The arrays are read on the host: the function fails if they are located
@@ -2253,7 +2174,7 @@ index 3609a3d..d080d88 100644
     *
     * \param[in] ctx: execution context
     * \param[in] g: group
-@@ -412,7 +427,8 @@ namespace mgis::behaviour {
+@@ -418,7 +433,8 @@ namespace mgis::behaviour {
     * \brief restore a `MaterialDataManager` from an HDF5 group
     *
     * The arrays are written on the host: the function fails if they are
@@ -2263,7 +2184,7 @@ index 3609a3d..d080d88 100644
     *
     * \param[in] ctx: execution context
     * \param[in] g: group
-@@ -445,6 +461,8 @@ namespace mgis::behaviour {
+@@ -451,6 +467,8 @@ namespace mgis::behaviour {
     * \param[in] m: material data manager
     * \param[in] v1: name of the first variable
     * \param[in] v2: name of the second variable
@@ -2446,7 +2367,7 @@ index a9502ec..995b014 100644
    MGIS_EXPORT void revert(const MaterialDataView&, FieldOperations&);
  
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.hxx b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
-index 6626d62..173234f 100644
+index 688915c..450aacb 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 @@ -30,7 +30,7 @@ namespace mgis::behaviour {
@@ -2689,7 +2610,7 @@ index 6626d62..173234f 100644
    template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
    std::optional<StridedCoalescedFunctionView<N, SpaceType, true>>
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
-index 12f600d..9e57255 100644
+index 9da7474..ccba1e3 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 @@ -246,8 +246,8 @@ namespace mgis::behaviour {
@@ -2713,10 +2634,10 @@ index 12f600d..9e57255 100644
    }  // end of namespace internals
  
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index fb1c24c..cb084b6 100644
+index 57ff257..24c9520 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -179,7 +179,8 @@ namespace mgis::behaviour {
+@@ -218,7 +218,8 @@ namespace mgis::behaviour {
       * \param[in] i: initializer
       * \param[in] l: location of the arrays
       * \param[in] r: memory resource used to allocate the arrays which are not
@@ -2726,7 +2647,7 @@ index fb1c24c..cb084b6 100644
       * of those arrays are initialized by the host: the resource must allocate
       * memory accessible by the host, in the given location, and must outlive
       * the material state manager. If the location is a device, or a shared
-@@ -274,13 +275,14 @@ namespace mgis::behaviour {
+@@ -313,13 +314,14 @@ namespace mgis::behaviour {
      /*!
       * \brief layout of the arrays of the gradients, of the thermodynamic
       * forces and of the internal state variables, and of the values given
@@ -2748,7 +2669,7 @@ index fb1c24c..cb084b6 100644
       */
      const FieldLayout layout = FieldLayout::POINT_BY_POINT;
  
-@@ -477,8 +479,9 @@ namespace mgis::behaviour {
+@@ -532,8 +534,9 @@ namespace mgis::behaviour {
     * \brief set the given external state variable
     * \param[out] m: material state manager
     * \param[in] n: name
@@ -2759,8 +2680,8 @@ index fb1c24c..cb084b6 100644
 +   * uniform variable
     * \param[in] s: storage mode
     * \param[in] p: update policy
-    */
-@@ -511,8 +514,9 @@ namespace mgis::behaviour {
+    * \param[in] h: clean-up hook, called once when the given values are no
+@@ -570,8 +573,9 @@ namespace mgis::behaviour {
     * \param[in, out] ctx: execution context
     * \param[out] m: material state manager
     * \param[in] n: name
@@ -2771,8 +2692,8 @@ index fb1c24c..cb084b6 100644
 +   * uniform variable
     * \param[in] s: storage mode
     * \param[in] p: update policy
-    */
-@@ -532,8 +536,9 @@ namespace mgis::behaviour {
+    * \param[in] h: clean-up hook, called once when the given values are no
+@@ -594,8 +598,9 @@ namespace mgis::behaviour {
     * \param[in, out] ctx: execution context
     * \param[out] m: material state manager
     * \param[in] n: name
@@ -2784,9 +2705,9 @@ index fb1c24c..cb084b6 100644
     * \param[in] s: storage mode
     * \param[in] p: update policy
     *
-@@ -589,7 +594,8 @@ namespace mgis::behaviour {
+@@ -654,7 +659,8 @@ namespace mgis::behaviour {
    MGIS_EXPORT MGIS_NODISCARD std::optional<bool> isExternalStateVariableUniform(
-       Context&, const MaterialStateManager&, std::string_view) noexcept;
+       Context&, const MaterialStateManager&, std::string_view) MGIS_NOEXCEPT;
    /*!
 -   * \brief update the values of a state from another state
 +   * \brief update the values of a state from another state. The states must
@@ -2794,7 +2715,7 @@ index fb1c24c..cb084b6 100644
     * \param[out] o: output state
     * \param[in] i: input state
     * \note the copies are performed on the host: the update fails if one of
-@@ -598,7 +604,8 @@ namespace mgis::behaviour {
+@@ -663,7 +669,8 @@ namespace mgis::behaviour {
    MGIS_EXPORT void updateValues(MaterialStateManager&,
                                  const MaterialStateManager&);
    /*!
@@ -2804,9 +2725,9 @@ index fb1c24c..cb084b6 100644
     * \param[out] o: output state
     * \param[in] i: input state
     * \note the copies are performed on the host: the update fails if one of
-@@ -607,8 +614,10 @@ namespace mgis::behaviour {
-   MGIS_EXPORT MGIS_NODISCARD bool updateValues(
-       Context&, MaterialStateManager&, const MaterialStateManager&) noexcept;
+@@ -674,8 +681,10 @@ namespace mgis::behaviour {
+                                                const MaterialStateManager&)
+       MGIS_NOEXCEPT;
    /*!
 -   * \brief update the values of a state from another state, the arrays given
 -   * by the calling code being copied by the given operations.
@@ -2817,7 +2738,7 @@ index fb1c24c..cb084b6 100644
     *
     * The procedure is the one of the other overloads, which use
     * `HostFieldOperations`:
-@@ -651,7 +660,8 @@ namespace mgis::behaviour {
+@@ -718,7 +727,8 @@ namespace mgis::behaviour {
     * the states (gradients, thermodynamic forces, internal state variables,
     * energies). The calling code copies these arrays, for instance on their
     * copies on a device (see `update(const MaterialDataView&,
@@ -2827,7 +2748,7 @@ index fb1c24c..cb084b6 100644
     * \return true on success
     * \param[in, out] ctx: execution context
     * \param[out] o: output state
-@@ -668,7 +678,7 @@ namespace mgis::behaviour {
+@@ -735,7 +745,7 @@ namespace mgis::behaviour {
     * \param[out] o: buffer in which the values of the given internal state
     * variable is stored
     * \param[in] s: material state manager
@@ -2836,7 +2757,7 @@ index fb1c24c..cb084b6 100644
     *
     * \note the output buffer must be allocated properly. The values are
     * written in the layout of the material state manager (see the `layout`
-@@ -686,7 +696,7 @@ namespace mgis::behaviour {
+@@ -753,7 +763,7 @@ namespace mgis::behaviour {
     * \param[out] o: view in which the values of the given internal state
     * variable are stored, with any layout
     * \param[in] s: material state manager
@@ -2845,7 +2766,7 @@ index fb1c24c..cb084b6 100644
     *
     * \note the values are read and written on the host: an exception is
     * thrown if the internal state variables are located in the memory of a
-@@ -718,26 +728,46 @@ namespace mgis::behaviour {
+@@ -785,26 +795,46 @@ namespace mgis::behaviour {
     * manager: they are invalidated if those arrays change.
     */
  
@@ -2898,7 +2819,7 @@ index fb1c24c..cb084b6 100644
     */
    MGIS_EXPORT FieldView<real> getGradientView(MaterialStateManager&,
                                                const std::string_view);
-@@ -748,6 +778,8 @@ namespace mgis::behaviour {
+@@ -815,6 +845,8 @@ namespace mgis::behaviour {
     * \return a view on the given thermodynamic force
     * \param[in] s: material state manager
     * \param[in] n: name of the thermodynamic force
@@ -2907,7 +2828,7 @@ index fb1c24c..cb084b6 100644
     */
    MGIS_EXPORT FieldView<real> getThermodynamicForceView(MaterialStateManager&,
                                                          const std::string_view);
-@@ -758,6 +790,8 @@ namespace mgis::behaviour {
+@@ -825,6 +857,8 @@ namespace mgis::behaviour {
     * \return a view on the given internal state variable
     * \param[in] s: material state manager
     * \param[in] n: name of the internal state variable
@@ -2916,7 +2837,7 @@ index fb1c24c..cb084b6 100644
     */
    MGIS_EXPORT FieldView<real> getInternalStateVariableView(
        MaterialStateManager&, const std::string_view);
-@@ -785,7 +819,9 @@ namespace mgis::behaviour {
+@@ -852,7 +886,9 @@ namespace mgis::behaviour {
     * \brief save a `MaterialStateManager` to an HDF5 group
     *
     * The arrays are read on the host: the function fails if they are located
@@ -2927,7 +2848,7 @@ index fb1c24c..cb084b6 100644
     *
     * \param[in] ctx: execution context
     * \param[in] g: group
-@@ -848,7 +884,8 @@ namespace mgis::behaviour {
+@@ -926,7 +962,8 @@ namespace mgis::behaviour {
     * \brief restore a `MaterialStateManager` from a HDF5 group
     *
     * The arrays are written on the host: the function fails if they are
@@ -2963,7 +2884,7 @@ index e6f1c20..aa06559 100644
       * completed, i.e. once the calling code has synchronized the queue.
       */
 diff --git a/include/MGIS/Behaviour/RotationMatrix.hxx b/include/MGIS/Behaviour/RotationMatrix.hxx
-index 5e7f52c..595f724 100644
+index 0423c73..fcc6568 100644
 --- a/include/MGIS/Behaviour/RotationMatrix.hxx
 +++ b/include/MGIS/Behaviour/RotationMatrix.hxx
 @@ -30,7 +30,12 @@ namespace mgis::behaviour {
@@ -3327,7 +3248,7 @@ index b2279f9..24a56c7 100644
  
    /*!
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 9ab0a83..6ccf5a3 100644
+index 329e37a..8dc5627 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -125,9 +125,9 @@ namespace mgis {
@@ -3388,20 +3309,7 @@ index 9ab0a83..6ccf5a3 100644
       * \param[in] l: library
       * \param[in] b: behaviour name
       * \param[in] h: hypothesis
-@@ -369,10 +369,10 @@ namespace mgis {
-                                                          const std::string &,
-                                                          const Hypothesis);
-     /*!
--     * \return the initialize functions associated with a the behaviour
-+     * \return the post-processing function associated with the behaviour
-      * \param[in] l: library
-      * \param[in] b: behaviour name
--     * \param[in] f: initialize function name
-+     * \param[in] f: post-processing name
-      * \param[in] h: hypothesis
-      */
-     mgis::behaviour::BehaviourPostProcessingFctPtr getBehaviourPostProcessing(
-@@ -943,10 +943,10 @@ namespace mgis {
+@@ -944,10 +944,10 @@ namespace mgis {
      //! \brief constructor
      LibrariesManager();
      /*!
@@ -3635,7 +3543,7 @@ index 0ebb193..af80354 100644
     * \param[in] e: execution policy
     * \param[out] values: values of the material property
 diff --git a/include/MGIS/MaterialProperty/OutputStatus.hxx b/include/MGIS/MaterialProperty/OutputStatus.hxx
-index 60c3376..69dab7f 100644
+index 7f4bd47..ae8c941 100644
 --- a/include/MGIS/MaterialProperty/OutputStatus.hxx
 +++ b/include/MGIS/MaterialProperty/OutputStatus.hxx
 @@ -35,7 +35,7 @@ typedef struct {
@@ -3644,13 +3552,13 @@ index 60c3376..69dab7f 100644
     *
 -   * All negative values indicates that the result is not usable. For a material
 +   * All negative values indicate that the result is not usable. For a material
-    * property, the returned value is `nan`.
+    * property, the returned value is `nan`, except for the exit statuses -3 and
+    * -4, for which the computed value is returned.
     *
-    * For a material property, a negative value has the following meaning:
-@@ -46,11 +46,11 @@ typedef struct {
+@@ -48,11 +48,11 @@ typedef struct {
     *   was a child of `std::exception`, the content of the string returned by
-    *   the `what` method is copied in the `message` field. Otherwise, the
-    *   message field contains the "unknown exception" string.
+    *   the `what` method is copied in the `msg` field. Otherwise, the
+    *   `msg` field contains the "unknown exception" string.
 -   * - If the exit status is -3, an error occured in the `C` library, i.e. the
 +   * - If the exit status is -3, an error occurred in the `C` library, i.e. the
     *   `errno` value was set to a non zero value during the computation.
@@ -3816,7 +3724,7 @@ index 806f185..06765df 100644
     * This header is not compiled by `MGIS`: it is compiled by the calling
     * code, with its own SYCL implementation.
 diff --git a/include/MGIS/Model/Model.hxx b/include/MGIS/Model/Model.hxx
-index cd60167..45d5b81 100644
+index ed3f19a..8e7d608 100644
 --- a/include/MGIS/Model/Model.hxx
 +++ b/include/MGIS/Model/Model.hxx
 @@ -35,8 +35,8 @@ namespace mgis::model {
@@ -3839,10 +3747,10 @@ index cd60167..45d5b81 100644
 +   * \note use of `std::string` rather than `std::string_view` is
 +   * meaningful here
     */
-   MGIS_EXPORT std::optional<Model> load(
-       Context &,
+   MGIS_EXPORT std::optional<Model> load(Context&,
+                                         const std::string&,
 diff --git a/include/MGIS/Profiling.hxx b/include/MGIS/Profiling.hxx
-index ab31705..c451471 100644
+index fc441bc..93ec96e 100644
 --- a/include/MGIS/Profiling.hxx
 +++ b/include/MGIS/Profiling.hxx
 @@ -1,6 +1,8 @@
@@ -3878,10 +3786,10 @@ index ab31705..c451471 100644
      //! \brief Standard constructor (active or inactive depending on the
      //! 'enabled' flag)
 diff --git a/mgis.doxygen b/mgis.doxygen
-index fece3b2..9119ab1 100644
+index 1aeb5d6..28d04c1 100644
 --- a/mgis.doxygen
 +++ b/mgis.doxygen
-@@ -24,7 +24,7 @@
+@@ -33,7 +33,7 @@
   * 
   * # The MFrontGenericInterface C++ library
   * 
@@ -3890,7 +3798,7 @@ index fece3b2..9119ab1 100644
   * library provides two main functions:
   * 
   * - the `mgis::behaviour::load` functions loads `MFront` behaviours from
-@@ -37,7 +37,7 @@
+@@ -46,7 +46,7 @@
   *   of the integration point at the beginning and at the end of the time
   *   step.
   * 
@@ -3899,7 +3807,7 @@ index fece3b2..9119ab1 100644
   * the `mgis::behaviour::MaterialStateManager` and
   * `mgis::behaviour::MaterialDataManager` classes.
   *
-@@ -46,9 +46,15 @@
+@@ -55,7 +55,12 @@
   * integration points, on CPUs or on GPUs. The functions acting on a
   * `MaterialDataManager` use them automatically. Material properties are
   * evaluated on a set of points by the `mgis::material_property::evaluate`
@@ -3911,32 +3819,9 @@ index fece3b2..9119ab1 100644
 + * arbitrary strides, for instance in the memory of a GPU (see
 + * <https://thelfer.github.io/mgis/web/views.html>).
   * 
-- * An introduction to the `C++` library may be found [here](bindings-cxx.html)
-+ * An introduction to the `C++` library may be found here:
-+ * <https://thelfer.github.io/mgis/web/bindings-cxx.html>.
+  * An introduction to the `C++` library may be found [here](https://thelfer.github.io/mgis/web/bindings-cxx.html)
   * 
-  * # Bindings
-  * 
-@@ -64,7 +70,8 @@
-  *   by the `fenics-solid-mechanics` project. Those bindings are currently
-  *   quite limited as mostly serve as a proof of concept. Note that `MGIS`
-  *   can also be used in `FEniCS` through the `python` interface. This is
-- *   discussed [here](FEniCSBindings.html).
-+ *   discussed here:
-+ *   <https://thelfer.github.io/mgis/web/FEniCSBindings.html>.
-  * 
-  * ## Future bindings (contributors are welcomed)
-  * 
-@@ -112,7 +119,7 @@
-  *  * 
-  * ## Release notes
-  * 
-- * - [Version 1.1](release-notes-1.1.html)
-+ * - [Version 1.1](https://thelfer.github.io/mgis/web/release-notes-1.1.html)
-  *
-  * # License
-  *
-@@ -137,6 +144,12 @@
+@@ -172,6 +177,12 @@
   * \brief the namespace `mgis` encloses all the `MGIS` project.
   */
  
@@ -3950,7 +3835,7 @@ index fece3b2..9119ab1 100644
   * \namespace mgis::memory_resources
   * \brief memory resources allocating memory accessible by the host and by
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 2dfb2d0..87f3485 100644
+index c8c6d31..f2d907b 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -1,6 +1,7 @@
@@ -3992,10 +3877,10 @@ index 2dfb2d0..87f3485 100644
     * \param[in] r: rotation matrices
     * \param[in] n: number of points
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index ae8a24c..6ad44aa 100644
+index 2ba7177..d7d3555 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
-@@ -199,7 +199,7 @@ namespace mgis::behaviour::internals {
+@@ -206,7 +206,7 @@ namespace mgis::behaviour::internals {
     * property"
     * \param[in] ds: description of the variables, for instance "material
     * properties"
@@ -4004,7 +3889,7 @@ index ae8a24c..6ad44aa 100644
     * \param[in] values: views
     * \param[in] variables: variables
     * \param[in] h: modelling hypothesis
-@@ -550,8 +550,8 @@ namespace mgis::behaviour::internals {
+@@ -557,8 +557,8 @@ namespace mgis::behaviour::internals {
     * \param[in] p: execution policy
     * \param[in] b: index of the first point
     * \param[in] e: index after the last point
@@ -4015,7 +3900,7 @@ index ae8a24c..6ad44aa 100644
     * \param[in] submit: function calling the generated function with the
     * given execution options, as `submit(o, x)`, where `o` is the output
     * status, and returning its status
-@@ -1706,7 +1706,7 @@ namespace mgis::behaviour {
+@@ -1713,7 +1713,7 @@ namespace mgis::behaviour {
     * \brief execute an initialize function on a batch of points of a
     * material data view, synchronously or asynchronously depending on the
     * execution policy
@@ -4025,7 +3910,7 @@ index ae8a24c..6ad44aa 100644
     */
    template <typename ExecutionPolicy>
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 6300c05..1e5a457 100644
+index 47c1778..19833fd 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -24,7 +24,10 @@
@@ -4141,37 +4026,19 @@ index 4d28a04..a597b0a 100644
      // the arguments are not required to be uniform
      const auto os =
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 8b041c3..072b593 100644
+index 66184b9..7309f3b 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -256,7 +256,7 @@ namespace mgis::behaviour {
-           "invalid material property (only scalar material property is "
-           "supported)");
-     }
--    // one value per integration point, or an uniform value, as for the
-+    // one value per integration point, or a uniform value, as for the
-     // external state variables
-     if ((static_cast<mgis::size_type>(v.size()) != m.n) && (v.size() != 1)) {
-       return ctx.registerErrorMessage(
-@@ -289,7 +289,7 @@ namespace mgis::behaviour {
-           "invalid material property "
-           "(only scalar material property is supported)");
-     }
--    // one value per integration point, or an uniform value, as for the
-+    // one value per integration point, or a uniform value, as for the
-     // external state variables
-     if ((static_cast<mgis::size_type>(v.size()) != m.n) && (v.size() != 1)) {
-       return ctx.registerErrorMessage(
-@@ -372,7 +372,7 @@ namespace mgis::behaviour {
-                                   std::span<real> v,
-                                   const MaterialStateManager::StorageMode s,
-                                   const MaterialStateManager::UpdatePolicy p) {
+@@ -434,7 +434,7 @@ namespace mgis::behaviour {
+     // created first, so that the hook is called if the values are not stored
+     auto hook = makeExternalStorageHook(ctx, std::move(h)) |
+                 ctx.getThrowingFailureHandler();
 -    // one value per integration point, or an uniform value
 +    // one value per integration point, or a uniform value
      mgis::raise_if(
          (static_cast<mgis::size_type>(v.size()) != m.n) && (v.size() != 1u),
          "setMassDensity: invalid number of values "
-@@ -628,6 +628,10 @@ namespace mgis::behaviour {
+@@ -730,6 +730,10 @@ namespace mgis::behaviour {
  
    /*!
     * \brief update a field holder from values
@@ -4182,7 +4049,7 @@ index 8b041c3..072b593 100644
     * \param[in] values: values
     * \param[in] held: true if the values are held by a material state manager
     */
-@@ -670,6 +674,15 @@ namespace mgis::behaviour {
+@@ -791,6 +795,15 @@ namespace mgis::behaviour {
      return true;
    }  // end of updateMutableFieldHolderFromSpan
  
@@ -4198,7 +4065,7 @@ index 8b041c3..072b593 100644
    [[nodiscard]] static bool updateMutableFieldHolder(
        ValuesUpdate& u,
        MaterialStateManager& o,
-@@ -691,6 +704,15 @@ namespace mgis::behaviour {
+@@ -827,6 +840,15 @@ namespace mgis::behaviour {
      return true;
    }  // end of updateMutableFieldHolder
  
@@ -4214,7 +4081,7 @@ index 8b041c3..072b593 100644
    [[nodiscard]] static bool updateFieldHolder(
        ValuesUpdate& u,
        MaterialStateManager& o,
-@@ -719,6 +741,16 @@ namespace mgis::behaviour {
+@@ -855,6 +877,16 @@ namespace mgis::behaviour {
          u, o, fh, std::get<std::span<const real>>(src), false);
    }  // end of updateFieldHolder
  
@@ -4231,7 +4098,7 @@ index 8b041c3..072b593 100644
    [[nodiscard]] static bool updateFieldHolder(
        ValuesUpdate& u,
        MaterialStateManager& o,
-@@ -745,9 +777,11 @@ namespace mgis::behaviour {
+@@ -881,9 +913,11 @@ namespace mgis::behaviour {
  
    /*!
     * \brief copy an array of a state in the array of another state
@@ -4243,7 +4110,7 @@ index 8b041c3..072b593 100644
     */
    template <typename ViewFunction>
    [[nodiscard]] static bool updateArray(ValuesUpdate& u,
-@@ -774,14 +808,6 @@ namespace mgis::behaviour {
+@@ -910,14 +944,6 @@ namespace mgis::behaviour {
      return makeFieldView(e, FieldLayout::POINT_BY_POINT, n, 1);
    }  // end of getEnergiesView
  
@@ -4258,7 +4125,7 @@ index 8b041c3..072b593 100644
    /*!
     * \brief checks that two material state managers hold the same behaviour,
     * and that their material properties are the ones of the behaviour
-@@ -1179,9 +1205,15 @@ namespace mgis::behaviour {
+@@ -1314,9 +1340,15 @@ namespace mgis::behaviour {
  
    /*!
     * \brief write values given at each point, point by point
@@ -4274,7 +4141,7 @@ index 8b041c3..072b593 100644
     */
    [[nodiscard]] static bool writePointByPoint(
        Context& ctx,
-@@ -1208,6 +1240,11 @@ namespace mgis::behaviour {
+@@ -1343,6 +1375,11 @@ namespace mgis::behaviour {
    /*!
     * \brief read values given at each point, stored point by point in the
     * file, in an array with the given layout
@@ -4286,7 +4153,7 @@ index 8b041c3..072b593 100644
     * \param[in] n: number of points
     * \param[in] nc: number of components
     * \param[in] l: layout of the values
-@@ -1236,9 +1273,15 @@ namespace mgis::behaviour {
+@@ -1371,9 +1408,15 @@ namespace mgis::behaviour {
    }  // end of readPointByPoint
  
    /*!
@@ -4303,7 +4170,7 @@ index 8b041c3..072b593 100644
     */
    [[nodiscard]] static bool save(
        Context& ctx,
-@@ -1261,8 +1304,14 @@ namespace mgis::behaviour {
+@@ -1396,8 +1439,14 @@ namespace mgis::behaviour {
  
    /*!
     * \brief save a field holder
@@ -4316,10 +4183,10 @@ index 8b041c3..072b593 100644
     * \param[in] nc: number of components of the variable
 +   * \param[in] opts: options
     */
-   [[nodiscard]] static bool save(
-       Context& ctx,
+   [[nodiscard]] static bool save(Context& ctx,
+                                  H5::Group& g,
 diff --git a/src/Profiling.cxx b/src/Profiling.cxx
-index 27bcb82..81bbb68 100644
+index 64753c3..d730ab6 100644
 --- a/src/Profiling.cxx
 +++ b/src/Profiling.cxx
 @@ -1,6 +1,7 @@

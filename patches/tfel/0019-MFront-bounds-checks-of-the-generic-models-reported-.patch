@@ -1,4 +1,4 @@
-From b4510dbfb8b1667be164cca969364bfb434f0205 Mon Sep 17 00:00:00 2001
+From 451877680c37f5462d85a5386e126a8e1230301a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 23:06:55 +0200
 Subject: [PATCH] MFront: bounds checks of the generic models reported in all
@@ -16,7 +16,7 @@ ignored by the generic interface.
  2 files changed, 34 insertions(+), 36 deletions(-)
 
 diff --git a/mfront/include/MFront/GenericModelInterface.hxx b/mfront/include/MFront/GenericModelInterface.hxx
-index b3830e0a4..30ae1897e 100644
+index fd8f0136c..2da63e8a4 100644
 --- a/mfront/include/MFront/GenericModelInterface.hxx
 +++ b/mfront/include/MFront/GenericModelInterface.hxx
 @@ -25,8 +25,8 @@ namespace mfront {
@@ -30,7 +30,7 @@ index b3830e0a4..30ae1897e 100644
       */
      bool device = false;
      //! \brief type of the structure holding the values of the parameters
-@@ -36,7 +36,9 @@ namespace mfront {
+@@ -43,7 +43,9 @@ namespace mfront {
    /*!
     * \brief write the class implementing a model in the `mfront::gm`
     * namespace, and the class holding the values of its real parameters (see
@@ -42,7 +42,7 @@ index b3830e0a4..30ae1897e 100644
     * \param[in] fd: file description
     * \param[in] md: model description
 diff --git a/mfront/src/GenericModelInterface.cxx b/mfront/src/GenericModelInterface.cxx
-index 8b17b7237..afd4e45d2 100644
+index d13468bf2..4773f1382 100644
 --- a/mfront/src/GenericModelInterface.cxx
 +++ b/mfront/src/GenericModelInterface.cxx
 @@ -185,14 +185,14 @@ namespace mfront {
@@ -67,7 +67,7 @@ index 8b17b7237..afd4e45d2 100644
        os << "using namespace std;\n"
           << "using namespace tfel::math;\n"
           << "using namespace tfel::material;\n";
-@@ -244,9 +244,7 @@ namespace mfront {
+@@ -247,9 +247,7 @@ namespace mfront {
               << "]};\n";
          }
        }
@@ -78,7 +78,7 @@ index 8b17b7237..afd4e45d2 100644
        auto write_physical_bounds = [&os, &raise, &on_failure](
                                         const VariableDescription& v,
                                         const std::string& n,
-@@ -325,28 +323,24 @@ namespace mfront {
+@@ -332,28 +330,24 @@ namespace mfront {
             << "]) = " << v.name << ";\n";
          static_cast<void>(vdepth);
        }
@@ -111,19 +111,19 @@ index 8b17b7237..afd4e45d2 100644
 +       << "return ";
 +    if (md.functions.empty()) {
 +      os << "true";
-+    }
+     }
 +    auto first_function = true;
 +    for (const auto& f : md.functions) {
 +      os << (first_function ? "" : " &&\n") << "this->execute_" << f.name
 +         << "(mfront_model_data)";
 +      first_function = false;
-     }
++    }
 +    os << ";\n"
 +       << "} // end of execute\n\n";
      os << "private:\n";
      if (!md.members.empty()) {
        os << md.members << "\n\n";
-@@ -577,9 +571,11 @@ namespace mfront {
+@@ -593,9 +587,11 @@ namespace mfront {
      } else {
        os << "const " << md.className << " m;\n";
      }

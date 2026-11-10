@@ -1,4 +1,4 @@
-From f4602d92d3b367d6affd2ab3b38d0f67862ab0f4 Mon Sep 17 00:00:00 2001
+From 61d5323395b7462e1c722d0486538861d74f30e9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 04:15:39 +0200
 Subject: [PATCH] MFront: generic integration drivers work on copies of the
@@ -27,7 +27,7 @@ nvcc 13.0 worked around in PointView.
  4 files changed, 116 insertions(+), 174 deletions(-)
 
 diff --git a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
-index 65a48ba78..79f68a54a 100644
+index 49e529879..0d7a8e258 100644
 --- a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
 +++ b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
 @@ -222,20 +222,13 @@ namespace mfront::gb::green_lagrange_strain {
@@ -206,10 +206,10 @@ index 0a35a0b22..061515086 100644
  
    /*!
 diff --git a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
-index 5f15eefe2..4451721a2 100644
+index 71eb9e769..09b3de789 100644
 --- a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
 +++ b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
-@@ -241,20 +241,13 @@ namespace mfront::gb::logarithmic_strain {
+@@ -250,20 +250,13 @@ namespace mfront::gb::logarithmic_strain {
                                           F0, lgh0, o.stress_measure))) {
        return -1;
      }
@@ -236,7 +236,7 @@ index 5f15eefe2..4451721a2 100644
      return r;
    }  // end of executeInitializeFunction
  
-@@ -330,23 +323,14 @@ namespace mfront::gb::logarithmic_strain {
+@@ -339,23 +332,14 @@ namespace mfront::gb::logarithmic_strain {
                                           F0, lgh0, sm))) {
        return -1;
      }
@@ -267,7 +267,7 @@ index 5f15eefe2..4451721a2 100644
      if (r == -1) {
        return r;
      }
-@@ -466,21 +450,14 @@ namespace mfront::gb::logarithmic_strain {
+@@ -475,21 +459,14 @@ namespace mfront::gb::logarithmic_strain {
                                           F1, lgh1, sm))) {
        return -1;
      }
@@ -296,10 +296,10 @@ index 5f15eefe2..4451721a2 100644
    }  // end of executePostProcessing
  
 diff --git a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
-index 11ad443fa..865f0c9ef 100644
+index 9750ef50f..1c980fd58 100644
 --- a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
 +++ b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
-@@ -174,25 +174,26 @@ namespace mfront::gb::finite_strain {
+@@ -175,25 +175,26 @@ namespace mfront::gb::finite_strain {
        reportError(d, "invalid choice for the stress measure");
        return -1;
      }
@@ -343,7 +343,7 @@ index 11ad443fa..865f0c9ef 100644
    }  // end of executeInitializeFunction
  
    /*!
-@@ -252,27 +253,26 @@ namespace mfront::gb::finite_strain {
+@@ -253,27 +254,26 @@ namespace mfront::gb::finite_strain {
        reportError(d, "invalid choice for consistent tangent operator");
        return -1;
      }
@@ -389,7 +389,7 @@ index 11ad443fa..865f0c9ef 100644
        return r;
      }
      auto F1 = tfel::math::tensor<N, real>{};
-@@ -341,32 +341,32 @@ namespace mfront::gb::finite_strain {
+@@ -342,32 +342,32 @@ namespace mfront::gb::finite_strain {
        reportError(d, "invalid choice for the stress measure");
        return -1;
      }

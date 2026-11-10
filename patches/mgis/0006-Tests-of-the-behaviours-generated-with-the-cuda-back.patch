@@ -1,4 +1,4 @@
-From f521d2309477f02bc94af30cae1693c11e4e0e8d Mon Sep 17 00:00:00 2001
+From bd183eca2f44658358974792cb6b1ed75170fc56 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:13:18 +0200
 Subject: [PATCH] Tests of the behaviours generated with the cuda backend
@@ -20,10 +20,10 @@ by the material state manager is refused.
  create mode 100644 tests/GenericParallelCUDATest.cxx
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index f79bd74..6b33e2c 100644
+index fbb4fa1..88fa648 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -23,6 +23,10 @@ set(CXX_STANDARD_REQUIRED ON)
+@@ -29,6 +29,10 @@ endif()
  
  # enable tests
  option(enable-testing "" ON)
@@ -35,7 +35,7 @@ index f79bd74..6b33e2c 100644
  # portable-build
  option(enable-portable-build "produce binary that can be shared between various machine (same architecture, same gcc version, different processors" OFF)
 diff --git a/cmake/modules/behaviours.cmake b/cmake/modules/behaviours.cmake
-index b385308..7e63d42 100644
+index 81be4a1..c954604 100644
 --- a/cmake/modules/behaviours.cmake
 +++ b/cmake/modules/behaviours.cmake
 @@ -91,7 +91,8 @@ endfunction(mfront_behaviours_check_library)
@@ -81,10 +81,10 @@ index b385308..7e63d42 100644
      # the parallel algorithms of libstdc++ use TBB
      find_library(MGIS_TBB_LIBRARY tbb)
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 88ba3ff..ee218ab 100644
+index 298cd24..9df78ed 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -176,6 +176,30 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -175,6 +175,30 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest)
    set_test_environment(GenericParallelIntegrateTest)
  

@@ -1,4 +1,4 @@
-From adfb511db775ba398ecd88532d0c6efcfb4ff872 Mon Sep 17 00:00:00 2001
+From 76e7e20ade4d0524747b6dc5b23eae3015d40d80 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 13:22:32 +0200
 Subject: [PATCH] CMake: headers of HIP given to hipcc on the NVIDIA platform
@@ -13,10 +13,10 @@ spack, for instance).
  1 file changed, 8 insertions(+), 5 deletions(-)
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index 8c6b57058..2c9725021 100644
+index 1339c5d5b..47dd078d1 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -649,12 +649,15 @@ if(TFEL_REQUIRES_HIP)
+@@ -656,12 +656,15 @@ if(TFEL_REQUIRES_HIP)
    find_package(hip REQUIRED)
    set(TFEL_HIP_INCLUDES "${HIP_INCLUDE_DIR}")
    add_tfel_substitution(TFEL_HIP_INCLUDE_DIR "${TFEL_HIP_INCLUDES}")

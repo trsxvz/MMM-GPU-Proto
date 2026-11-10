@@ -1,4 +1,4 @@
-From 730654cf97a29c92b69529d60acea631d109c088 Mon Sep 17 00:00:00 2001
+From 43fa127f11f6dd3341d6bf88b29d73872437e1a7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 15:43:17 +0200
 Subject: [PATCH] MemoryLocation always included by MaterialStateManager.hxx,
@@ -12,10 +12,10 @@ MaterialStateManager.hxx only included MGIS/MemoryLocation.hxx when the MGIS/Fun
  3 files changed, 96 insertions(+), 89 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 3153fba..cacf55b 100644
+index d049c76..5ba9d21 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -31,9 +31,9 @@
+@@ -36,9 +36,9 @@
  #include "MGIS/Context.hxx"
  #include "MGIS/StorageMode.hxx"
  
@@ -27,10 +27,10 @@ index 3153fba..cacf55b 100644
  
  namespace mgis::behaviour {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index e28698c..a822266 100644
+index f6d7d2c..a2c68f7 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -139,104 +139,107 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -138,104 +138,107 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
  
    mfront_behaviours_check_library(ModelTest ode_rk54)
  

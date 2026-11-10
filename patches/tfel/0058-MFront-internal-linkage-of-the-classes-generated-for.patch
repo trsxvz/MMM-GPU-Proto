@@ -1,4 +1,4 @@
-From 447caa86b51fdfc91f8b8019ca6f867cbc0529b1 Mon Sep 17 00:00:00 2001
+From c0c98bc81b60c0e40f9457326d2ddb2c619a7511 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 03:26:02 +0200
 Subject: [PATCH] MFront: internal linkage of the classes generated for the
@@ -19,10 +19,10 @@ library.
  2 files changed, 14 insertions(+), 4 deletions(-)
 
 diff --git a/mfront/src/GenericModelInterface.cxx b/mfront/src/GenericModelInterface.cxx
-index afd4e45d2..62a35eb05 100644
+index 4773f1382..d60603273 100644
 --- a/mfront/src/GenericModelInterface.cxx
 +++ b/mfront/src/GenericModelInterface.cxx
-@@ -559,7 +559,11 @@ namespace mfront {
+@@ -572,7 +572,11 @@ namespace mfront {
        os << md.sources << "\n\n";
      }
      //
@@ -32,10 +32,10 @@ index afd4e45d2..62a35eb05 100644
 +    // (static variables of inline functions are unique symbols)
 +    os << "namespace mfront::gm{\n\n"
 +       << "namespace {\n\n";
-     writeGenericModelClass(os, fd, md, GenericModelClassOptions{});
-     //
- 
-@@ -583,7 +587,8 @@ namespace mfront {
+     auto model_class_options = GenericModelClassOptions{};
+     model_class_options.out_of_bounds_policy_function =
+         "::" + name + "_getOutOfBoundsPolicy";
+@@ -599,7 +603,8 @@ namespace mfront {
         << "}\n"
         << "return 1;\n"
         << "}\n\n";
@@ -43,8 +43,8 @@ index afd4e45d2..62a35eb05 100644
 +    os << "} // end of namespace\n\n"
 +       << "} // end of namespace mfront::gm\n\n";
      //
-     if ((hasRealParameters(md)) &&
-         (!areParametersTreatedAsStaticVariables(md))) {
+     bi.writeSetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
+     //
 diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
 index 05804552d..66ebc4cdb 100644
 --- a/mfront/src/GenericParallelModelInterface.cxx

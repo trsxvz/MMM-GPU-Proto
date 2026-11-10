@@ -1,4 +1,4 @@
-From 0cf9a206e406f9086d02c801573a60e58c1d7621 Mon Sep 17 00:00:00 2001
+From 2edb8e40591d0807616fb42f1e7a4bcc52f8df32 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 13:55:03 +0200
 Subject: [PATCH] Tests of the batches: policies, locations, failures,
@@ -27,10 +27,10 @@ Subject: [PATCH] Tests of the batches: policies, locations, failures,
  4 files changed, 785 insertions(+), 24 deletions(-)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index e2f13d4..ff170ce 100644
+index efd4d14..41941f8 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -150,7 +150,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -149,7 +149,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      Plasticity
      OrthotropicElasticity
      InitializeFunctionTest
@@ -42,7 +42,7 @@ index e2f13d4..ff170ce 100644
    add_executable(GenericParallelLoadTest EXCLUDE_FROM_ALL
      GenericParallelLoadTest.cxx)
    target_link_libraries(GenericParallelLoadTest PRIVATE MFrontGenericInterface)
-@@ -187,7 +190,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -186,7 +189,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      mfront_generic_parallel_behaviours_check_library(
        GenericParallelBehaviourTestCUDA cuda
        Elasticity

@@ -1,4 +1,4 @@
-From 4ffd48ba6c77af8bfdee0ac857b14c2280a9ec31 Mon Sep 17 00:00:00 2001
+From 3b25dc5528afe33f6eda174209ff86524d48998a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:01:09 +0200
 Subject: [PATCH] generic-parallel: options shared by the backends of both
@@ -67,10 +67,10 @@ index 1b639e4cb..a74ee1537 100644
  messages of the points (`error_message` of the `generic` interface) are not
  reported: the code executed on a device can't throw exceptions, and a
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 703c6d180..6a9241b74 100644
+index 664808d67..56887e1b5 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -115,6 +115,7 @@ install_mfront_header(MFront UMATInterfaceBase.hxx)
+@@ -120,6 +120,7 @@ install_mfront_header(MFront UMATInterfaceBase.hxx)
  install_mfront_header(MFront GenericMaterialPropertyInterfaceBase.hxx)
  install_mfront_header(MFront GenericMaterialPropertyInterface.hxx)
  install_mfront_header(MFront GenericParallelMaterialPropertyInterface.hxx)
@@ -166,10 +166,10 @@ index 000000000..056f85ff4
 +
 +#endif /* LIB_MFRONT_GENERICPARALLEL_BACKENDOPTIONS_HXX */
 diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
-index 1ba1d73b0..e1eaeae80 100644
+index b5ef7f699..9d10545dd 100644
 --- a/mfront/src/CMakeLists.txt
 +++ b/mfront/src/CMakeLists.txt
-@@ -208,6 +208,7 @@ set(TFELMFront_SOURCES
+@@ -217,6 +217,7 @@ set(TFELMFront_SOURCES
      GenericMaterialPropertyInterfaceBase.cxx
      GenericMaterialPropertyInterface.cxx
      GenericParallelMaterialPropertyInterface.cxx

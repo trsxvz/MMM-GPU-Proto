@@ -40,6 +40,7 @@
 #include "TFEL/Config/TFELConfig.hxx"
 // std::fpclassify is not supported in device code by some compilers
 #include "TFEL/Math/General/IEEE754.hxx"
+#include <limits>
 #include <cstdlib>
 #include <type_traits>
 

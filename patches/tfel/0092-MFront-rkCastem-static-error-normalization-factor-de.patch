@@ -1,4 +1,4 @@
-From 79ee33c7e83863a71a88cdf14baae1eefcac74a7 Mon Sep 17 00:00:00 2001
+From aa864fa428592dd3cac25403c70e28520c320ffd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:34:20 +0200
 Subject: [PATCH] MFront rkCastem: static error normalization factor, debug
@@ -17,10 +17,10 @@ Subject: [PATCH] MFront rkCastem: static error normalization factor, debug
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-index effab80e3..3a06042c3 100644
+index 770e48537..96ce59216 100644
 --- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
 +++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-@@ -1220,7 +1220,7 @@ namespace mfront {
+@@ -1264,7 +1264,7 @@ namespace mfront {
          }
        }
        if (found_as_static_variable) {

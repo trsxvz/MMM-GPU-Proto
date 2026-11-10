@@ -1,4 +1,4 @@
-From 127738a7fe76396dc237e6016ed43f073ca00331 Mon Sep 17 00:00:00 2001
+From adccb7f476136a1e1873270f3eaf38cf454863c6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 04:57:20 +0200
 Subject: [PATCH] Parameters of the behaviour variables in device code
@@ -86,22 +86,22 @@ index 202855051..492e4c251 100644
      virtual void writeBehaviourStaticVariables(std::ostream&,
                                                 const Hypothesis) const;
 diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
-index 679036ef3..0a499faad 100644
+index 786980e57..3f064e4f3 100644
 --- a/mfront/src/BehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
-@@ -2455,6 +2455,11 @@ namespace mfront {
-         os << "#else /* TFEL_DEVICE_CODE */\n";
-         this->writeBehaviourParameterInitialisation(os, h, "");
-         os << "#endif /* TFEL_DEVICE_CODE */\n";
+@@ -2605,6 +2605,11 @@ namespace mfront {
+         out << "#else /* TFEL_DEVICE_CODE */\n";
+         this->writeBehaviourParameterInitialisation(out, h, "");
+         out << "#endif /* TFEL_DEVICE_CODE */\n";
 +      } else if ((!parameters_source.empty()) &&
 +                 (this->bd.isDeviceCompatibleClassRequired())) {
 +        // the parameters of the behaviour variables are given too
-+        os << "this->mfront_set_parameters_values(" << parameters_source
-+           << ");\n";
++        out << "this->mfront_set_parameters_values(" << parameters_source
++            << ");\n";
        } else {
-         this->writeBehaviourParameterInitialisation(os, h, parameters_source);
-       }
-@@ -3678,6 +3683,19 @@ namespace mfront {
+         this->writeBehaviourParameterInitialisation(out, h,
+                                                     parameters_source);
+@@ -3848,6 +3853,19 @@ namespace mfront {
         << "} // end of getModellingHypothesis\n\n";
    }  // end of writeBehaviourGetModellingHypothesis();
  
@@ -121,7 +121,7 @@ index 679036ef3..0a499faad 100644
    void BehaviourCodeGeneratorBase::writeBehaviourLocalVariables(
        std::ostream& os, const Hypothesis h) const {
      this->checkBehaviourFile(os);
-@@ -3686,21 +3704,28 @@ namespace mfront {
+@@ -3856,21 +3874,28 @@ namespace mfront {
      os << '\n';
      auto write_wrapper = [this, &os](const BehaviourVariableDescription& b) {
        const auto wrapper = getBehaviourWrapperClassName(b);
@@ -160,7 +160,7 @@ index 679036ef3..0a499faad 100644
           << wrapper << "(const " << wrapper << "&) = delete;\n"
           << "//! \\brief move constructor\n"
           << wrapper << "(" << wrapper << "&&) = delete;\n"
-@@ -3721,6 +3746,10 @@ namespace mfront {
+@@ -3891,6 +3916,10 @@ namespace mfront {
        const auto wrapper = getBehaviourWrapperClassName(b);
        const auto factory = getBehaviourVariableFactoryClassName(b);
        write_wrapper(b);
@@ -171,7 +171,7 @@ index 679036ef3..0a499faad 100644
        os << "struct " << factory << " final\n"
           << "{\n"
           << "TFEL_HOST_DEVICE " << factory << "(const "
-@@ -3730,9 +3759,19 @@ namespace mfront {
+@@ -3900,9 +3929,19 @@ namespace mfront {
           << "mfront_behaviour_reference_argument)\n"
           << "{}\n"
           << "[[nodiscard]] TFEL_HOST_DEVICE " << wrapper << " make(){\n"
@@ -194,7 +194,7 @@ index 679036ef3..0a499faad 100644
           << "const " << this->bd.getClassName()
           << "& mfront_behaviour_reference;\n"
           << "};\n\n"
-@@ -3755,6 +3794,94 @@ namespace mfront {
+@@ -3925,6 +3964,94 @@ namespace mfront {
      os << '\n';
    }  // end od BehaviourCodeGeneratorBase::writeBehaviourIntegrationVariables
  
@@ -289,7 +289,7 @@ index 679036ef3..0a499faad 100644
    void BehaviourCodeGeneratorBase::writeBehaviourParameters(
        std::ostream& os, const Hypothesis h) const {
      this->checkBehaviourFile(os);
-@@ -4607,6 +4734,7 @@ namespace mfront {
+@@ -4777,6 +4904,7 @@ namespace mfront {
      this->writeBehaviourDisabledConstructors(os);
      // from this point, all is public
      os << "public:\n\n";

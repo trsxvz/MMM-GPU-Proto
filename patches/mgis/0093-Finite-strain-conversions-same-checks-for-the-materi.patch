@@ -1,0 +1,87 @@
+From 19a89fc56fddc8311771b33ec02989def21745d2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 22:46:02 +0100
+Subject: [PATCH] Finite strain conversions: same checks for the material data
+ views
+
+The checks of the stress measure and of the tangent operator were only
+made by the overloads taking a material data manager. They are now made
+by the functions shared by all the overloads, so that the overloads
+taking a material data view refuse the same behaviours. The message
+refusing an unsupported tangent operator is also fixed.
+---
+ src/FiniteStrainSupport.cxx | 34 ++++++++++++++++------------------
+ 1 file changed, 16 insertions(+), 18 deletions(-)
+
+diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
+index fa7bfbb..39a5898 100644
+--- a/src/FiniteStrainSupport.cxx
++++ b/src/FiniteStrainSupport.cxx
+@@ -324,6 +324,13 @@ namespace mgis::behaviour {
+           "convertFiniteStrainStress: "
+           "unsupported behaviour type");
+     }
++    // check the stress measure (see Behaviour::options)
++    if ((b.options.size() < 2) || (getStressMeasureOption(b) > 0.5)) {
++      mgis::raise(
++          "convertFiniteStrainStress: "
++          "the behaviour must be loaded with the Cauchy stress as "
++          "stress measure");
++    }
+     if (t != FiniteStrainStress::PK1) {
+       mgis::raise(
+           "convertFiniteStrainStress: "
+@@ -356,14 +363,6 @@ namespace mgis::behaviour {
+                                  const MaterialDataManager& m,
+                                  const FiniteStrainStress t) {
+     checkHostAccess("convertFiniteStrainStress", m);
+-    // check the stress measure (see Behaviour::options)
+-    if ((m.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+-        ((m.b.options.size() < 2) || (getStressMeasureOption(m.b) > 0.5))) {
+-      mgis::raise(
+-          "convertFiniteStrainStress: "
+-          "the behaviour must be loaded with the Cauchy stress as "
+-          "stress measure");
+-    }
+     checkConversionOutput("convertFiniteStrainStress", "converted stress", s,
+                           m.n, getTensorSize(m.b.hypothesis));
+     convertFiniteStrainStress(s, m.b, getGradientsView(m.s1),
+@@ -989,10 +988,18 @@ namespace mgis::behaviour {
+           "convertFiniteStrainTangentOperator: "
+           "unsupported behaviour type");
+     }
++    // check the stress measure and tangent operator (see Behaviour::options)
++    if ((b.options.size() < 2) || (getStressMeasureOption(b) > 0.5) ||
++        (b.options[1] > 0.5)) {
++      mgis::raise(
++          "convertFiniteStrainTangentOperator: "
++          "the behaviour must be loaded with the Cauchy stress as "
++          "stress measure and DSIG_DF as tangent operator");
++    }
+     if (t != FiniteStrainTangentOperator::DPK1_DF) {
+       mgis::raise(
+           "convertFiniteStrainTangentOperator: "
+-          "invalid array size");
++          "unsupported tangent operator");
+     }
+     const auto h = b.hypothesis;
+     if ((h != Hypothesis::TRIDIMENSIONAL) &&
+@@ -1024,15 +1031,6 @@ namespace mgis::behaviour {
+                                           const MaterialDataManager& m,
+                                           const FiniteStrainTangentOperator t) {
+     checkHostAccess("convertFiniteStrainTangentOperator", m);
+-    // check the stress measure and tangent operator (see Behaviour::options)
+-    if ((m.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+-        ((m.b.options.size() < 2) || (getStressMeasureOption(m.b) > 0.5) ||
+-         (m.b.options[1] > 0.5))) {
+-      mgis::raise(
+-          "convertFiniteStrainTangentOperator: "
+-          "the behaviour must be loaded with the Cauchy stress as "
+-          "stress measure and DSIG_DF as tangent operator");
+-    }
+     const auto ts = getTensorSize(m.b.hypothesis);
+     checkConversionOutput("convertFiniteStrainTangentOperator",
+                           "converted tangent operator", K, m.n, ts * ts);
+-- 
+2.43.0
+

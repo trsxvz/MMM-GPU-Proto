@@ -1,4 +1,4 @@
-From d9a24a0befbf2782a42e9a4856414ea520180873 Mon Sep 17 00:00:00 2001
+From 08ee593ebf11ebc73e83d554d092980f3e250cf1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:36 +0200
 Subject: [PATCH] MFront: generic-parallel interface for behaviours
@@ -53,10 +53,10 @@ to calling the generic interface at each point.
  create mode 100644 mfront/src/GenericParallelBehaviourInterface.cxx
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index 667f6afc0..b30f902a2 100644
+index 5d93b8a11..f9408bc88 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -558,6 +558,8 @@ foreach(conf ${generic-parallel-configurations})
+@@ -565,6 +565,8 @@ foreach(conf ${generic-parallel-configurations})
    if(NOT ${conf} STREQUAL "hip-clang")
      list(APPEND tfel-check-components
           "mfront::material_property::generic-parallel_interface::supported_configuration::${conf}")
@@ -79,10 +79,10 @@ index 8c194d88e..fa30c7b35 100644
  }
 \ No newline at end of file
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 4be2c7d10..76bd5b596 100644
+index 5dde696e4..878d613de 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -127,6 +127,11 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty ParallelSTLBackend
+@@ -132,6 +132,11 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty ParallelSTLBackend
  install_mfront_header(MFront/GenericParallel/MaterialProperty SYCLBackend.hxx)
  install_mfront_header(MFront GenericBehaviourInterface.hxx)
  install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
@@ -94,7 +94,7 @@ index 4be2c7d10..76bd5b596 100644
  install_mfront_header(MFront GenericModelInterface.hxx)
  install_mfront_header(MFront CastemModelInterface.hxx)
  install_mfront_header(MFront Castem21ModelInterface.hxx)
-@@ -244,6 +249,11 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.hxx)
+@@ -249,6 +254,11 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.hxx)
  install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
  install_mfront_header(MFront/GenericBehaviour RotateTangentOperatorBlock.hxx)
  
@@ -1773,10 +1773,10 @@ index 000000000..0ff1a035d
 +
 +#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOURINTERFACE_HXX */
 diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
-index 9da9b1226..7aded7eef 100644
+index 3591c2a11..1d255881d 100644
 --- a/mfront/src/CMakeLists.txt
 +++ b/mfront/src/CMakeLists.txt
-@@ -218,6 +218,11 @@ set(TFELMFront_SOURCES
+@@ -227,6 +227,11 @@ set(TFELMFront_SOURCES
      GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
      GenericParallel/MaterialProperty/SYCLBackend.cxx
      GenericBehaviourInterface.cxx

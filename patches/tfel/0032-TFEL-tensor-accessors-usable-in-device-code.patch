@@ -1,4 +1,4 @@
-From 34e84f02412096ca8500c6d234ad9b6c7d6df00d Mon Sep 17 00:00:00 2001
+From 43bb3285df627145e674e2664b0e8e6b6f2159cc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 06:33:54 +0200
 Subject: [PATCH] TFEL: tensor accessors usable in device code
@@ -14,15 +14,14 @@ The new internals::reportInvalidTensorIndex function throws the
 exception on the host and returns a NaN value in device code, as
 TinyMatrixInvert does for singular matrices.
 ---
- include/TFEL/Math/Tensor/TensorConcept.hxx    | 25 ++++++++++++++++++-
- include/TFEL/Math/Tensor/TensorConcept.ixx    |  8 +++---
- .../Math/Tensor/TensorViewFromStensor.hxx     | 18 ++++++++-----
- include/TFEL/Math/Tensor/tensor.ixx           |  5 ++--
- include/TFEL/Math/tensor.hxx                  |  2 +-
- 5 files changed, 45 insertions(+), 13 deletions(-)
+ include/TFEL/Math/Tensor/TensorConcept.hxx | 25 +++++++++++++++++++++-
+ include/TFEL/Math/Tensor/TensorConcept.ixx |  8 ++++---
+ include/TFEL/Math/Tensor/tensor.ixx        |  5 +++--
+ include/TFEL/Math/tensor.hxx               |  2 +-
+ 4 files changed, 33 insertions(+), 7 deletions(-)
 
 diff --git a/include/TFEL/Math/Tensor/TensorConcept.hxx b/include/TFEL/Math/Tensor/TensorConcept.hxx
-index d0fb2a8b8..00b3cbc3d 100644
+index 56e2a2014..e97e87a82 100644
 --- a/include/TFEL/Math/Tensor/TensorConcept.hxx
 +++ b/include/TFEL/Math/Tensor/TensorConcept.hxx
 @@ -14,6 +14,7 @@
@@ -72,7 +71,7 @@ index d0fb2a8b8..00b3cbc3d 100644
    };
  
 diff --git a/include/TFEL/Math/Tensor/TensorConcept.ixx b/include/TFEL/Math/Tensor/TensorConcept.ixx
-index 6e054151a..47727f881 100644
+index 1fe156ef9..f99615dc9 100644
 --- a/include/TFEL/Math/Tensor/TensorConcept.ixx
 +++ b/include/TFEL/Math/Tensor/TensorConcept.ixx
 @@ -74,7 +74,8 @@ namespace tfel::math::internals {
@@ -100,62 +99,8 @@ index 6e054151a..47727f881 100644
      }
      return TensorConceptMatrixAccessOperator<getSpaceDimension<T>()>::exe(
          static_cast<const T&>(*this), i, j);
-diff --git a/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx b/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx
-index 517b92a2b..740ad6b46 100644
---- a/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx
-+++ b/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx
-@@ -45,11 +45,13 @@ namespace tfel::math {
-     TFEL_HOST_DEVICE constexpr Expr& operator=(const Expr&) = default;
-     TFEL_HOST_DEVICE constexpr Expr& operator=(Expr&&) = default;
- 
--    [[nodiscard]] TFEL_HOST ValueType operator[](const unsigned short i) const {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr ValueType operator[](
-+        const unsigned short i) const {
-       return this->operator()(i);
-     }
- 
--    [[nodiscard]] TFEL_HOST ValueType operator()(const unsigned short i) const {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr ValueType operator()(
-+        const unsigned short i) const {
-       constexpr auto icste = Cste<ValueType>::isqrt2;
-       switch (i) {
-         case 0:
-@@ -61,25 +63,29 @@ namespace tfel::math {
-         case 3:
-         case 4:
-           if (traits::dime < 2) {
--            throw(TensorInvalidIndexException());
-+            return internals::reportInvalidTensorIndex<
-+                TensorInvalidIndexException, ValueType>();
-           }
-           return this->s(3) * icste;
-         case 5:
-         case 6:
-           if (traits::dime < 3) {
--            throw(TensorInvalidIndexException());
-+            return internals::reportInvalidTensorIndex<
-+                TensorInvalidIndexException, ValueType>();
-           }
-           return this->s(4) * icste;
-         case 7:
-         case 8:
-           if (traits::dime < 3) {
--            throw(TensorInvalidIndexException());
-+            return internals::reportInvalidTensorIndex<
-+                TensorInvalidIndexException, ValueType>();
-           }
-           return this->s(5) * icste;
-         default:
-           break;
-       }
--      throw(TensorInvalidIndexException());
-+      return internals::reportInvalidTensorIndex<TensorInvalidIndexException,
-+                                                 ValueType>();
-     }  // end of operator() const
- 
-    protected:
 diff --git a/include/TFEL/Math/Tensor/tensor.ixx b/include/TFEL/Math/Tensor/tensor.ixx
-index 55e395a40..bf29879b2 100644
+index 93c64b936..b3186593f 100644
 --- a/include/TFEL/Math/Tensor/tensor.ixx
 +++ b/include/TFEL/Math/Tensor/tensor.ixx
 @@ -61,12 +61,13 @@ namespace tfel::math {
@@ -175,7 +120,7 @@ index 55e395a40..bf29879b2 100644
      if constexpr (N == 1) {
        return (i == j) ? (*this)(i) : ValueType(0);
 diff --git a/include/TFEL/Math/tensor.hxx b/include/TFEL/Math/tensor.hxx
-index 191d2cf3d..122f46873 100644
+index f8ddfa773..b5564d08c 100644
 --- a/include/TFEL/Math/tensor.hxx
 +++ b/include/TFEL/Math/tensor.hxx
 @@ -128,7 +128,7 @@ namespace tfel::math {

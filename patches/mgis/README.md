@@ -1,11 +1,11 @@
 # Patches
 
 Series of patches giving the MGIS of the prototype from MGIS master, commit
-`a30dbf5` (20/10/2026):
+`b1afeb3` (07/11/2026):
 
 ```bash
 git clone <official MGIS repository> mgis && cd mgis
-git checkout a30dbf5
+git checkout b1afeb3
 git am /path/to/patches/*.patch
 ```
 
@@ -73,3 +73,10 @@ Patches, by subject (independently of their numbers; the details are in
   `DeferredReportBatchExecutionPolicy`, formerly
   `AsynchronousBatchExecutionPolicy` (the computations are asynchronous if
   the policy of the backend requests it).
+- rebase on master `b1afeb3` (patches 0091 to 0094): the integrations of a
+  material data view start from the time step scaling factor of the
+  manager (`rdt`), as those of a manager since M-033; `MGIS_NOEXCEPT` for
+  the functions of the prototype reporting errors in a context, as since
+  #283; same checks of the stress measure and of the tangent operator in
+  the finite strain conversions of the material data views; tolerances of
+  the tests of the second review of 3.2 for the float numerical type.

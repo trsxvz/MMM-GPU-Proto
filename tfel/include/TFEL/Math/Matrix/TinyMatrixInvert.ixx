@@ -24,10 +24,15 @@ namespace tfel::math {
     auto t = tmatrix<N, N, T>{m};
     auto p = TinyPermutation<N>{};
     auto r = TinyMatrixSolve<N, T, true>::decomp(t, p, eps);
+    if constexpr (internals::tiny_matrix_solve_throws) {
+      if (!r) {
+        tfel::raise<LUNullPivot>();
+      }
+    }
     for (unsigned short i = 0; (r) && (i != N); ++i) {
       auto e = tvector<N, T>{zero};
       e(i) = one;
-      r = TinyMatrixSolve<N, T, true>::back_substitute(t, p, e);
+      r = TinyMatrixSolve<N, T, true>::back_substitute(t, p, e, eps);
       for (unsigned short j = 0; j != N; ++j) {
         m(j, i) = e(j);
       }

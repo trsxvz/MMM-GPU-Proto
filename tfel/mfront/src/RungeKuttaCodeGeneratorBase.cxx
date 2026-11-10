@@ -67,12 +67,12 @@ namespace mfront {
       std::ostream& f,
       const BehaviourDescription& mb,
       const RungeKuttaCodeGeneratorBase::Hypothesis h,
-      const std::string& p) {
+      const std::string& p,
+      const std::set<std::string>& uvs) {
     const auto t = ((p == "0") ? "(t/this->dt)"
                                : ((p == "1") ? "((t+dt_)/this->dt)"
                                              : "((t+" + p + "*dt_)/this->dt)"));
     const auto& d = mb.getBehaviourData(h);
-    const auto uvs = getVariablesUsedDuringIntegration(mb, h);
     for (const auto& mv : mb.getMainVariables()) {
       const auto& dv = mv.first;
       if (uvs.find(dv.name) != uvs.end()) {
@@ -104,12 +104,35 @@ namespace mfront {
     }
   }
 
+  static void writeExternalVariablesCurrentValues(
+      std::ostream& f,
+      const BehaviourDescription& mb,
+      const RungeKuttaCodeGeneratorBase::Hypothesis h,
+      const std::string& p) {
+    writeExternalVariablesCurrentValues(
+        f, mb, h, p, getVariablesUsedDuringIntegration(mb, h));
+  }
+
+  //! \return the variables used in the `@UpdateAuxiliaryStateVariables` block
+  static std::set<std::string> getVariablesUsedInUpdateAuxiliaryStateVariables(
+      const BehaviourDescription& mb,
+      const RungeKuttaCodeGeneratorBase::Hypothesis h) {
+    return mb.getBehaviourData(h)
+        .getCodeBlock(
+            RungeKuttaDSLBase::RungeKuttaUpdateAuxiliaryStateVariables)
+        .members;
+  }
+
   static void writeExternalVariableCurrentValue2(std::ostream& f,
                                                  const std::string& n,
                                                  const std::string& p,
                                                  const bool b) {
     if (p == "0") {
-      f << "this->" << n << "_ = this->" << n << ";\n";
+      if (b) {
+        f << "this->" << n << "_ = this->" << n << ";\n";
+      } else {
+        f << "this->" << n << "_ = this->" << n << "0;\n";
+      }
     } else if (p == "1") {
       if (b) {
         f << "this->" << n << "_ = this->" << n << "+this->d" << n << ";\n";
@@ -121,7 +144,7 @@ namespace mfront {
         f << "this->" << n << "_ = this->" << n << "+" << p << "*(this->d" << n
           << ");\n";
       } else {
-        f << "this->" << n << "_ = this->" << n << "+" << p << "*(this->" << n
+        f << "this->" << n << "_ = this->" << n << "0+" << p << "*(this->" << n
           << "1-this->" << n << "0);\n";
       }
     }
@@ -136,29 +159,26 @@ namespace mfront {
   modifyVariableForStiffnessTensorComputation(const std::string& cn) {
     using MaterialPropertyInput = BehaviourDescription::MaterialPropertyInput;
     using Modifier = std::function<std::string(const MaterialPropertyInput&)>;
-    const Modifier m =
-        [cn](const BehaviourDescription::MaterialPropertyInput& i) {
-          if ((i.category == MaterialPropertyInput::TEMPERATURE) ||
-              (i.category == MaterialPropertyInput::EXTERNALSTATEVARIABLE)) {
-            return "this->" + i.name + "_";
-          } else if (i.category ==
-                     MaterialPropertyInput::
-                         AUXILIARYSTATEVARIABLEFROMEXTERNALMODEL) {
-            return "(this->" + i.name + "+(t/(this->dt))*(this->d" + i.name +
-                   "))";
-          } else if ((i.category == MaterialPropertyInput::MATERIALPROPERTY) ||
-                     (i.category == MaterialPropertyInput::PARAMETER)) {
-            return "this->" + i.name;
-          } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
-            return "TFEL_STATIC_VARIABLE(" + cn + "::" + i.name + ")";
-          } else {
-            tfel::raise(
-                "modifyVariableForStiffnessTensorComputation: "
-                "unsupported input type for "
-                "variable '" +
-                i.name + "'");
-          }
-        };
+    const Modifier m = [cn](const BehaviourDescription::MaterialPropertyInput&
+                                i) {
+      if ((i.category == MaterialPropertyInput::TEMPERATURE) ||
+          (i.category ==
+           MaterialPropertyInput::AUXILIARYSTATEVARIABLEFROMEXTERNALMODEL) ||
+          (i.category == MaterialPropertyInput::EXTERNALSTATEVARIABLE)) {
+        return "this->" + i.name + "_";
+      } else if ((i.category == MaterialPropertyInput::MATERIALPROPERTY) ||
+                 (i.category == MaterialPropertyInput::PARAMETER)) {
+        return "this->" + i.name;
+      } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
+        return "TFEL_STATIC_VARIABLE(" + cn + "::" + i.name + ")";
+      } else {
+        tfel::raise(
+            "modifyVariableForStiffnessTensorComputation: "
+            "unsupported input type for "
+            "variable '" +
+            i.name + "'");
+      }
+    };
     return m;
   }  // end of modifyVariableForStiffnessTensorComputation
 
@@ -198,9 +218,9 @@ namespace mfront {
       std::ostream& f,
       const BehaviourDescription& mb,
       const RungeKuttaCodeGeneratorBase::Hypothesis h,
-      const std::string& p) {
+      const std::string& p,
+      const std::set<std::string>& uvs) {
     const auto& d = mb.getBehaviourData(h);
-    const auto uvs = getVariablesUsedDuringIntegration(mb, h);
     for (const auto& mv : mb.getMainVariables()) {
       const auto& dv = mv.first;
       if (uvs.find(dv.name) != uvs.end()) {
@@ -221,6 +241,15 @@ namespace mfront {
         writeExternalVariableCurrentValue2(f, v.name, p, true);
       }
     }
+  }  // end of writeExternalVariablesCurrentValues2
+
+  static void writeExternalVariablesCurrentValues2(
+      std::ostream& f,
+      const BehaviourDescription& mb,
+      const RungeKuttaCodeGeneratorBase::Hypothesis h,
+      const std::string& p) {
+    writeExternalVariablesCurrentValues2(
+        f, mb, h, p, getVariablesUsedDuringIntegration(mb, h));
   }  // end of writeExternalVariablesCurrentValues2
 
   static void writeReturnSuccess(std::ostream& os,
@@ -428,6 +457,9 @@ namespace mfront {
       os << "}\n";
     }
     if (d.hasCode(RungeKuttaDSLBase::RungeKuttaUpdateAuxiliaryStateVariables)) {
+      writeExternalVariablesCurrentValues2(
+          os, this->bd, h, "1",
+          getVariablesUsedInUpdateAuxiliaryStateVariables(this->bd, h));
       os << "this->updateAuxiliaryStateVariables(this->dt);\n";
     }
   }  // end of writeBehaviourEulerIntegrator
@@ -499,6 +531,9 @@ namespace mfront {
       os << "}\n";
     }
     if (d.hasCode(RungeKuttaDSLBase::RungeKuttaUpdateAuxiliaryStateVariables)) {
+      writeExternalVariablesCurrentValues2(
+          os, this->bd, h, "1",
+          getVariablesUsedInUpdateAuxiliaryStateVariables(this->bd, h));
       os << "this->updateAuxiliaryStateVariables(this->dt);\n";
     }
   }  // end of writeBehaviourRK2Integrator
@@ -524,6 +559,12 @@ namespace mfront {
       for (const auto& mv : this->bd.getMainVariables()) {
         const auto& dv = mv.first;
         if (uvs.find(dv.name) != uvs.end()) {
+          return true;
+        }
+      }
+      for (const auto& v : d.getAuxiliaryStateVariables()) {
+        if ((v.getAttribute<bool>("ComputedByExternalModel", false)) &&
+            (uvs.find(v.name) != uvs.end())) {
           return true;
         }
       }
@@ -881,7 +922,7 @@ namespace mfront {
              << "+cste1_50*(this->d" << v.name << "_K5)"
              << "+cste2_55*(this->d" << v.name << "_K6)))";
           if (v.hasAttribute(VariableDescription::errorNormalisationFactor)) {
-            os << "))/(" << get_enf(v) << ")";
+            os << ")/(" << get_enf(v) << ")";
           }
           os << ";\n";
         } else {
@@ -917,7 +958,7 @@ namespace mfront {
                       VariableDescription::errorNormalisationFactor)) {
                 os << "(";
               }
-              os << "tfel::math::base_type_case(tfel::math::abs("
+              os << "tfel::math::base_type_cast(tfel::math::abs("
                  << "cste1_360*(this->d" << v.name << "_K1[" << i << "])"
                  << "-cste128_4275*(this->d" << v.name << "_K3[" << i << "])"
                  << "-cste2197_75240*(this->d" << v.name << "_K4[" << i << "])"
@@ -1027,7 +1068,7 @@ namespace mfront {
             BehaviourDescription::computesStiffnessTensor, false)) &&
         (!this->bd.areElasticMaterialPropertiesConstantDuringTheTimeStep())) {
       auto m =
-          modifyVariableForStiffnessTensorComputation(this->bd.getClassName());
+          modifyVariableForStiffnessTensorComputation2(this->bd.getClassName());
       os << "// updating stiffness tensor at the end of the time step\n";
       this->writeStiffnessTensorComputation(os, "this->D", m);
     }
@@ -1038,6 +1079,9 @@ namespace mfront {
       os << "}\n";
     }
     if (d.hasCode(RungeKuttaDSLBase::RungeKuttaUpdateAuxiliaryStateVariables)) {
+      writeExternalVariablesCurrentValues(
+          os, this->bd, h, "1",
+          getVariablesUsedInUpdateAuxiliaryStateVariables(this->bd, h));
       os << "this->updateAuxiliaryStateVariables(dt_);\n";
     }
     os << "t += dt_;\n"
@@ -1663,6 +1707,9 @@ namespace mfront {
     }
     if (this->bd.hasCode(
             h, RungeKuttaDSLBase::RungeKuttaUpdateAuxiliaryStateVariables)) {
+      writeExternalVariablesCurrentValues(
+          os, this->bd, h, "1",
+          getVariablesUsedInUpdateAuxiliaryStateVariables(this->bd, h));
       os << "this->updateAuxiliaryStateVariables(dt_);\n";
     }
     os << "t += dt_;\n"
@@ -1996,7 +2043,7 @@ namespace mfront {
          << "auto rk_update_error = [&error](const auto rk_error){\n"
          << "if(!ieee754::isfinite(error)){return;}\n"
          << "if(!ieee754::isfinite(rk_error)){\n"
-         << "error = rk_error;\n"
+         << "error = tfel::math::base_type_cast(rk_error);\n"
          << "return;\n"
          << "}\n"
          << "error = std::max(error, tfel::math::base_type_cast(rk_error));\n"
@@ -2081,6 +2128,9 @@ namespace mfront {
     }
     if (this->bd.hasCode(
             h, RungeKuttaDSLBase::RungeKuttaUpdateAuxiliaryStateVariables)) {
+      writeExternalVariablesCurrentValues(
+          os, this->bd, h, "1",
+          getVariablesUsedInUpdateAuxiliaryStateVariables(this->bd, h));
       os << "this->updateAuxiliaryStateVariables(dt_);\n";
     }
     os << "t += dt_;\n"
@@ -2221,6 +2271,15 @@ namespace mfront {
            << "this->" << v.name << "+ (this->d" << v.name << "_K3);\n";
       }
     }
+    writeExternalVariablesCurrentValues2(os, this->bd, h, "1");
+    if ((this->bd.getAttribute<bool>(
+            BehaviourDescription::computesStiffnessTensor, false)) &&
+        (!this->bd.areElasticMaterialPropertiesConstantDuringTheTimeStep())) {
+      auto m =
+          modifyVariableForStiffnessTensorComputation(this->bd.getClassName());
+      os << "// updating the stiffness tensor\n";
+      this->writeStiffnessTensorComputation(os, "this->D", m);
+    }
     if (this->bd.hasCode(h, BehaviourData::ComputeThermodynamicForces)) {
       os << "// update the thermodynamic forces\n"
          << "if(!this->computeThermodynamicForces()){\n";
@@ -2249,6 +2308,9 @@ namespace mfront {
     }
     if (this->bd.hasCode(
             h, RungeKuttaDSLBase::RungeKuttaUpdateAuxiliaryStateVariables)) {
+      writeExternalVariablesCurrentValues2(
+          os, this->bd, h, "1",
+          getVariablesUsedInUpdateAuxiliaryStateVariables(this->bd, h));
       os << "this->updateAuxiliaryStateVariables(this->dt);\n";
     }
   }  // end of writeBehaviourRK4Integrator

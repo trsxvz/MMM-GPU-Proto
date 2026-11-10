@@ -134,7 +134,7 @@ namespace tfel::material {
       }
       return true;
     }
-    template <tfel::math::QuantityConcept QuantityType>
+    template <tfel::math::ImmutableQuantityConcept QuantityType>
     TFEL_HOST_DEVICE static bool lowerBoundCheck(
         const char* const name,
         const QuantityType& value,
@@ -154,7 +154,7 @@ namespace tfel::material {
       }
       return true;
     }
-    template <tfel::math::QuantityConcept QuantityType>
+    template <tfel::math::ImmutableQuantityConcept QuantityType>
     TFEL_HOST_DEVICE static bool upperBoundCheck(
         const char* const name,
         const QuantityType& value,
@@ -175,7 +175,7 @@ namespace tfel::material {
       }
       return true;
     }
-    template <tfel::math::QuantityConcept QuantityType>
+    template <tfel::math::ImmutableQuantityConcept QuantityType>
     TFEL_HOST_DEVICE static bool lowerAndUpperBoundsChecks(
         const char* const name,
         const QuantityType& value,

@@ -61,6 +61,11 @@ namespace tfel::math {
       if (converged) {
         return true;
       }
+      // the iteration counter may have been set to its maximum value to
+      // abort the resolution, see solveNonLinearSystem
+      if (this->iter >= this->iterMax) {
+        break;
+      }
       if (!child.computeNewCorrection()) {
         child.reportNewCorrectionComputationFailure();
         break;
@@ -68,13 +73,14 @@ namespace tfel::math {
       this->is_delta_zeros_defined = true;
       child.processNewCorrection();
       this->zeros += this->delta_zeros;
+      // `processNewEstimate` may modify the new estimate, for instance to
+      // apply bounds: the correction is updated so that it remains the step
+      // actually taken, which is used by the quasi-Newton updates of the
+      // jacobian, the rejection of a step and the halving of the last step.
+      const EvaluationResult<decltype(this->zeros)> new_estimate = this->zeros;
       child.processNewEstimate();
+      this->delta_zeros += this->zeros - new_estimate;
       ++(this->iter);
-      // the iteration counter may have been set to its maximum value to
-      // abort the resolution, see solveNonLinearSystem
-      if (this->iter >= this->iterMax) {
-        break;
-      }
     }
     return false;
   }  // end of solveNonLinearSystem2
@@ -118,6 +124,24 @@ namespace tfel::math {
     child.reportFailure();
     return false;
   }  // end of solve
+
+  template <unsigned short N,
+            typename NumericType,
+            typename Child,
+            template <unsigned short, typename>
+            typename ExternalWorkSpace>
+  TFEL_HOST_DEVICE bool
+  TinyNonLinearSolverBase<N, NumericType, Child, ExternalWorkSpace>::
+      callUpdateOrCheckJacobian() {
+    auto& child = static_cast<Child&>(*this);
+    if constexpr (std::is_same_v<decltype(child.updateOrCheckJacobian()),
+                                 bool>) {
+      return child.updateOrCheckJacobian();
+    } else {
+      child.updateOrCheckJacobian();
+      return true;
+    }
+  }  // end of callUpdateOrCheckJacobian
 
   template <unsigned short N,
             typename NumericType,

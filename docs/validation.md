@@ -248,6 +248,14 @@ because the suite sets them: it is now excluded from the suite.
 `PETScSolversTest` exceeded its time limit once with the default
 computations, without any output, and passes three times out of three
 alone.
+After the rebase of 09/11 on the masters (TFEL `60a42dd12`, MGIS
+`b1afeb3`; mfem-mgis, mm-opera-hpc and the examples unchanged): 7831
+tests of TFEL, 64 tests of MGIS in double and 60 in float, 372 of mfem-mgis, 25 of
+the examples, 9 of mm-opera-hpc and 143 cases, all green; GPU suite of
+mfem-mgis with the kernels forced: 262 of 264, the two tests requiring the
+absence of a device failing as expected; `-O3` matrix
+(`results/generic-parallel-tests-2026-11-09-rebase-O3.txt`): see
+[JOURNAL.md](../JOURNAL.md), 09/11/2026.
 
 The tracked sweeps in `results/compile-sweep-*-2026-10-06.tsv` give
 the state of the morning of 06/10: 504 OK, 36 blocking user codes, 1 call

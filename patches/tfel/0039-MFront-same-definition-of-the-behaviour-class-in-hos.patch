@@ -1,4 +1,4 @@
-From 724821db3848f6cd9a2c73b5f58d028b0d68ff1a Mon Sep 17 00:00:00 2001
+From cd5bc308b2dfdadb19b229f053190f6effe98789 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 15:20:25 +0200
 Subject: [PATCH] MFront: same definition of the behaviour class in host and
@@ -32,7 +32,7 @@ references, is added to all the configurations.
  .../GenericParallelBehaviourInterface.hxx     |  2 +-
  mfront/src/AbstractBehaviourInterface.cxx     |  6 +-
  mfront/src/BehaviourCodeGeneratorBase.cxx     | 13 ++--
- mfront/src/BehaviourDSLCommon.cxx             | 14 +++--
+ mfront/src/BehaviourDSLCommon.cxx             | 10 ++-
  mfront/src/BehaviourDescription.cxx           | 23 +++++++
  .../src/GenericParallelBehaviourInterface.cxx |  6 +-
  .../ParametersAsStaticVariablesTest.mfront    | 63 +++++++++++++++++++
@@ -52,7 +52,7 @@ references, is added to all the configurations.
  .../sycl-default-acpp-omp/test.check          |  2 +-
  .../sycl-default-acpp/test.check              |  2 +-
  .../sycl-default-icpx/test.check              |  2 +-
- 26 files changed, 161 insertions(+), 39 deletions(-)
+ 26 files changed, 159 insertions(+), 37 deletions(-)
  create mode 100644 test-suite/behaviours/generic-parallel/ParametersAsStaticVariablesTest.mfront
 
 diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
@@ -175,10 +175,10 @@ index 7f32a0596..bba969b4b 100644
    AbstractBehaviourInterface::~AbstractBehaviourInterface() = default;
  
 diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
-index c934abefe..0a3c34fa9 100644
+index 658083dfb..af55c1e92 100644
 --- a/mfront/src/BehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
-@@ -3808,11 +3808,14 @@ namespace mfront {
+@@ -3978,11 +3978,14 @@ namespace mfront {
            decl << "};\n";
          }
          // static data members can't be odr-used in device code, which is
@@ -199,7 +199,7 @@ index c934abefe..0a3c34fa9 100644
          if (p.arraySize == 1) {
            os << p.type << " " << p.name << ";\n";
 diff --git a/mfront/src/BehaviourDSLCommon.cxx b/mfront/src/BehaviourDSLCommon.cxx
-index 56adec2ee..4c4e8c06c 100644
+index 6ad906ad0..b1eadceba 100644
 --- a/mfront/src/BehaviourDSLCommon.cxx
 +++ b/mfront/src/BehaviourDSLCommon.cxx
 @@ -84,6 +84,7 @@ namespace mfront {
@@ -218,7 +218,7 @@ index 56adec2ee..4c4e8c06c 100644
               BehaviourDescription::internalNamespace})),
          explicitlyDeclaredUsableInPurelyImplicitResolution(false) {
      //
-@@ -970,9 +972,13 @@ namespace mfront {
+@@ -983,9 +985,13 @@ namespace mfront {
      }
      //
      const auto path = SearchPathsHandler::search(f);
@@ -232,18 +232,7 @@ index 56adec2ee..4c4e8c06c 100644
          {BehaviourDescription::internalNamespace,
           std::string{"mfront_internal_behaviours"}}};
      // a simple test to fix Issue #524
-@@ -3251,8 +3257,8 @@ namespace mfront {
-     for (const auto& i : inames) {
-       if (this->interfaces.count(i) == 0) {
-         auto ptr = mbif.getInterface(i);
--        if (!ptr->areDynamicallyAllocatedVectorsAllowed()) {
--          this->mb.areDynamicallyAllocatedVectorsAllowed(false);
-+        if (ptr->requiresDeviceCompatibleBehaviourClass()) {
-+          this->mb.requireDeviceCompatibleClass();
-         }
-         this->interfaces.insert({i, ptr});
-       }
-@@ -3269,8 +3275,8 @@ namespace mfront {
+@@ -3293,8 +3299,8 @@ namespace mfront {
          if (!opts.empty()) {
            ptr->setOptions(opts);
          }
@@ -255,7 +244,7 @@ index 56adec2ee..4c4e8c06c 100644
          this->interfaces.insert({i, ptr});
        }
 diff --git a/mfront/src/BehaviourDescription.cxx b/mfront/src/BehaviourDescription.cxx
-index d168c5b42..50dbe76ef 100644
+index 3a1b3407f..c2ffd2007 100644
 --- a/mfront/src/BehaviourDescription.cxx
 +++ b/mfront/src/BehaviourDescription.cxx
 @@ -43,6 +43,8 @@ namespace mfront {
@@ -267,7 +256,7 @@ index d168c5b42..50dbe76ef 100644
    const char* const BehaviourDescription::internalNamespace =
        "internal_namespace";
    const char* const BehaviourDescription::saveThermalExpansion =
-@@ -495,6 +497,18 @@ namespace mfront {
+@@ -496,6 +498,18 @@ namespace mfront {
        this->setAttribute(BehaviourDescription::finalClass, opt.get<bool>(),
                           false);
      }
@@ -286,7 +275,7 @@ index d168c5b42..50dbe76ef 100644
      if (opts.contains(BehaviourDescription::internalNamespace)) {
        const auto& ns_opt = opts.at(BehaviourDescription::internalNamespace);
        if (!ns_opt.is<std::string>()) {
-@@ -3818,6 +3832,15 @@ namespace mfront {
+@@ -3806,6 +3820,15 @@ namespace mfront {
      this->areDynamicallyAllocatedVectorsAllowed_ = b;
    }  // end of SupportedTypes::areDynamicallyAllocatedVectorsAllowed
  

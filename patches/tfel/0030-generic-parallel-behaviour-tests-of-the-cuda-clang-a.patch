@@ -1,4 +1,4 @@
-From a5859b382b45180a452613e7871241cb4f8c7756 Mon Sep 17 00:00:00 2001
+From 1c11236cdf0349191e3fd511992197fb3af1bb74 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 06:03:41 +0200
 Subject: [PATCH] generic-parallel: behaviour tests of the cuda-clang and
@@ -31,10 +31,10 @@ Subject: [PATCH] generic-parallel: behaviour tests of the cuda-clang and
  create mode 100644 test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index 8c57a7852..c01c69a72 100644
+index 7b105e2ff..2906ebc24 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -604,7 +604,8 @@ if(TFEL_REQUIRES_HIP)
+@@ -611,7 +611,8 @@ if(TFEL_REQUIRES_HIP)
     set(TFEL_HIPCC_FLAGS "-x cu -arch=native --compiler-options=-fPIC --expt-relaxed-constexpr -diag-suppress 20012,20208,2810,3189 -diag-error 20011,20014")
     if("hip-clang" IN_LIST generic-parallel-configurations)
      list(APPEND tfel-check-components
@@ -44,7 +44,7 @@ index 8c57a7852..c01c69a72 100644
     endif("hip-clang" IN_LIST generic-parallel-configurations)
   elseif(HIP_PLATFORM STREQUAL "amd")
     # hipcc calls clang
-@@ -634,6 +635,19 @@ if(TFEL_REQUIRES_CUDA)
+@@ -641,6 +642,19 @@ if(TFEL_REQUIRES_CUDA)
    endif(CUDAToolkit_LIBRARY_ROOT)  
    add_tfel_substitution(TFEL_CUDA_PATH "${TFEL_CUDA_PATH}")
    add_tfel_substitution(TFEL_CUDA_LIBRARY_DIR "${CUDAToolkit_LIBRARY_DIR}")
@@ -96,10 +96,10 @@ index ca5322be4..06f33cd8e 100644
  integration fails at some points. The initialize functions, the
  post-processings, the rotation functions and the standalone models are
 diff --git a/docs/web/tfel-config.md b/docs/web/tfel-config.md
-index ada59b361..e1e547024 100644
+index 7fc9b38d9..4bc988ca5 100644
 --- a/docs/web/tfel-config.md
 +++ b/docs/web/tfel-config.md
-@@ -91,3 +91,9 @@ substitutions used by `MFront` when reading configuration files and
+@@ -113,3 +113,9 @@ variables `TFEL_xxx_COMPILER` passed to `cmake` are not used.
    `CMake`'s `FindCUDAToolkit` module.
  - `TFEL_CUDA_LIBRARY_DIR`: path to the libraries of the NVIDIA's `CUDA`
    toolkit as found by `CMake`'s `FindCUDAToolkit` module.

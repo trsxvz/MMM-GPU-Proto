@@ -1,0 +1,133 @@
+From b6e121c9bee7f286af1212e9eea72627846d6be6 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 22:50:22 +0100
+Subject: [PATCH] Tests of the second review of 3.2 adapted to the float
+ numerical type
+
+The tolerances of TangentOperatorTest, EnergiesTest,
+FiniteStrainConversionTest, ComputeSpeedOfSoundTest2, RotateFunctionsTest
+and of the fourth test of MechanicalEvaluatorsTest were written for the
+double numerical type. They now use the tolerances of Tolerance.hxx, as
+the other tests.
+---
+ tests/ComputeSpeedOfSoundTest2.cxx   | 3 ++-
+ tests/EnergiesTest.cxx               | 3 ++-
+ tests/FiniteStrainConversionTest.cxx | 3 ++-
+ tests/MechanicalEvaluatorsTest.cxx   | 2 +-
+ tests/RotateFunctionsTest.cxx        | 3 ++-
+ tests/TangentOperatorTest.cxx        | 3 ++-
+ 6 files changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/tests/ComputeSpeedOfSoundTest2.cxx b/tests/ComputeSpeedOfSoundTest2.cxx
+index d71e556..6b09567 100644
+--- a/tests/ComputeSpeedOfSoundTest2.cxx
++++ b/tests/ComputeSpeedOfSoundTest2.cxx
+@@ -60,7 +60,8 @@ int main(const int argc, const char* const* argv) {
+     // the time step increase factor is bounded by the one given by the solver
+     m.rdt = 1.2;
+     const auto r = integrate(m, opts, dt, 0, m.n);
+-    if (std::abs(r.time_step_increase_factor - 1.2) > 1.e-14) {
++    if (std::abs(r.time_step_increase_factor - mgis::real{1.2}) >
++        mgis::tests::tolerance(1.e-14)) {
+       std::cerr
+           << "ComputeSpeedOfSoundTest: invalid time step increase factor\n";
+       return EXIT_FAILURE;
+diff --git a/tests/EnergiesTest.cxx b/tests/EnergiesTest.cxx
+index 03c6ec0..296c0f1 100644
+--- a/tests/EnergiesTest.cxx
++++ b/tests/EnergiesTest.cxx
+@@ -22,6 +22,7 @@
+ #include "MGIS/Behaviour/BehaviourData.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ static bool success = true;
+ 
+@@ -33,7 +34,7 @@ static void check(const bool b, const char* const msg) {
+ }  // end of check
+ 
+ static bool are_equal(const mgis::real a, const mgis::real b) {
+-  return std::abs(a - b) < 1.e-12 * (1 + std::abs(b));
++  return std::abs(a - b) < mgis::tests::tolerance(1.e-12) * (1 + std::abs(b));
+ }  // end of are_equal
+ 
+ int main(const int argc, const char* const* argv) {
+diff --git a/tests/FiniteStrainConversionTest.cxx b/tests/FiniteStrainConversionTest.cxx
+index f0f9090..3a0956d 100644
+--- a/tests/FiniteStrainConversionTest.cxx
++++ b/tests/FiniteStrainConversionTest.cxx
+@@ -26,6 +26,7 @@
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
+ #include "MGIS/Behaviour/FiniteStrainSupport.hxx"
++#include "Tolerance.hxx"
+ 
+ static bool success = true;
+ 
+@@ -48,7 +49,7 @@ static bool are_equal(std::span<const mgis::real> a,
+     m = std::max(m, std::abs(b[i]));
+     e = std::max(e, std::abs(a[i] - b[i]));
+   }
+-  return e < 1.e-10 * m;
++  return e < mgis::tests::tolerance(1.e-10, 1.e-5) * m;
+ }  // end of are_equal
+ 
+ int main(const int argc, const char* const* argv) {
+diff --git a/tests/MechanicalEvaluatorsTest.cxx b/tests/MechanicalEvaluatorsTest.cxx
+index eec1f26..3a19816 100644
+--- a/tests/MechanicalEvaluatorsTest.cxx
++++ b/tests/MechanicalEvaluatorsTest.cxx
+@@ -151,7 +151,7 @@ struct MechanicalEvaluatorsTest final : public tfel::tests::TestCase {
+   void test4() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14, 1e-5);
+     Context ctx;
+     auto space = BasicLinearSpace(1);
+     const auto sig_ref =
+diff --git a/tests/RotateFunctionsTest.cxx b/tests/RotateFunctionsTest.cxx
+index d9d8cc8..03df9d2 100644
+--- a/tests/RotateFunctionsTest.cxx
++++ b/tests/RotateFunctionsTest.cxx
+@@ -11,13 +11,14 @@
+ #include <stdexcept>
+ #include <iostream>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+   using namespace mgis::behaviour;
+   bool success = true;
+   auto assert_equal = [&success](const real& a, const real b) {
+-    constexpr const auto e = real(1.e-14);
++    const auto e = mgis::tests::tolerance(1.e-14) * (1 + std::abs(b));
+     if (std::abs(a - b) > e) {
+       success = false;
+     }
+diff --git a/tests/TangentOperatorTest.cxx b/tests/TangentOperatorTest.cxx
+index 62778b2..822d897 100644
+--- a/tests/TangentOperatorTest.cxx
++++ b/tests/TangentOperatorTest.cxx
+@@ -22,6 +22,7 @@
+ #include "MGIS/Behaviour/BehaviourData.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ static bool status = true;
+ 
+@@ -33,7 +34,7 @@ static void check(const bool b, const char* const msg) {
+ }  // end of check
+ 
+ static bool are_equal(const mgis::real a, const mgis::real b) {
+-  return std::abs(a - b) < 1.e-12 * (1 + std::abs(b));
++  return std::abs(a - b) < mgis::tests::tolerance(1.e-12) * (1 + std::abs(b));
+ }  // end of are_equal
+ 
+ /*!
+-- 
+2.43.0
+

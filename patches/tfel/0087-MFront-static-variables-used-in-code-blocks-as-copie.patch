@@ -1,4 +1,4 @@
-From b24eb405a286e6db3e3a7312610713497e8ad022 Mon Sep 17 00:00:00 2001
+From aa940aa23800dbeab1df6524c95517b9d71b2749 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:22:58 +0200
 Subject: [PATCH] MFront: static variables used in code blocks as copies built
@@ -21,10 +21,10 @@ DSLBase::readNextBlock are gathered in a local function.
  1 file changed, 20 insertions(+), 18 deletions(-)
 
 diff --git a/mfront/src/DSLBase.cxx b/mfront/src/DSLBase.cxx
-index b1daca9fb..9da54324e 100644
+index 2397e70a5..b922fb9c8 100644
 --- a/mfront/src/DSLBase.cxx
 +++ b/mfront/src/DSLBase.cxx
-@@ -375,6 +375,24 @@ namespace mfront {
+@@ -378,6 +378,24 @@ namespace mfront {
        b.description += this->currentComment;
      }
      auto& res = b.code;
@@ -49,7 +49,7 @@ index b1daca9fb..9da54324e 100644
      unsigned int openedBlock = 0;
      this->readSpecifiedToken("DSLBase::readNextBlock", delim1);
      this->checkNotEndOfFile("DSLBase::readNextBlock",
-@@ -408,15 +426,7 @@ namespace mfront {
+@@ -411,15 +429,7 @@ namespace mfront {
      }
      if (smn.find(currentValue) != smn.end()) {
        b.staticMembers.insert(currentValue);
@@ -66,7 +66,7 @@ index b1daca9fb..9da54324e 100644
      } else if (mn.find(currentValue) != mn.end()) {
        b.members.insert(currentValue);
        auto cv = std::string{};
-@@ -473,15 +483,7 @@ namespace mfront {
+@@ -476,15 +486,7 @@ namespace mfront {
        }
        if (smn.find(currentValue) != smn.end()) {
          b.staticMembers.insert(currentValue);

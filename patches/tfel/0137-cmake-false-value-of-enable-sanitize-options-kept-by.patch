@@ -1,0 +1,37 @@
+From f5440e09e4789dab7467fd458c437e7c169abf7f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 21:53:27 +0100
+Subject: [PATCH] cmake: false value of enable-sanitize-options kept by an
+ existing build directory
+
+The option enable-sanitize-options used to be a boolean, OFF by default. A
+build directory configured before it became a list of sanitizers keeps OFF
+in its cache, which was then taken for the name of a sanitizer: the
+reconfiguration failed. A false value now means no sanitizer.
+---
+ cmake/modules/sanitizers.cmake | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/cmake/modules/sanitizers.cmake b/cmake/modules/sanitizers.cmake
+index 82d38a646..b33681989 100644
+--- a/cmake/modules/sanitizers.cmake
++++ b/cmake/modules/sanitizers.cmake
+@@ -43,6 +43,15 @@ if((enable-sanitize-options STREQUAL "ON") OR
+     "'enable-<name>-sanitizer' option.")
+ endif()
+ 
++# legacy support: a false boolean value, kept in the cache of a build
++# directory configured with the former option, means no sanitizer
++if((enable-sanitize-options STREQUAL "OFF") OR
++   (enable-sanitize-options STREQUAL "FALSE") OR
++   (enable-sanitize-options STREQUAL "NO"))
++  set(enable-sanitize-options "" CACHE STRING
++      "list of the sanitizers to enable (e.g. address;undefined). Available sanitizers depend on the compiler"
++      FORCE)
++endif()
+ set(enable-sanitize-options "" CACHE STRING
+     "list of the sanitizers to enable (e.g. address;undefined). Available sanitizers depend on the compiler")
+ 
+-- 
+2.43.0
+

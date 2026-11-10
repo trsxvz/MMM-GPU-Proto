@@ -1,0 +1,225 @@
+From c44f6df353530f84e01507f7dd68d88cfcb2780c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 21:53:27 +0100
+Subject: [PATCH] generic-parallel models: out of bounds policy of the library,
+ as the generic models
+
+The generic models now read their out of bounds policy at runtime and
+export <name>_setOutOfBoundsPolicy. The generic-parallel models do the same:
+the policy of the library is read on the host by the functions of batches
+and by the functions of the generic interface, and given to the model
+class, which can be used in device code.
+---
+ .../generic-parallel-behaviour-interface.md   |  7 +++---
+ .../include/MFront/GenericModelInterface.hxx  | 11 +++++----
+ .../ModelIntegrator.hxx                       |  9 ++++---
+ mfront/src/GenericModelInterface.cxx          | 24 ++++++++++++-------
+ mfront/src/GenericParallelModelInterface.cxx  | 17 +++++++++----
+ 5 files changed, 43 insertions(+), 25 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 2ef005db7..f8e65d6be 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -146,9 +146,10 @@ objects of each variable by `change_basis`.
+ 
+ The library also exports the same symbols as the `generic` interface
+ (names and types of the variables, parameters, etc.) and the functions
+-changing the parameters and the out of bounds policy. The standalone
+-models use their default out of bounds policy: no function changing it is
+-generated for them. The `<name>_mfront_interface` symbol is equal to
++changing the parameters and the out of bounds policy, for the behaviours
++and for the standalone models, as the `generic` interface. The out of
++bounds policy is read on the host and given to the computations at each
++point. The `<name>_mfront_interface` symbol is equal to
+ `GenericParallel`, for the behaviours and for the standalone models, so
+ that a library of this interface can't be taken for a library of the
+ `generic` interface. The `<name>_generic_parallel_backend` symbol gives the
+diff --git a/mfront/include/MFront/GenericModelInterface.hxx b/mfront/include/MFront/GenericModelInterface.hxx
+index 55bd3d7b5..fc3cc285e 100644
+--- a/mfront/include/MFront/GenericModelInterface.hxx
++++ b/mfront/include/MFront/GenericModelInterface.hxx
+@@ -24,8 +24,10 @@ namespace mfront {
+   struct GenericModelClassOptions {
+     /*!
+      * \brief if true, the class can be used in device code: its constructor
+-     * takes the behaviour data and a structure holding the values of the
+-     * real parameters, its methods are host and device functions and, in
++     * takes the behaviour data, a structure holding the values of the real
++     * parameters and the out of bounds policy (which is read on the host,
++     * where it can be modified at runtime, see the `generic` interface), its
++     * methods are host and device functions and, in
+      * device code, the material laws are evaluated by their device
+      * implementations (the functions of the `mfront` interface are used on
+      * the host). String parameters are not supported in this case (an
+@@ -37,8 +39,9 @@ namespace mfront {
+     /*!
+      * \brief name of the host function returning the out of bounds policy,
+      * which can be modified at runtime (see the `generic` interface). If
+-     * empty, or if the class can be used in device code, the default out of
+-     * bounds policy of the model is used.
++     * empty, the default out of bounds policy of the model is used. Not used
++     * if the class can be used in device code: the policy is then given to
++     * the constructor.
+      */
+     std::string out_of_bounds_policy_function = "";
+   };
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx b/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
+index 31baa8c27..126f06fa0 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
+@@ -56,21 +56,20 @@ namespace mfront::gpb {
+      * \param[in,out] d: behaviour data
+      * \param[in] o: computation options, not used: the model is executed
+      * whatever the type of computation
+-     * \param[in] p: out of bounds policy, which is the default policy of the
+-     * model, applied by the model itself
++     * \param[in] p: out of bounds policy, applied by the model
+      * \param[in] parameters: values of the parameters
+      */
+     template <typename Model, typename ParametersType>
+     TFEL_HOST_DEVICE static int integrate(
+         mfront::gb::BehaviourData& d,
+         const ComputationOptions&,
+-        const tfel::material::OutOfBoundsPolicy,
++        const tfel::material::OutOfBoundsPolicy p,
+         const ParametersType& parameters) {
+       // on the host, the exceptions thrown by the model (bounds checks,
+       // material laws) are reported as failures
+       const auto status =
+-          mfront::gb::callAndReportExceptions(d, [&d, &parameters] {
+-            const auto m = Model(d, parameters);
++          mfront::gb::callAndReportExceptions(d, [&d, &parameters, p] {
++            const auto m = Model(d, parameters, p);
+             return m.execute(d) ? 1 : -1;
+           });
+       if (status == -1) {
+diff --git a/mfront/src/GenericModelInterface.cxx b/mfront/src/GenericModelInterface.cxx
+index d60603273..1bfc7eab8 100644
+--- a/mfront/src/GenericModelInterface.cxx
++++ b/mfront/src/GenericModelInterface.cxx
+@@ -142,15 +142,14 @@ namespace mfront {
+     writeScalarStandardTypedefs(os, md);
+     os << '\n';
+     if (o.device) {
+-      // the constructor always takes the behaviour data and the parameters
++      // the constructor always takes the behaviour data, the parameters and
++      // the out of bounds policy
+       os << "TFEL_HOST_DEVICE " << md.className << "("
+          << "[[maybe_unused]] const mfront_gb_BehaviourData& "
+          << "mfront_model_data, "
+          << "[[maybe_unused]] const " << o.parameters_type
+-         << "& mfront_parameters)";
+-      if (has_constructor) {
+-        os << "\n:";
+-      }
++         << "& mfront_parameters, "
++         << "const tfel::material::OutOfBoundsPolicy mfront_policy)\n:";
+     } else if (has_constructor) {
+       os << md.className << "(";
+       if (!md.constantMaterialProperties.empty()) {
+@@ -158,7 +157,7 @@ namespace mfront {
+       }
+       os << ")\n:";
+     }
+-    if (has_constructor) {
++    if ((o.device) || (has_constructor)) {
+       auto first = true;
+       for (const auto& mp : md.constantMaterialProperties) {
+         os << (first ? "" : ",\n");
+@@ -180,6 +179,9 @@ namespace mfront {
+         }
+         first = false;
+       }
++      if (o.device) {
++        os << (first ? "" : ",\n") << "policy(mfront_policy)";
++      }
+       os << "\n";
+     }
+     if ((o.device) || (has_constructor)) {
+@@ -205,11 +207,13 @@ namespace mfront {
+         os << "using PhysicalConstants [[maybe_unused]] = "
+            << "tfel::PhysicalConstants<NumericType, false>;\n";
+       }
+-      if ((o.device) || (o.out_of_bounds_policy_function.empty())) {
++      // out of bounds policy: in device code, a member of the class (see
++      // the constructor)
++      if ((!o.device) && (o.out_of_bounds_policy_function.empty())) {
+         const auto policy = getDefaultOutOfBoundsPolicyAsString(md);
+         os << "[[maybe_unused]] constexpr const auto policy = "
+            << "tfel::material::" << policy << ";\n";
+-      } else {
++      } else if (!o.device) {
+         os << "[[maybe_unused]] const auto policy = "
+            << o.out_of_bounds_policy_function << "();\n";
+       }
+@@ -398,6 +402,10 @@ namespace mfront {
+       os << "static constexpr auto " << v.name << " = " << v.type << "{"
+          << v.value << "};\n";
+     }
++    if (o.device) {
++      os << "//! \\brief out of bounds policy\n"
++         << "const tfel::material::OutOfBoundsPolicy policy;\n";
++    }
+     os << "}; // end of struct " << md.className << "\n\n";
+   }  // end of writeGenericModelClass
+ 
+diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
+index 500e4629d..57ead7b6e 100644
+--- a/mfront/src/GenericParallelModelInterface.cxx
++++ b/mfront/src/GenericParallelModelInterface.cxx
+@@ -149,6 +149,9 @@ namespace mfront {
+     }
+     {
+       GenericParallelBehaviourInterface bi;
++      // out of bounds policy of the library, as for the `generic` models
++      // and the `generic-parallel` behaviours
++      bi.writeSetOutOfBoundsPolicyFunctionDeclaration(os, name);
+       GenericParallelBehaviourInterface::writeReportFunctionDeclaration(
+           os, bi.getFunctionNameBasis(name));
+     }
+@@ -245,6 +248,9 @@ namespace mfront {
+         os, bi.getFunctionNameBasis(name),
+         generic_parallel::AbstractBackend::Runtime::BEHAVIOURS);
+     sg.generateSymbols(os, bi, bd, fd, name, uh);
++    // out of bounds policy of the library, read on the host and given to
++    // the model
++    bi.writeGetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
+     if (!md.sources.empty()) {
+       os << md.sources << "\n\n";
+     }
+@@ -308,6 +314,7 @@ namespace mfront {
+        << "#endif /* __cplusplus */\n\n";
+     GenericParallelBehaviourInterface::writeReportFunction(
+         os, bi.getFunctionNameBasis(name));
++    bi.writeSetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
+     const auto initializer = getGenericModelParametersInitializerName(md);
+     if (hasGenericModelParametersInitializer(md)) {
+       os << "MFRONT_SHAREDOBJ int\n"
+@@ -357,10 +364,9 @@ namespace mfront {
+           ", mfront_batch_data");
+       os << "using mfront_point_traits = " << point_traits << ";\n";
+       write_parameters();
+-      // the bounds are checked by the model with its default out of bounds
+-      // policy, as in the `generic` interface
+-      os << "const auto mfront_policy = tfel::material::"
+-         << getDefaultOutOfBoundsPolicyAsString(md) << ";\n";
++      // out of bounds policy of the library, as for the behaviours
++      os << "const auto mfront_policy = " << bi.getFunctionNameBasis(name)
++         << "_getOutOfBoundsPolicy();\n";
+       this->backend->writeCall(
+           os, generic_parallel::AbstractBackend::Runtime::BEHAVIOURS,
+           "integrateBatch",
+@@ -378,7 +384,8 @@ namespace mfront {
+            << "try{\n";
+         write_parameters();
+         os << "const mfront::gm::" << md.className
+-           << " m(*d, mfront_parameters);\n"
++           << " m(*d, mfront_parameters, " << bi.getFunctionNameBasis(name)
++           << "_getOutOfBoundsPolicy());\n"
+            << "if(!m.execute(*d)){\n"
+            << "mfront::gb::reportError(*d, \"model execution failed\");\n"
+            << "*(d->rdt) = 0.1;\n"
+-- 
+2.43.0
+

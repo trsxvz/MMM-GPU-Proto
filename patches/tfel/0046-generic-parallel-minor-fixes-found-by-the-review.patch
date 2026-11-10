@@ -1,4 +1,4 @@
-From 295a68678fd872aa55787843124abe159ab5b58e Mon Sep 17 00:00:00 2001
+From 1fbddf2e92af3122df0d8258b74053b2cd349e48 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:03:50 +0200
 Subject: [PATCH] generic-parallel: minor fixes found by the review
@@ -24,10 +24,10 @@ Subject: [PATCH] generic-parallel: minor fixes found by the review
  7 files changed, 55 insertions(+), 77 deletions(-)
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index c01c69a72..8c6b57058 100644
+index 2906ebc24..1339c5d5b 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -552,9 +552,6 @@ set(_tfel-generic-parallel_supported_configurations
+@@ -559,9 +559,6 @@ set(_tfel-generic-parallel_supported_configurations
      "openmp-host-gcc"
      "openmp-offload-nvhpc-gpu")
  
@@ -37,7 +37,7 @@ index c01c69a72..8c6b57058 100644
  foreach(conf ${generic-parallel-configurations})
    if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
      message(FATAL_ERROR "unsupported configuration '${conf}' for the tests of the generic-parallel interface. "
-@@ -562,10 +559,8 @@ foreach(conf ${generic-parallel-configurations})
+@@ -569,10 +566,8 @@ foreach(conf ${generic-parallel-configurations})
    endif()
    set(_tfel-enable-generic-parallel-${conf}-configuration ON)
    if(NOT ${conf} STREQUAL "hip-clang")
@@ -295,10 +295,10 @@ index 98c65c358..05804552d 100644
            os, "integrateBatch",
            "mfront::gm::" + md.className + ", mfront_point_traits",
 diff --git a/mfront/src/RungeKuttaDSLBase.cxx b/mfront/src/RungeKuttaDSLBase.cxx
-index 8a549899b..6d1bfb8df 100644
+index 34c6b944b..37d631da3 100644
 --- a/mfront/src/RungeKuttaDSLBase.cxx
 +++ b/mfront/src/RungeKuttaDSLBase.cxx
-@@ -19,6 +19,7 @@
+@@ -20,6 +20,7 @@
  #include "TFEL/Glossary/GlossaryEntry.hxx"
  #include "TFEL/Utilities/StringAlgorithms.hxx"
  #include "MFront/DSLFactory.hxx"
@@ -306,7 +306,7 @@ index 8a549899b..6d1bfb8df 100644
  #include "MFront/PedanticMode.hxx"
  #include "MFront/MFrontDebugMode.hxx"
  #include "MFront/MFrontLogStream.hxx"
-@@ -750,14 +751,13 @@ namespace mfront {
+@@ -824,14 +825,13 @@ namespace mfront {
        // this code is inserted in the `initialize` method. Exceptions are not
        // supported in device code, where `false` is returned
        ib.code += "if(this->dt < 100 * std::numeric_limits<time>::min()){\n";

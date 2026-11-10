@@ -1,4 +1,4 @@
-From c41032ec6f8497e42b80a40e69a1582b9acb7c7d Mon Sep 17 00:00:00 2001
+From 952675a806110c1d548c90e52390d5605dd08805 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:07:51 +0200
 Subject: [PATCH] Layout of the arrays of the material data managers
@@ -30,7 +30,7 @@ of the views of mgis::function to field views.
  include/MGIS/Function/FieldViewSupport.hxx    |  77 ++++
  ...dCoalescedMemoryAccessFunctionViewBase.hxx |   9 +
  ...dCoalescedMemoryAccessFunctionViewBase.ixx |  21 +
- src/FiniteStrainSupport.cxx                   | 378 +++++++++-------
+ src/FiniteStrainSupport.cxx                   | 396 ++++++++--------
  src/Integrate.cxx                             |   4 +-
  src/MaterialDataManager.cxx                   |  62 ++-
  src/MaterialDataView.cxx                      |   8 +-
@@ -38,12 +38,12 @@ of the views of mgis::function to field views.
  tests/CMakeLists.txt                          |  13 +
  tests/MaterialDataManagerLayoutTest.cxx       | 425 ++++++++++++++++++
  tests/MaterialDataViewTest.cxx                |   2 +-
- 20 files changed, 1503 insertions(+), 251 deletions(-)
+ 20 files changed, 1509 insertions(+), 263 deletions(-)
  create mode 100644 include/MGIS/Function/FieldViewSupport.hxx
  create mode 100644 tests/MaterialDataManagerLayoutTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 0f1d391..3865776 100644
+index fcca86e..2045662 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -96,6 +96,7 @@ if(enable-mgis-function)
@@ -55,7 +55,7 @@ index 0f1d391..3865776 100644
    mgis_header(MGIS/Function Evaluator.hxx)
    mgis_header(MGIS/Function Evaluator.ixx)
 diff --git a/include/MGIS/Behaviour/FiniteStrainSupport.hxx b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
-index 786b1a1..069f189 100644
+index a30e839..70a8a7d 100644
 --- a/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 +++ b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 @@ -17,12 +17,15 @@
@@ -82,8 +82,8 @@ index 786b1a1..069f189 100644
 +   * \param[out] s: new stress, in the layout of the material data manager
     * \param[in] m: material data manager
     * \param[in] t: expected finite strain stress type
-    */
-@@ -72,7 +75,8 @@ namespace mgis::behaviour {
+    * \pre the behaviour must be loaded with the Cauchy stress as stress
+@@ -74,7 +77,8 @@ namespace mgis::behaviour {
                                               const MaterialDataManager&,
                                               const FiniteStrainStress);
    /*!
@@ -92,8 +92,8 @@ index 786b1a1..069f189 100644
 +   * manager
     * \param[in] m: material data manager
     * \param[in] t: expected finite strain operator type
-    */
-@@ -97,6 +101,26 @@ namespace mgis::behaviour {
+    * \pre the behaviour must be loaded with the Cauchy stress as stress
+@@ -109,6 +113,26 @@ namespace mgis::behaviour {
        std::span<real>&,
        const BehaviourData&,
        const FiniteStrainTangentOperator);
@@ -121,7 +121,7 @@ index 786b1a1..069f189 100644
  }  // end of namespace mgis::behaviour
  
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 30aa502..b3fbe72 100644
+index 42d9abc..b259f67 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -142,6 +142,15 @@ namespace mgis::behaviour {
@@ -140,7 +140,7 @@ index 30aa502..b3fbe72 100644
      /*!
       * \brief memory resource used to allocate the arrays which are not given
       * by this initializer (states, tangent operators, speed of sound). If
-@@ -312,6 +321,8 @@ namespace mgis::behaviour {
+@@ -317,6 +326,8 @@ namespace mgis::behaviour {
      const size_type n;
      //! \brief location of the arrays (see `MaterialDataManagerInitializer`)
      const MemoryLocation memory_location = MemoryLocation::HOST;
@@ -149,7 +149,7 @@ index 30aa502..b3fbe72 100644
      /*!
       * \brief the size of the stiffness matrix for one integration point (the
       * size of K is K_stride times the number of integration points)
-@@ -449,6 +460,33 @@ namespace mgis::behaviour {
+@@ -455,6 +466,33 @@ namespace mgis::behaviour {
  
  #endif /* MGIS_HAVE_HDF5 */
  
@@ -197,7 +197,7 @@ index 308f78b..e2365bd 100644
   * to one of the following licences:
   * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.hxx b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
-index a36ca82..6626d62 100644
+index 4ef4cd6..688915c 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 @@ -16,6 +16,7 @@
@@ -280,7 +280,7 @@ index a36ca82..6626d62 100644
 +                            const std::shared_ptr<const Behaviour>&,
 +                            const MaterialDataManagerInitializer&);
      //! \brief return the quadrature space
-     const SpaceType& getSpace() const noexcept;
+     const SpaceType& getSpace() const MGIS_NOEXCEPT;
      //! \brief return the pointer to the quadrature space
 @@ -289,6 +357,90 @@ namespace mgis::behaviour {
                             std::string_view,
@@ -374,7 +374,7 @@ index a36ca82..6626d62 100644
  
  #include "MGIS/Behaviour/MaterialFunctionManager.ixx"
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
-index f2e23a0..cdcf536 100644
+index d2a9e44..a2aab9c 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 @@ -73,6 +73,63 @@ namespace mgis::behaviour {
@@ -440,7 +440,7 @@ index f2e23a0..cdcf536 100644
 +
    template <mgis::function::LinearElementSpaceConcept SpaceType>
    const SpaceType& MaterialFunctionManager<SpaceType>::getSpace()
-       const noexcept {
+       const MGIS_NOEXCEPT {
 @@ -115,7 +172,8 @@ namespace mgis::behaviour {
                       std::span<real> values,
                       std::string_view n,
@@ -718,10 +718,10 @@ index f2e23a0..cdcf536 100644
  
  #endif /* LIB_MGIS_BEHAVIOUR_MATERIALFUNCTIONMANAGER_IXX */
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index d52f7d2..4a5cabf 100644
+index 6900161..0475e52 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
-@@ -32,6 +32,7 @@
+@@ -37,6 +37,7 @@
  #include "MGIS/StorageMode.hxx"
  
  #include "MGIS/MemoryLocation.hxx"
@@ -729,7 +729,7 @@ index d52f7d2..4a5cabf 100644
  #ifdef MGIS_FUNCTION_SUPPORT
  #include "MGIS/Function/Function.hxx"
  #endif /* MGIS_FUNCTION_SUPPORT */
-@@ -183,12 +184,14 @@ namespace mgis::behaviour {
+@@ -222,12 +223,14 @@ namespace mgis::behaviour {
       * the material state manager. If the location is a device, or a shared
       * memory without memory resource, all the arrays must be given:
       * otherwise, an exception is thrown.
@@ -745,7 +745,7 @@ index d52f7d2..4a5cabf 100644
      //
      MaterialStateManager(MaterialStateManager&&) = delete;
      MaterialStateManager(const MaterialStateManager&) = delete;
-@@ -267,6 +270,18 @@ namespace mgis::behaviour {
+@@ -306,6 +309,18 @@ namespace mgis::behaviour {
       * check this location.
       */
      const MemoryLocation memory_location = MemoryLocation::HOST;
@@ -764,7 +764,7 @@ index d52f7d2..4a5cabf 100644
  
     private:
      //! \brief value of the gradients, if hold internally
-@@ -598,7 +613,9 @@ namespace mgis::behaviour {
+@@ -665,7 +680,9 @@ namespace mgis::behaviour {
     * \param[in] s: material state manager
     * \param[in] n: name of the internal state variables
     *
@@ -775,7 +775,7 @@ index d52f7d2..4a5cabf 100644
     * \note the values are read on the host: an exception is thrown if the
     * internal state variables are located in the memory of a device.
     */
-@@ -606,6 +623,75 @@ namespace mgis::behaviour {
+@@ -673,6 +690,75 @@ namespace mgis::behaviour {
        std::span<mgis::real>,
        const mgis::behaviour::MaterialStateManager&,
        const std::string_view);
@@ -961,13 +961,13 @@ index 0000000..716cc6f
 +
 +#endif /* LIB_MGIS_FUNCTION_FIELDVIEWSUPPORT_HXX */
 diff --git a/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.hxx b/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.hxx
-index a00fafc..28bb15f 100644
+index 6497367..33c30f0 100644
 --- a/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.hxx
 +++ b/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.hxx
-@@ -89,6 +89,15 @@ namespace mgis::function {
-         requires(LinearQuadratureSpaceConcept<Space>);
-     //! \return the underlying quadrature space
-     [[nodiscard]] constexpr const Space& getSpace() const noexcept;
+@@ -117,6 +117,15 @@ namespace mgis::function {
+      * \return the space on which the view is defined
+      */
+     [[nodiscard]] constexpr const Space& getSpace() const MGIS_NOEXCEPT;
 +    /*!
 +     * \return the values of all the components at all the points, the
 +     * values of a component being contiguous
@@ -981,13 +981,13 @@ index a00fafc..28bb15f 100644
     protected:
      /*!
 diff --git a/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.ixx b/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.ixx
-index 57537ab..c31e7b3 100644
+index da3a2ad..f9811d0 100644
 --- a/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.ixx
 +++ b/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.ixx
-@@ -112,6 +112,27 @@ namespace mgis::function {
-     return this->space;
-   }  // end of getSpace
- 
+@@ -118,6 +118,27 @@ namespace mgis::function {
+   // offset of the value of the `k`-th component at a given integration point
+   // is the sum of the offset of the integration point and of `k` times the
+   // size of the space
 +  template <FunctionalSpaceConcept Space, size_type N, bool is_mutable>
 +    requires(N > 0)  //
 +  constexpr std::span<real>
@@ -1013,7 +1013,7 @@ index 57537ab..c31e7b3 100644
    requires(N > 0)                    //
        constexpr std::array<real, N>  //
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index a1d2efe..7f5c6ba 100644
+index eabd3f6..4f79d30 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -19,7 +19,9 @@
@@ -1026,7 +1026,7 @@ index a1d2efe..7f5c6ba 100644
  #include "MGIS/Behaviour/FiniteStrainSupport.hxx"
  
  namespace mgis::behaviour {
-@@ -94,104 +96,151 @@ namespace mgis::behaviour {
+@@ -94,81 +96,125 @@ namespace mgis::behaviour {
             2;
    }  // end of convertFiniteStrainStress_PK1_3D
  
@@ -1188,23 +1188,23 @@ index a1d2efe..7f5c6ba 100644
 -                                               const MaterialDataManager& m) {
 -    // check behaviour type
 -    if (m.b.btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
--      mgis::raise(
--          "convertFiniteStrainStress: "
--          "unsupported behaviour type");
--    }
--    // non symmetric tensor size
--    const auto ts = getTensorSize(m.b.hypothesis);
--    // check K size
--    if (s.size() != m.n * ts) {
 +    const auto h = b.hypothesis;
 +    if ((h != Hypothesis::TRIDIMENSIONAL) &&
 +        (h != Hypothesis::AXISYMMETRICAL) && (h != Hypothesis::PLANESTRAIN) &&
 +        (h != Hypothesis::GENERALISEDPLANESTRAIN)) {
        mgis::raise(
            "convertFiniteStrainStress: "
--          "invalid array size");
+-          "unsupported behaviour type");
 +          "unsupported hypothesis");
      }
+-    // non symmetric tensor size
+-    const auto ts = getTensorSize(m.b.hypothesis);
+-    // check K size
+-    if (s.size() != m.n * ts) {
+-      mgis::raise(
+-          "convertFiniteStrainStress: "
+-          "invalid array size");
+-    }
 -    convertFiniteStrainStress_PK1_3D(s, m, 0, m.n);
 -  }  // end of convertFiniteStrainStress_PK1_3D
 +    convertFiniteStrainStress_PK1(P, F, s, h);
@@ -1212,8 +1212,10 @@ index a1d2efe..7f5c6ba 100644
  
    void convertFiniteStrainStress(std::span<real>& s,
                                   const MaterialDataManager& m,
-                                  const FiniteStrainStress t) {
-     checkHostAccess("convertFiniteStrainStress", m);
+@@ -182,24 +228,27 @@ namespace mgis::behaviour {
+           "the behaviour must be loaded with the Cauchy stress as "
+           "stress measure");
+     }
 -    const auto h = m.b.hypothesis;
 -    if (t == FiniteStrainStress::PK1) {
 -      if (h == Hypothesis::TRIDIMENSIONAL) {
@@ -1252,7 +1254,7 @@ index a1d2efe..7f5c6ba 100644
    }  // end of convertFiniteStrainStress
  
    static void convertFiniteStrainStress_PK1_2D(std::span<real>& P,
-@@ -719,122 +768,115 @@ namespace mgis::behaviour {
+@@ -735,111 +784,88 @@ namespace mgis::behaviour {
               2;
    }  // end of convertFiniteStrainTangentOperator_PK1_3D
  
@@ -1305,6 +1307,32 @@ index a1d2efe..7f5c6ba 100644
 -      const auto* const F_l = F + ts * i;
 -      const auto* const s_l = s + ss * i;
 -      convertFiniteStrainTangentOperator_PK1_3D(dP_l, ds_l, F_l, s_l);
+-    }
+-  }  // end of convertFiniteStrainTangentOperator_PK1_3D
+-
+-  static void convertFiniteStrainTangentOperator_PK1_2D(
+-      std::span<mgis::real>& K, const MaterialDataManager& m) {
+-    // check behaviour type
+-    if (m.b.btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+-      mgis::raise(
+-          "convertFiniteStrainTangentOperator: "
+-          "unsupported behaviour type");
+-    }
+-    // non symmetric tensor size
+-    const auto ts = getTensorSize(m.b.hypothesis);
+-    // stride associated with K
+-    const auto Ks = ts * ts;
+-    // check K size
+-    if (K.size() != m.n * Ks) {
+-      mgis::raise(
+-          "convertFiniteStrainTangentOperator: "
+-          "invalid array size");
+-    }
+-    // check that the tangent operator blocks are allocated
+-    if (m.K.size() != m.n * m.K_stride) {
+-      mgis::raise(
+-          "convertFiniteStrainTangentOperator: "
+-          "the array of tangent operator blocks has not been allocated");
 +  /*!
 +   * \brief compute the derivative of the first Piola-Kirchhoff stress with
 +   * respect to the deformation gradient
@@ -1349,10 +1377,11 @@ index a1d2efe..7f5c6ba 100644
 +        }
 +      }
      }
--  }  // end of convertFiniteStrainTangentOperator_PK1_3D
+-    convertFiniteStrainTangentOperator_PK1_2D(K, m, 0, m.n);
+-  }  // end of convertFiniteStrainTangentOperator_PK1_2D
 +  }  // end of convertFiniteStrainTangentOperator_PK1
  
--  static void convertFiniteStrainTangentOperator_PK1_2D(
+-  static void convertFiniteStrainTangentOperator_PK1_3D(
 -      std::span<mgis::real>& K, const MaterialDataManager& m) {
 -    // check behaviour type
 -    if (m.b.btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
@@ -1388,32 +1417,17 @@ index a1d2efe..7f5c6ba 100644
            "convertFiniteStrainTangentOperator: "
            "invalid array size");
      }
--    convertFiniteStrainTangentOperator_PK1_2D(K, m, 0, m.n);
--  }  // end of convertFiniteStrainTangentOperator_PK1_2D
--
--  static void convertFiniteStrainTangentOperator_PK1_3D(
--      std::span<mgis::real>& K, const MaterialDataManager& m) {
--    // check behaviour type
--    if (m.b.btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+-    // check that the tangent operator blocks are allocated
+-    if (m.K.size() != m.n * m.K_stride) {
 +    const auto h = b.hypothesis;
 +    if ((h != Hypothesis::TRIDIMENSIONAL) &&
 +        (h != Hypothesis::AXISYMMETRICAL) && (h != Hypothesis::PLANESTRAIN) &&
 +        (h != Hypothesis::GENERALISEDPLANESTRAIN)) {
        mgis::raise(
            "convertFiniteStrainTangentOperator: "
--          "unsupported behaviour type");
+-          "the array of tangent operator blocks has not been allocated");
 +          "unsupported hypothesis");
      }
--    // non symmetric tensor size
--    const auto ts = getTensorSize(m.b.hypothesis);
--    // stride associated with K
--    const auto Ks = ts * ts;
--    // check K size
--    if (K.size() != m.n * Ks) {
--      mgis::raise(
--          "convertFiniteStrainTangentOperator: "
--          "invalid array size");
--    }
 -    convertFiniteStrainTangentOperator_PK1_3D(K, m, 0, m.n);
 -  }  // end of convertFiniteStrainTangentOperator_PK1_3D
 +    convertFiniteStrainTangentOperator_PK1(K, ds, F, s, h);
@@ -1421,8 +1435,10 @@ index a1d2efe..7f5c6ba 100644
  
    void convertFiniteStrainTangentOperator(std::span<mgis::real>& K,
                                            const MaterialDataManager& m,
-                                           const FiniteStrainTangentOperator t) {
-     checkHostAccess("convertFiniteStrainTangentOperator", m);
+@@ -854,24 +880,34 @@ namespace mgis::behaviour {
+           "the behaviour must be loaded with the Cauchy stress as "
+           "stress measure and DSIG_DF as tangent operator");
+     }
 -    const auto h = m.b.hypothesis;
 -    if (t == FiniteStrainTangentOperator::DPK1_DF) {
 -      if (h == Hypothesis::TRIDIMENSIONAL) {
@@ -1443,6 +1459,12 @@ index a1d2efe..7f5c6ba 100644
            "convertFiniteStrainTangentOperator: "
            "unsupported tangent operator");
      }
++    // check that the tangent operator blocks are allocated
++    if (m.K.size() != m.n * m.K_stride) {
++      mgis::raise(
++          "convertFiniteStrainTangentOperator: "
++          "the array of tangent operator blocks has not been allocated");
++    }
 +    convertFiniteStrainTangentOperator(makeFieldView(K, m.layout, m.n, ts * ts),
 +                                       m.b, getTangentOperatorBlocksView(m),
 +                                       getGradientsView(m.s1),
@@ -1463,10 +1485,10 @@ index a1d2efe..7f5c6ba 100644
  
    static void convertFiniteStrainTangentOperator_PK1_2D(
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index cca5339..a5acfd5 100644
+index 45e9aa2..800e3bd 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
-@@ -1403,7 +1403,7 @@ namespace mgis::behaviour {
+@@ -1410,7 +1410,7 @@ namespace mgis::behaviour {
      if ((inputs.size() == istride) && (m.n != 1)) {
        return makeUniformFieldView(inputs, m.n);
      }
@@ -1475,7 +1497,7 @@ index cca5339..a5acfd5 100644
    }  // end of getInitializeFunctionInputsView
  
    static const BehaviourPostProcessing& getBehaviourPostProcessing(
-@@ -1455,7 +1455,7 @@ namespace mgis::behaviour {
+@@ -1462,7 +1462,7 @@ namespace mgis::behaviour {
            "invalid size of the outputs '" +
            std::string{n} + "'");
      }
@@ -1485,7 +1507,7 @@ index cca5339..a5acfd5 100644
  
    /*!
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 24e5082..098892d 100644
+index e7ddf16..16812e2 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -87,10 +87,11 @@ namespace mgis::behaviour {
@@ -1605,10 +1627,10 @@ index 02dee6e..86068ca 100644
      makeStateView(v.s0, m, m.s0);
      makeStateView(v.s1, m, m.s1);
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 5d72d7e..808e8e9 100644
+index b03b6e7..66de95a 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -36,6 +36,23 @@ namespace mgis::behaviour {
+@@ -38,6 +38,23 @@ namespace mgis::behaviour {
      return *this;
    }  // end of value
  
@@ -1632,7 +1654,7 @@ index 5d72d7e..808e8e9 100644
    MaterialStateManager::MaterialStateManager(const Behaviour& behaviour,
                                               const size_type s)
        : gradients_stride(
-@@ -54,14 +71,7 @@ namespace mgis::behaviour {
+@@ -56,14 +73,7 @@ namespace mgis::behaviour {
        view = std::span<mgis::real>(values);
      };
      init(this->gradients, this->gradients_values, this->gradients_stride);
@@ -1648,7 +1670,7 @@ index 5d72d7e..808e8e9 100644
      init(this->thermodynamic_forces, this->thermodynamic_forces_values,
           this->thermodynamic_forces_stride);
      init(this->internal_state_variables, this->internal_state_variables_values,
-@@ -86,7 +96,8 @@ namespace mgis::behaviour {
+@@ -88,7 +98,8 @@ namespace mgis::behaviour {
        const size_type s,
        const MaterialStateManagerInitializer& i,
        const MemoryLocation l,
@@ -1658,7 +1680,7 @@ index 5d72d7e..808e8e9 100644
        : gradients_stride(
              getArraySize(behaviour.gradients, behaviour.hypothesis)),
          thermodynamic_forces_stride(
-@@ -96,6 +107,7 @@ namespace mgis::behaviour {
+@@ -98,6 +109,7 @@ namespace mgis::behaviour {
          n(s),
          b(behaviour),
          memory_location(l),
@@ -1666,7 +1688,7 @@ index 5d72d7e..808e8e9 100644
          gradients_values(r != nullptr ? r : std::pmr::get_default_resource()),
          thermodynamic_forces_values(gradients_values.get_allocator()),
          internal_state_variables_values(gradients_values.get_allocator()),
-@@ -130,14 +142,8 @@ namespace mgis::behaviour {
+@@ -132,14 +144,8 @@ namespace mgis::behaviour {
      };
      init(this->gradients, this->gradients_values, i.gradients,
           this->gradients_stride, "gradients");
@@ -1683,7 +1705,7 @@ index 5d72d7e..808e8e9 100644
      }
      init(this->thermodynamic_forces, this->thermodynamic_forces_values,
           i.thermodynamic_forces, this->thermodynamic_forces_stride,
-@@ -671,6 +677,11 @@ namespace mgis::behaviour {
+@@ -789,6 +795,11 @@ namespace mgis::behaviour {
        return ctx.registerErrorMessage(
            getHostAccessErrorMessage("updateValues"));
      }
@@ -1694,8 +1716,8 @@ index 5d72d7e..808e8e9 100644
 +    }
      using FieldHolder = MaterialStateManager::FieldHolder;
      using MutableFieldHolder = MaterialStateManager::MutableFieldHolder;
-     auto update_span = [&ctx](
-@@ -784,38 +795,6 @@ namespace mgis::behaviour {
+     auto update_span =
+@@ -901,38 +912,6 @@ namespace mgis::behaviour {
      updateValues(ctx, o, i) | ctx.getThrowingFailureHandler();
    }  // end of updateValues
  
@@ -1734,7 +1756,7 @@ index 5d72d7e..808e8e9 100644
    void extractInternalStateVariable(
        std::span<mgis::real> o,
        const mgis::behaviour::MaterialStateManager& s,
-@@ -825,23 +804,125 @@ namespace mgis::behaviour {
+@@ -942,23 +921,125 @@ namespace mgis::behaviour {
      }
      const auto& iv = mgis::behaviour::getVariable(s.b.isvs, n);
      const auto nc = mgis::behaviour::getVariableSize(iv, s.b.hypothesis);
@@ -1869,10 +1891,10 @@ index 5d72d7e..808e8e9 100644
  
    [[nodiscard]] static bool save(
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index dd70d04..84c8868 100644
+index 96907df..22a8624 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -198,6 +198,19 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -197,6 +197,19 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      set_property(TEST MaterialDataViewTest
        PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest)
      set_test_environment(MaterialDataViewTest)

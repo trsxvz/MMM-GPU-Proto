@@ -1,4 +1,4 @@
-From bc8a95079d3db7dbb029839241bcda3ecec16dcc Mon Sep 17 00:00:00 2001
+From f179f03a9d472cd00c3ebc62f3a2bbce54cd2cf9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:07:08 +0200
 Subject: [PATCH] CUDA tests of the functions on views of arrays of the device

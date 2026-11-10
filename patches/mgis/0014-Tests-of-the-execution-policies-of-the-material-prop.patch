@@ -1,4 +1,4 @@
-From 27e02fe240d49df2d58849d56bc86a73f653158b Mon Sep 17 00:00:00 2001
+From 6b5443273e77a1ee3d010644e3633cac19c7fa08 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 14:32:18 +0200
 Subject: [PATCH] Tests of the execution policies of the material properties

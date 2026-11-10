@@ -1,4 +1,4 @@
-From be7d2418720e6125b9e04c1936accfab0a5ab3c6 Mon Sep 17 00:00:00 2001
+From 964844a506bd8b7c7eca2a70ecac3f577a319fc1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 15:29:52 +0200
 Subject: [PATCH] generic-parallel: independent reference in the tests, shared

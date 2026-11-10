@@ -1,4 +1,4 @@
-From 1334dcc286a666fa871d112dd9e7839e83df0dc1 Mon Sep 17 00:00:00 2001
+From 8e54fabd3620f6026aa5188f1e7f25bfdbdb75db Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:28 +0200
 Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
@@ -26,12 +26,11 @@ Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
 - unit tests: `TrivialGenTypeBaseTest`, `ChangeBasisTest`.
 ---
  include/CMakeLists.txt                        |   2 +
- include/FSES/Utilities.ixx                    |  17 +-
+ include/FSES/Utilities.ixx                    |   3 +-
  include/TFEL/Config/TFELConfig.hxx            |   2 +-
  include/TFEL/Material/BoundsCheck.hxx         |  10 +-
  .../FiniteStrainBehaviourTangentOperator.hxx  |  60 +++--
  .../FiniteStrainBehaviourTangentOperator.ixx  |  88 +++----
- .../Material/LogarithmicStrainHandler.hxx     |  98 +++----
  .../Material/LogarithmicStrainHandler.ixx     |  40 ++-
  include/TFEL/Material/MechanicalBehaviour.hxx |  48 ++--
  ...GenericSlidingSystemsInteractionMatrix.hxx |  31 ++-
@@ -39,65 +38,20 @@ Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
  .../Material/MetallicCFCSlidingSystems.hxx    |  23 +-
  .../Material/MetallicCFCSlidingSystems.ixx    |  11 +-
  .../Math/Array/FixedSizeArrayDerivative.hxx   |  10 +-
- .../Math/Array/FixedSizeIndexingPolicies.hxx  |  56 ++--
- .../TFEL/Math/Array/GenericFixedSizeArray.hxx |  23 +-
+ .../TFEL/Math/Array/GenericFixedSizeArray.hxx |  17 +-
  .../TFEL/Math/Array/GenericFixedSizeArray.ixx |  38 ---
- .../Math/Array/MutableRuntimeArrayBase.hxx    |   6 +-
- .../Math/Array/RuntimeIndexingPolicies.hxx    |  32 +--
- ...dardTemplateLibraryCompatibilityLayers.hxx |  20 +-
- include/TFEL/Math/Array/View.hxx              |   7 +-
- include/TFEL/Math/General/Abs.hxx             |   4 +-
- .../TFEL/Math/General/MathObjectTraits.hxx    |   6 +-
- include/TFEL/Math/LU/TinyMatrixSolve.ixx      |  20 +-
- include/TFEL/Math/LU/TinyPermutation.hxx      |   2 +-
- .../TFEL/Math/Matrix/TMatrixTMatrixExpr.hxx   |  12 +-
- .../TFEL/Math/Matrix/TMatrixTVectorExpr.hxx   |   2 +-
- .../TFEL/Math/Matrix/TVectorTMatrixExpr.hxx   |   2 +-
- include/TFEL/Math/Matrix/TinyMatrixInvert.ixx |  24 +-
+ include/TFEL/Math/LU/TinyMatrixSolve.ixx      |  24 +-
+ include/TFEL/Math/Matrix/TinyMatrixInvert.ixx |  29 +-
  include/TFEL/Math/Matrix/tmatrix.ixx          |  21 ++
- .../TinyNonLinearSolverBase.hxx               |   8 +-
- include/TFEL/Math/Quantity/qtOperations.hxx   |  52 ++--
- include/TFEL/Math/Quantity/qtOperations.ixx   |  12 +-
- .../Math/ST2toST2/BuildFromRotationMatrix.hxx |   6 +-
- .../ST2toST2/ST2toST2ST2toST2ProductExpr.hxx  |  12 +-
- .../ST2toST2/ST2toST2StensorProductExpr.hxx   |  18 +-
- .../Math/ST2toST2/ST2toST2TransposeExpr.hxx   |   4 +-
- .../ST2toST2/StensorST2toST2ProductExpr.hxx   |  18 +-
- include/TFEL/Math/ST2toST2/WalpoleBasis.hxx   |  20 +-
  ...ecompositionInPositiveAndNegativeParts.hxx | 114 ++++----
  .../Internals/FSESSymmetricEigenSolver.hxx    |  22 +-
- .../Internals/GteSymmetricEigenSolver.hxx     |  27 +-
- .../Stensor/Internals/HarariEigenSolver.hxx   |  40 +--
- .../Stensor/Internals/SortEigenValues.hxx     |  13 +-
- .../Stensor/Internals/SortEigenVectors.hxx    |  13 +-
- .../Internals/StensorComputeEigenVectors.hxx  |  69 ++---
- .../StensorComputeEigenVectorsDerivatives.hxx |  41 +--
- ...nsorComputeIsotropicFunctionDerivative.hxx |  90 ++++---
- .../Stensor/Internals/StensorEigenSolver.hxx  | 183 +++++++------
- include/TFEL/Math/Stensor/StensorProduct.hxx  |  17 +-
- .../LeftCauchyGreenTensorDerivativeExpr.hxx   |   6 +-
- .../RightCauchyGreenTensorDerivativeExpr.hxx  |  12 +-
- .../T2toST2/ST2toST2T2toST2ProductExpr.hxx    |  12 +-
- .../Math/T2toST2/T2toST2T2toT2ProductExpr.hxx |  12 +-
- .../Math/T2toT2/ConvertFromPK1Derivative.hxx  |   2 +-
- .../Math/T2toT2/ConvertToPK1Derivative.hxx    |  16 +-
- .../Math/T2toT2/ConvertToPK1Derivative.ixx    |   4 +-
- .../Math/T2toT2/T2toT2T2toT2ProductExpr.hxx   |  12 +-
- .../TensorProductLeftDerivativeExpr.hxx       |  12 +-
- .../TensorProductRightDerivativeExpr.hxx      |  12 +-
- .../Math/T2toT2/TensorT2toT2ProductExpr.hxx   |  18 +-
- .../TFEL/Math/Tensor/MatrixViewFromTensor.hxx |   2 +-
+ .../Stensor/Internals/StensorEigenSolver.hxx  |  43 +--
+ include/TFEL/Math/Stensor/StensorProduct.hxx  |  16 +-
  include/TFEL/Math/Tensor/TensorConcept.ixx    |   6 +-
- include/TFEL/Math/Tensor/TensorProduct.hxx    |  12 +-
- .../TFEL/Math/Tensor/TensorTransposeExpr.hxx  |   2 +-
- .../Math/Tensor/TensorViewFromStensor.hxx     |   4 +-
  include/TFEL/Math/TinyMatrixInvert.hxx        |  13 +-
  include/TFEL/Math/TinyMatrixSolve.hxx         |  15 ++
  .../Math/Vector/VectorVectorDotProduct.hxx    |   2 +-
- include/TFEL/Math/fsarray.hxx                 |   6 +-
- include/TFEL/Math/qt.hxx                      |  22 +-
- include/TFEL/Math/stensor.hxx                 |  80 +++---
- include/TFEL/Math/tmatrix.hxx                 |  44 +++-
+ include/TFEL/Math/tmatrix.hxx                 |  16 ++
  include/TFEL/Utilities/ConstantObject.hxx     |  73 +++++
  include/TFEL/Utilities/GenTypeBase.hxx        |  56 +++-
  include/TFEL/Utilities/TrivialGenTypeBase.hxx | 249 ++++++++++++++++++
@@ -107,7 +61,7 @@ Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
  tests/Math/ChangeBasisTest.cxx                | 115 ++++++++
  tests/Utilities/CMakeLists.txt                |   1 +
  tests/Utilities/TrivialGenTypeBaseTest.cxx    |  89 +++++++
- 82 files changed, 1562 insertions(+), 903 deletions(-)
+ 36 files changed, 986 insertions(+), 363 deletions(-)
  create mode 100644 include/TFEL/Utilities/ConstantObject.hxx
  create mode 100644 include/TFEL/Utilities/TrivialGenTypeBase.hxx
  delete mode 100644 src/Material/LogarithmicStrainHandler.cxx
@@ -115,7 +69,7 @@ Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
  create mode 100644 tests/Utilities/TrivialGenTypeBaseTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index af3b8c7ef..e5f91f7d7 100644
+index 3e0c3f677..db60fe00a 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -99,6 +99,8 @@ install_header(TFEL/Utilities TerminalColors.hxx)
@@ -128,61 +82,10 @@ index af3b8c7ef..e5f91f7d7 100644
  install_header(TFEL/Utilities TextData.hxx)
  install_header(TFEL/Utilities FCString.hxx)
 diff --git a/include/FSES/Utilities.ixx b/include/FSES/Utilities.ixx
-index 17159306f..deb1e9025 100644
+index b10794469..6aa52fcaf 100644
 --- a/include/FSES/Utilities.ixx
 +++ b/include/FSES/Utilities.ixx
-@@ -125,22 +125,22 @@ namespace fses {
-   template <typename T, size_t N>
-   struct VectorAccess<T[N]> {
-     template <typename IndexType>
--    TFEL_HOST_DEVICE [[nodiscard]] static T& exe(T v[N], const IndexType& i) {
-+    [[nodiscard]] TFEL_HOST_DEVICE static T& exe(T v[N], const IndexType& i) {
-       return v[i];
-     }
-     template <typename IndexType>
--    TFEL_HOST_DEVICE [[nodiscard]] static const T& exe(const T v[N], const IndexType& i) {
-+    [[nodiscard]] TFEL_HOST_DEVICE static const T& exe(const T v[N], const IndexType& i) {
-       return v[i];
-     }
-   };
- 
-   template <typename VectorType, typename IndexType>
--  TFEL_HOST_DEVICE [[nodiscard]] GetVectorNumericType_t<VectorType>& at(VectorType& v,
-+  [[nodiscard]] TFEL_HOST_DEVICE GetVectorNumericType_t<VectorType>& at(VectorType& v,
-                                                        const IndexType& i) {
-     return VectorAccess<VectorType>::exe(v, i);
-   }
-   template <typename VectorType, typename IndexType>
--  TFEL_HOST_DEVICE [[nodiscard]] const GetVectorNumericType_t<VectorType>& at(
-+  [[nodiscard]] TFEL_HOST_DEVICE const GetVectorNumericType_t<VectorType>& at(
-       const VectorType& v, const IndexType& i) {
-     return VectorAccess<VectorType>::exe(v, i);
-   }
-@@ -148,12 +148,12 @@ namespace fses {
-   template <typename MatrixType>
-   struct MatrixAccess {
-     template <typename IndexType>
--    TFEL_HOST_DEVICE [[nodiscard]] static GetMatrixNumericType_t<MatrixType>& exe(
-+    [[nodiscard]] TFEL_HOST_DEVICE static GetMatrixNumericType_t<MatrixType>& exe(
-         MatrixType& v, const IndexType& i, const IndexType& j) {
-       return v(i, j);
-     }
-     template <typename IndexType>
--    TFEL_HOST_DEVICE [[nodiscard]] static const GetMatrixNumericType_t<MatrixType>& exe(
-+    [[nodiscard]] TFEL_HOST_DEVICE static const GetMatrixNumericType_t<MatrixType>& exe(
-         const MatrixType& v, const IndexType& i, const IndexType& j) {
-       return v(i, j);
-     }
-@@ -161,7 +161,7 @@ namespace fses {
- 
-   template <typename T, size_t N, size_t M>
-   struct MatrixAccess<T[N][M]>{
--      template <typename IndexType> TFEL_HOST_DEVICE [[nodiscard]] static T &
-+      template <typename IndexType> [[nodiscard]] TFEL_HOST_DEVICE static T &
-       exe(T v[N][M], const IndexType& i, const IndexType& j){return v[i][j];
- }  // namespace fses
- template <typename IndexType>
-@@ -194,7 +194,8 @@ TFEL_HOST_DEVICE void fill(MatrixType& m, const NumericType& v) {
+@@ -195,7 +195,8 @@ TFEL_HOST_DEVICE void fill(MatrixType& m, const NumericType& v) {
  }  // end of fill
  
  template <typename real>
@@ -191,7 +94,7 @@ index 17159306f..deb1e9025 100644
 +                                                   const real& y) {
    static constexpr real e = std::numeric_limits<real>::epsilon();
    // y+x==y;
-   return std::abs(x) < std::abs(y) * e;
+   return std::abs(x) <= std::abs(y) * e;
 diff --git a/include/TFEL/Config/TFELConfig.hxx b/include/TFEL/Config/TFELConfig.hxx
 index 40ef04783..ff7b883de 100644
 --- a/include/TFEL/Config/TFELConfig.hxx
@@ -206,7 +109,7 @@ index 40ef04783..ff7b883de 100644
      (defined __ACPP_ENABLE_LLVM_SSCP_TARGET__)
  #ifndef TFEL_DEVICE_CODE
 diff --git a/include/TFEL/Material/BoundsCheck.hxx b/include/TFEL/Material/BoundsCheck.hxx
-index 4f9f4873c..a11be78f8 100644
+index 610c08fdf..14c3e19ea 100644
 --- a/include/TFEL/Material/BoundsCheck.hxx
 +++ b/include/TFEL/Material/BoundsCheck.hxx
 @@ -315,7 +315,8 @@ namespace tfel::material {
@@ -375,7 +278,7 @@ index 15a8387c2..3acf214f8 100644
        const tangent_operator<SourceFlag, N, StressType>&,
        const tfel::math::tensor<N, tfel::typetraits::base_type<StressType>>&,
 diff --git a/include/TFEL/Material/FiniteStrainBehaviourTangentOperator.ixx b/include/TFEL/Material/FiniteStrainBehaviourTangentOperator.ixx
-index cd6b73ded..30fc5b794 100644
+index 64877c2eb..6c94807af 100644
 --- a/include/TFEL/Material/FiniteStrainBehaviourTangentOperator.ixx
 +++ b/include/TFEL/Material/FiniteStrainBehaviourTangentOperator.ixx
 @@ -73,7 +73,7 @@ namespace tfel::material {
@@ -774,362 +677,20 @@ index cd6b73ded..30fc5b794 100644
      tangent_operator<ResultFlag, N, StressType>& Kr,
      const tangent_operator<SourceFlag, N, StressType>& Ks,
      const tfel::math::tensor<N, tfel::typetraits::base_type<StressType>>& F0,
-diff --git a/include/TFEL/Material/LogarithmicStrainHandler.hxx b/include/TFEL/Material/LogarithmicStrainHandler.hxx
-index 5f3f18d91..6fb54b102 100644
---- a/include/TFEL/Material/LogarithmicStrainHandler.hxx
-+++ b/include/TFEL/Material/LogarithmicStrainHandler.hxx
-@@ -97,8 +97,8 @@ namespace tfel::material {
-      */
-     TFEL_HOST_DEVICE void updateAxialDeformationGradient(const real);
-     //! \return the the logarithmic strain
--    TFEL_HOST_DEVICE [[nodiscard]] StrainStensor getHenckyLogarithmicStrain()
--        const;
-+    [[nodiscard]] TFEL_HOST_DEVICE StrainStensor
-+    getHenckyLogarithmicStrain() const;
-     /*!
-      * \param[out] elog: the logarithmic strain in `Abaqus/Standard`
-      * conventions
-@@ -108,7 +108,7 @@ namespace tfel::material {
-      * \return the Cauchy stress from the dual of the logarithmic strain
-      * \param[in] T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-     convertToSecondPiolaKirchhoffStress(const StressStensor&) const;
-     /*!
-      * \brief compute the second Piola-Kirchhoff stress from the
-@@ -121,7 +121,7 @@ namespace tfel::material {
-      * \return the dual of the logarithmic strain
-      * \param[in] S: Second Piola Kirchhoff stress.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-     convertFromSecondPiolaKirchhoffStress(const StressStensor&) const;
-     /*!
-      * \brief compute the dual of the logarithmic strain from the
-@@ -134,8 +134,8 @@ namespace tfel::material {
-      * \return the Cauchy stress from the dual of the logarithmic strain
-      * \param[in] T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor convertToCauchyStress(
--        const StressStensor&) const;
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-+    convertToCauchyStress(const StressStensor&) const;
-     /*!
-      * \brief compute the Cauchy stress from the dual of the
-      * logarithmic strain.
-@@ -146,8 +146,8 @@ namespace tfel::material {
-      * \return the dual of the logarithmic strain
-      * \param[in] s: Cauchy stress.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor convertFromCauchyStress(
--        const StressStensor&) const;
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-+    convertFromCauchyStress(const StressStensor&) const;
-     /*!
-      * \brief compute the dual of the logarithmic strain from the
-      * Cauchy stress.
-@@ -159,7 +159,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator
-     convertToMaterialTangentModuli(const TangentOperator&,
-                                    const StressStensor&) const;
-     /*!
-@@ -167,7 +167,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator
-     convertToSpatialTangentModuli(const TangentOperator&,
-                                   const StressStensor&) const;
-     /*!
-@@ -176,7 +176,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator
-     convertToCauchyStressTruesdellRateTangentModuli(const TangentOperator&,
-                                                     const StressStensor&) const;
-     /*!
-@@ -190,7 +190,7 @@ namespace tfel::material {
-     TFEL_HOST_DEVICE void convertToCauchyStressTruesdellRateTangentModuli(
-         stress* const, const stress* const) const;
-     //! \brief return the deformation gradient
--    TFEL_HOST_DEVICE [[nodiscard]] const DeformationGradient&
-+    [[nodiscard]] TFEL_HOST_DEVICE const DeformationGradient&
-     getDeformationGradient() const;
- 
-    protected:
-@@ -251,7 +251,7 @@ namespace tfel::material {
-      * \return the Cauchy stress from the dual of the logarithmic strain
-      * \param[in] T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-     convertToSecondPiolaKirchhoffStress(const StressStensor&) const;
-     /*!
-      * \brief compute the second Piola-Kirchhoff stress from the
-@@ -261,8 +261,8 @@ namespace tfel::material {
-     TFEL_HOST_DEVICE void convertToSecondPiolaKirchhoffStress(
-         stress* const) const;
-     //! \return the the logarithmic strain
--    TFEL_HOST_DEVICE [[nodiscard]] StrainStensor getHenckyLogarithmicStrain()
--        const;
-+    [[nodiscard]] TFEL_HOST_DEVICE StrainStensor
-+    getHenckyLogarithmicStrain() const;
-     /*!
-      * \param[out] elog: the logarithmic strain in `Abaqus/Standard`
-      * conventions.
-@@ -272,7 +272,7 @@ namespace tfel::material {
-      * \return the dual of the logarithmic strain
-      * \param[in] S: Second Piola Kirchhoff stress.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-     convertFromSecondPiolaKirchhoffStress(const StressStensor&) const;
-     /*!
-      * \brief compute the dual of the logarithmic strain from the
-@@ -285,8 +285,8 @@ namespace tfel::material {
-      * \return the Cauchy stress from the dual of the logarithmic strain
-      * \param[in] T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor convertToCauchyStress(
--        const StressStensor&) const;
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-+    convertToCauchyStress(const StressStensor&) const;
-     /*!
-      * \brief compute the Cauchy stress from the dual of the
-      * logarithmic strain.
-@@ -297,8 +297,8 @@ namespace tfel::material {
-      * \return the dual of the logarithmic strain
-      * \param[in] s: Cauchy stress.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor convertFromCauchyStress(
--        const StressStensor&) const;
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-+    convertFromCauchyStress(const StressStensor&) const;
-     /*!
-      * \brief compute the dual of the logarithmic strain from the
-      * Cauchy stress.
-@@ -310,7 +310,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator
-     convertToMaterialTangentModuli(const TangentOperator&,
-                                    const StressStensor&) const;
-     /*!
-@@ -318,7 +318,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator
-     convertToSpatialTangentModuli(const TangentOperator&,
-                                   const StressStensor&) const;
-     /*!
-@@ -327,7 +327,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator
-     convertToCauchyStressTruesdellRateTangentModuli(const TangentOperator&,
-                                                     const StressStensor&) const;
-     /*!
-@@ -345,7 +345,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator convertToAbaqusTangentModuli(
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator convertToAbaqusTangentModuli(
-         const TangentOperator&, const StressStensor&) const;
-     /*!
-      * \param[in,out] K: On input, the consistent tangent operator
-@@ -358,7 +358,7 @@ namespace tfel::material {
-     TFEL_HOST_DEVICE void convertToAbaqusTangentModuli(
-         stress* const, const stress* const) const;
-     //! \brief return the deformation gradient
--    TFEL_HOST_DEVICE [[nodiscard]] const DeformationGradient&
-+    [[nodiscard]] TFEL_HOST_DEVICE const DeformationGradient&
-     getDeformationGradient() const;
- 
-    protected:
-@@ -371,18 +371,18 @@ namespace tfel::material {
-      * \param[in] m: eigenvectors of the right Cauchy-Green tensor
-      * \param[in] F: deformation gradient
-      */
--    TFEL_HOST_DEVICE
--    [[nodiscard]] static tfel::math::tvector<4u, tfel::math::stensor<2u, real>>
--    getNTensors(const tfel::math::tmatrix<3u, 3u, real>&);
-+    [[nodiscard]] TFEL_HOST_DEVICE static tfel::math::
-+        tvector<4u, tfel::math::stensor<2u, real>>
-+        getNTensors(const tfel::math::tmatrix<3u, 3u, real>&);
-     /*!
-      * \brief compute the M tensors in the Eulerian setting.
-      * \param[in] m: eigenvectors of the right Cauchy-Green tensor
-      * \param[in] F: deformation gradient
-      */
--    TFEL_HOST_DEVICE
--    [[nodiscard]] static tfel::math::tvector<4u, tfel::math::stensor<2u, real>>
--    getEulerianMTensors(const tfel::math::tmatrix<3u, 3u, real>&,
--                        const DeformationGradient&);
-+    [[nodiscard]] TFEL_HOST_DEVICE static tfel::math::
-+        tvector<4u, tfel::math::stensor<2u, real>>
-+        getEulerianMTensors(const tfel::math::tmatrix<3u, 3u, real>&,
-+                            const DeformationGradient&);
-     /*!
-      * \brief: an helper class used to build the a
-      * `LogarithmicStrainHandler` object.
-@@ -480,8 +480,8 @@ namespace tfel::material {
-     TFEL_HOST_DEVICE LogarithmicStrainHandler(const Setting,
-                                               const DeformationGradient&);
-     //! \return the the logarithmic strain
--    TFEL_HOST_DEVICE [[nodiscard]] StrainStensor getHenckyLogarithmicStrain()
--        const;
-+    [[nodiscard]] TFEL_HOST_DEVICE StrainStensor
-+    getHenckyLogarithmicStrain() const;
-     /*!
-      * \param[out] elog: the logarithmic strain in `Abaqus/Standard`
-      * conventions
-@@ -491,7 +491,7 @@ namespace tfel::material {
-      * \return the Cauchy stress from the dual of the logarithmic strain
-      * \param[in] T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-     convertToSecondPiolaKirchhoffStress(const StressStensor&) const;
-     /*!
-      * \brief compute the second Piola-Kirchhoff stress from the
-@@ -504,7 +504,7 @@ namespace tfel::material {
-      * \return the dual of the logarithmic strain
-      * \param[in] S: Second Piola Kirchhoff stress.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-     convertFromSecondPiolaKirchhoffStress(const StressStensor&) const;
-     /*!
-      * \brief compute the dual of the logarithmic strain from the
-@@ -517,8 +517,8 @@ namespace tfel::material {
-      * \return the Cauchy stress from the dual of the logarithmic strain
-      * \param[in] T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor convertToCauchyStress(
--        const StressStensor&) const;
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-+    convertToCauchyStress(const StressStensor&) const;
-     /*!
-      * \brief compute the Cauchy stress from the dual of the
-      * logarithmic strain.
-@@ -529,8 +529,8 @@ namespace tfel::material {
-      * \return the dual of the logarithmic strain
-      * \param[in] s: Cauchy stress.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] StressStensor convertFromCauchyStress(
--        const StressStensor&) const;
-+    [[nodiscard]] TFEL_HOST_DEVICE StressStensor
-+    convertFromCauchyStress(const StressStensor&) const;
-     /*!
-      * \brief compute the dual of the logarithmic strain from the
-      * Cauchy stress.
-@@ -542,7 +542,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator
-     convertToMaterialTangentModuli(const TangentOperator&,
-                                    const StressStensor&) const;
-     /*!
-@@ -550,7 +550,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator
-     convertToSpatialTangentModuli(const TangentOperator&,
-                                   const StressStensor&) const;
-     /*!
-@@ -559,7 +559,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator
-     convertToCauchyStressTruesdellRateTangentModuli(const TangentOperator&,
-                                                     const StressStensor&) const;
-     /*!
-@@ -577,7 +577,7 @@ namespace tfel::material {
-      * \param[in] Ks: tangent moduli in the logarithmic space
-      * \param[in]  T: dual of the logarithmic strain
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] TangentOperator convertToAbaqusTangentModuli(
-+    [[nodiscard]] TFEL_HOST_DEVICE TangentOperator convertToAbaqusTangentModuli(
-         const TangentOperator&, const StressStensor&) const;
-     /*!
-      * \param[in,out] K: On input, the consistent tangent operator
-@@ -590,7 +590,7 @@ namespace tfel::material {
-     TFEL_HOST_DEVICE void convertToAbaqusTangentModuli(
-         stress* const, const stress* const) const;
-     //! \brief return the deformation gradient
--    TFEL_HOST_DEVICE [[nodiscard]] const DeformationGradient&
-+    [[nodiscard]] TFEL_HOST_DEVICE const DeformationGradient&
-     getDeformationGradient() const;
- 
-    protected:
-@@ -599,20 +599,20 @@ namespace tfel::material {
- 
-    private:
-     //! \return true if all eigenvalues are equal
--    TFEL_HOST_DEVICE [[nodiscard]] static bool areEigenValuesEqual(
-+    [[nodiscard]] TFEL_HOST_DEVICE static bool areEigenValuesEqual(
-         const tfel::math::tvector<3u, real>&);
-     /*!
-      * \return the index of the single value if two eigenvalues are
-      * equal, 3 otherwise.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static size_type findSingleEigenValue(
-+    [[nodiscard]] TFEL_HOST_DEVICE static size_type findSingleEigenValue(
-         const tfel::math::tvector<3u, real>&);
-     /*!
-      * \brief compute the N tensors
-      * \param[in] m: eigenvectors of the right Cauchy-Green tensor
-      * \param[in] F: deformation gradient
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static tfel::math::
-+    [[nodiscard]] TFEL_HOST_DEVICE static tfel::math::
-         tmatrix<3u, 3u, tfel::math::stensor<3u, real>>
-         getNTensors(const tfel::math::tmatrix<3u, 3u, real>&);
-     /*!
-@@ -620,7 +620,7 @@ namespace tfel::material {
-      * \param[in] m: eigenvectors of the right Cauchy-Green tensor
-      * \param[in] F: deformation gradient
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static tfel::math::
-+    [[nodiscard]] TFEL_HOST_DEVICE static tfel::math::
-         tmatrix<3u, 3u, tfel::math::stensor<3u, real>>
-         getEulerianMTensors(const tfel::math::tmatrix<3u, 3u, real>&,
-                             const DeformationGradient&);
 diff --git a/include/TFEL/Material/LogarithmicStrainHandler.ixx b/include/TFEL/Material/LogarithmicStrainHandler.ixx
-index 1850893f1..4e6e56804 100644
+index bfbd8be44..057ef6c15 100644
 --- a/include/TFEL/Material/LogarithmicStrainHandler.ixx
 +++ b/include/TFEL/Material/LogarithmicStrainHandler.ixx
-@@ -16,6 +16,8 @@
- 
+@@ -17,6 +17,8 @@
  #include <cmath>
+ #include <algorithm>
  #include "TFEL/Math/st2tost2.hxx"
 +#include "TFEL/Raise.hxx"
 +#include "TFEL/ContractViolation.hxx"
  #include "TFEL/Math/General/Abs.hxx"
  #include "TFEL/Material/FiniteStrainBehaviourTangentOperator.hxx"
  
-@@ -25,6 +27,36 @@ namespace tfel::material {
+@@ -26,6 +28,36 @@ namespace tfel::material {
        const Setting c)
        : s(c) {}  // end of LogarithmicStrainHandlerBase
  
@@ -1166,7 +727,7 @@ index 1850893f1..4e6e56804 100644
    template <typename StressType>
    TFEL_HOST_DEVICE
    LogarithmicStrainHandler<1u, StressType>::LogarithmicStrainHandler(
-@@ -910,11 +942,9 @@ namespace tfel::material {
+@@ -916,11 +948,9 @@ namespace tfel::material {
    LogarithmicStrainHandler<3u, StressType>::findSingleEigenValue(
        const tfel::math::tvector<3u, real>& vp) {
      if (areEigenValuesEqual(vp)) {
@@ -1179,13 +740,13 @@ index 1850893f1..4e6e56804 100644
 +          "LogarithmicStrainHandler<3u,StressType>::findSingleEigenValue: "
 +          "this method shall not be called if all eigen values are equal.");
      }
-     if ((tfel::math::abs(vp(1) - vp(0)) > eps) &&
-         (tfel::math::abs(vp(1) - vp(2)) > eps) &&
+     const auto eps_vp = eps * std::max(std::max(vp(0), vp(1)), vp(2));
+     if ((tfel::math::abs(vp(1) - vp(0)) > eps_vp) &&
 diff --git a/include/TFEL/Material/MechanicalBehaviour.hxx b/include/TFEL/Material/MechanicalBehaviour.hxx
-index 84067e93d..79035b6f0 100644
+index d15b64e56..3c82cea8b 100644
 --- a/include/TFEL/Material/MechanicalBehaviour.hxx
 +++ b/include/TFEL/Material/MechanicalBehaviour.hxx
-@@ -201,30 +201,30 @@ namespace tfel::material {
+@@ -206,30 +206,30 @@ namespace tfel::material {
     * behaviour (see the documentation of the `MechanicalBehaviour` class).
     */
    template <typename BehaviourType>
@@ -1433,7 +994,7 @@ index 3e24f2c43..49476cc31 100644
      const auto coefm = Cste<real>::isqrt2;
      const auto coefn = Cste<real>::isqrt3;
 diff --git a/include/TFEL/Math/Array/FixedSizeArrayDerivative.hxx b/include/TFEL/Math/Array/FixedSizeArrayDerivative.hxx
-index 063d8266b..4035bbb67 100644
+index dc9efd383..e2fb19f8b 100644
 --- a/include/TFEL/Math/Array/FixedSizeArrayDerivative.hxx
 +++ b/include/TFEL/Math/Array/FixedSizeArrayDerivative.hxx
 @@ -492,7 +492,7 @@ namespace tfel::math {
@@ -1481,226 +1042,8 @@ index 063d8266b..4035bbb67 100644
                      const FixedSizeArrayDerivative<Array11, Array12>& a,
                      const FixedSizeArrayDerivative<Array21, Array22>& b) {
        using size_type = index_type<FixedSizeArrayDerivative<Array11, Array22>>;
-diff --git a/include/TFEL/Math/Array/FixedSizeIndexingPolicies.hxx b/include/TFEL/Math/Array/FixedSizeIndexingPolicies.hxx
-index f9841053f..c798bb9a2 100644
---- a/include/TFEL/Math/Array/FixedSizeIndexingPolicies.hxx
-+++ b/include/TFEL/Math/Array/FixedSizeIndexingPolicies.hxx
-@@ -47,20 +47,20 @@ namespace tfel::math {
-     //!
-     static constexpr auto unRollLoop = true;
-     //! \return the minimal data size
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type
-     getUnderlyingArrayMinimalSize() const noexcept {
-       return 1;
-     }
-     //! \return if the array is empty
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr bool empty() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool empty() const noexcept {
-       return false;
-     }
-     //! \return the logical size of the array
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size() const noexcept {
-       return 1;
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRowMajorIndexingPolicy() {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRowMajorIndexingPolicy() {
-       return ScalarIndexingPolicy<SizeType>();
-     }  // end of getFixedSizeVectorIndexingPolicy
-   };
-@@ -87,7 +87,7 @@ namespace tfel::math {
-     //!
-     static constexpr auto unRollLoop = N < 100;
-     //! \return the minimal data size
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type
-     getUnderlyingArrayMinimalSize() const noexcept {
-       if constexpr (Stride == 1) {
-         return this->size();
-@@ -96,7 +96,7 @@ namespace tfel::math {
-       }
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const size_type i) const noexcept {
-       if constexpr (Stride == 1) {
-         return i;
-@@ -105,23 +105,23 @@ namespace tfel::math {
-       }
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const std::array<size_type, 1u>& indices) const noexcept {
-       return this->getIndex(indices[0]);
-     }
-     //! \return if the array is empty
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr bool empty() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool empty() const noexcept {
-       return N == 0;
-     }
-     //! \return the logical size of the array
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size() const noexcept {
-       return N;
-     }
-     /*!
-      * \return the logical size of the array for the given dimension
-      * \param[in] i: dimension
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size(
-         const size_type i) const noexcept {
-       if (i != 0) {
-         tfel::reportContractViolation(
-@@ -177,17 +177,17 @@ namespace tfel::math {
-     using RowMajorIndexingPolicy =
-         FixedSizeRowMajorMatrixIndexingPolicy<SizeType, N, M>;
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const size_type i, const size_type j) const noexcept {
-       return i * Stride + j;
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const std::array<size_type, 2u>& indices) const noexcept {
-       return this->getIndex(indices[0], indices[1]);
-     }
-     //! \return the minimal data size
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type
-     getUnderlyingArrayMinimalSize() const noexcept {
-       if constexpr (Stride == M) {
-         return this->size();
-@@ -196,22 +196,22 @@ namespace tfel::math {
-       }
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRowMajorIndexingPolicy() {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRowMajorIndexingPolicy() {
-       return FixedSizeRowMajorMatrixIndexingPolicy<SizeType, N, M>();
-     }  // end of getRowMajorIndexingPolicy
-     //! \return if the matrix is empty
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr bool empty() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool empty() const noexcept {
-       return N * M == 0;
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size() const noexcept {
-       return N * M;
-     }
-     /*!
-      * \return the logical size of the array for the given dimension
-      * \param[in] i: dimension
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size(
-         const size_type i) const noexcept {
- #ifndef TFEL_NO_RUNTIME_CHECK_BOUNDS
-       if (i > 1) {
-@@ -288,13 +288,13 @@ namespace tfel::math {
-         typename IndexingPolicy1::RowMajorIndexingPolicy,
-         typename IndexingPolicy2::RowMajorIndexingPolicy>;
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex()
-         const noexcept {
-       static_assert(arity == 0);
-       return size_type{};
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const size_type i) const noexcept {
-       static_assert(arity == 1);
-       constexpr auto a1 = IndexingPolicy1::arity;
-@@ -307,7 +307,7 @@ namespace tfel::math {
-       }
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const size_type i, const size_type j) const noexcept {
-       static_assert(arity == 2);
-       constexpr auto a1 = IndexingPolicy1::arity;
-@@ -324,7 +324,7 @@ namespace tfel::math {
-       }
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const size_type i,
-         const size_type j,
-         const size_type k) const noexcept {
-@@ -347,7 +347,7 @@ namespace tfel::math {
-       }
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const size_type i,
-         const size_type j,
-         const size_type k,
-@@ -376,7 +376,7 @@ namespace tfel::math {
-     }
-     //!
-     template <typename... SizeType>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const SizeType... i) const noexcept {
-       static_assert(sizeof...(SizeType) == arity,
-                     "invalid number of arguments");
-@@ -401,7 +401,7 @@ namespace tfel::math {
-       }
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const std::array<size_type, arity>& indices) const noexcept {
-       constexpr auto a1 = IndexingPolicy1::arity;
-       if constexpr (a1 == 0) {
-@@ -419,7 +419,7 @@ namespace tfel::math {
-       }
-     }
-     //! \return the minimal data size
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type
-     getUnderlyingArrayMinimalSize() const noexcept {
-       constexpr auto a1 = IndexingPolicy1::arity;
-       if constexpr (a1 == 0) {
-@@ -441,13 +441,13 @@ namespace tfel::math {
-       return RowMajorIndexingPolicy();
-     }  // end of getRowMajorIndexingPolicy
-     //! \return if the array is empty
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr bool empty() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool empty() const noexcept {
-       IndexingPolicy1 p1;
-       IndexingPolicy2 p2;
-       return p1.empty() || p2.empty();
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size() const noexcept {
-       IndexingPolicy1 p1;
-       IndexingPolicy2 p2;
-       return p1.size() * p2.size();
-@@ -456,7 +456,7 @@ namespace tfel::math {
-      * \return the logical size of the array for the given dimension
-      * \param[in] i: dimension
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size(
-         const size_type i) const noexcept {
-       if (i >= FixedSizeIndexingPoliciesCartesianProduct::arity) {
-         tfel::reportContractViolation(
 diff --git a/include/TFEL/Math/Array/GenericFixedSizeArray.hxx b/include/TFEL/Math/Array/GenericFixedSizeArray.hxx
-index 6b8cb4937..0009e3471 100644
+index cfe571741..0009e3471 100644
 --- a/include/TFEL/Math/Array/GenericFixedSizeArray.hxx
 +++ b/include/TFEL/Math/Array/GenericFixedSizeArray.hxx
 @@ -116,12 +116,19 @@ namespace tfel::math {
@@ -1726,29 +1069,7 @@ index 6b8cb4937..0009e3471 100644
      // exposing assignement operators from MutableFixedSizeArrayBase
      /*!
       * \brief constructor from a value
-@@ -168,7 +175,7 @@ namespace tfel::math {
-      * be greater than than the logical number of elements contained in the
-      * array which is returned by `IndexingPolicy::size`.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr
-         typename GenericFixedSizeArray<Child, ArrayPolicy, N>::size_type
-         getContainerSize() const noexcept;
-     // inheriting MutableFixedSizeArrayBase' assignement operator
-@@ -204,21 +211,21 @@ namespace tfel::math {
-             isAssignableTo<BinaryOperationResult<value_type, ValueType2, OpDiv>,
-                            value_type>());
-     //! \return a pointer to the underlying array serving as element storage.
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr
-         typename GenericFixedSizeArray<Child, ArrayPolicy, N>::pointer
-         data() noexcept;
-     //! \return a pointer to the underlying array serving as element storage.
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr
-         typename GenericFixedSizeArray<Child, ArrayPolicy, N>::const_pointer
-         data() const noexcept;
- 
+@@ -215,10 +222,10 @@ namespace tfel::math {
     protected:
      //! \brief assignement operator
      TFEL_HOST_DEVICE constexpr GenericFixedSizeArray& operator=(
@@ -1762,7 +1083,7 @@ index 6b8cb4937..0009e3471 100644
      typename ArrayPolicy::value_type v[N];
    };
 diff --git a/include/TFEL/Math/Array/GenericFixedSizeArray.ixx b/include/TFEL/Math/Array/GenericFixedSizeArray.ixx
-index b99923702..6926c269f 100644
+index d7e8772c6..a6d31517f 100644
 --- a/include/TFEL/Math/Array/GenericFixedSizeArray.ixx
 +++ b/include/TFEL/Math/Array/GenericFixedSizeArray.ixx
 @@ -34,24 +34,6 @@ namespace tfel::math {
@@ -1817,273 +1138,8 @@ index b99923702..6926c269f 100644
    template <typename Child,
              typename ArrayPolicy,
              typename ArrayPolicy::IndexingPolicy::size_type N>
-diff --git a/include/TFEL/Math/Array/MutableRuntimeArrayBase.hxx b/include/TFEL/Math/Array/MutableRuntimeArrayBase.hxx
-index cc04766fb..120f63908 100644
---- a/include/TFEL/Math/Array/MutableRuntimeArrayBase.hxx
-+++ b/include/TFEL/Math/Array/MutableRuntimeArrayBase.hxx
-@@ -47,9 +47,9 @@ namespace tfel::math {
-     // exposing MutableArrayCommonMethods assignement operators
-     using MutableArrayCommonMethods<Child, ArrayPolicy>::operator=;
-     //! \return the current indexing policy
--    TFEL_HOST_DEVICE
--    [[nodiscard]] constexpr const typename ArrayPolicy::IndexingPolicy&
--    getIndexingPolicy() const noexcept;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const typename ArrayPolicy::
-+        IndexingPolicy&
-+        getIndexingPolicy() const noexcept;
-     /*!
-      * \brief apply a multi-indices functor
-      * \param[in] f: functor
-diff --git a/include/TFEL/Math/Array/RuntimeIndexingPolicies.hxx b/include/TFEL/Math/Array/RuntimeIndexingPolicies.hxx
-index b0292f0cb..bd230fd47 100644
---- a/include/TFEL/Math/Array/RuntimeIndexingPolicies.hxx
-+++ b/include/TFEL/Math/Array/RuntimeIndexingPolicies.hxx
-@@ -62,33 +62,33 @@ namespace tfel::math {
-     constexpr RuntimeVectorIndexingPolicy& operator=(
-         const RuntimeVectorIndexingPolicy&) = default;
-     //! \return the minimal data size
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type
-     getUnderlyingArrayMinimalSize() const noexcept {
-       return this->size();
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const size_type i) const noexcept {
-       return i;
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const std::array<size_type, 1u>& i) const noexcept {
-       return this->getIndex(i[0]);
-     }
-     // \brief return if the array is empty
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr bool empty() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool empty() const noexcept {
-       return this->data_size == 0;
-     }
-     //! \return the logical size of the array
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size() const noexcept {
-       return this->data_size;
-     }
-     /*!
-      * \return the logical size of the array for the given dimension
-      * \param[in] i: dimension
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size(
-         const size_type i) const noexcept {
-       if (i != 0) {
-         tfel::reportContractViolation(
-@@ -98,7 +98,7 @@ namespace tfel::math {
-     }
- 
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RuntimeVectorIndexingPolicy
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RuntimeVectorIndexingPolicy
-     getRowMajorIndexingPolicy() const {
-       return {this->data_size};
-     }
-@@ -164,39 +164,39 @@ namespace tfel::math {
-     constexpr RuntimeRowMajorMatrixIndexingPolicy& operator=(
-         const RuntimeRowMajorMatrixIndexingPolicy&) = default;
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const size_type i, const size_type j) const noexcept {
-       return i * this->n_columns + j;
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getIndex(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getIndex(
-         const std::array<size_type, 2u> indices) const noexcept {
-       return this->getIndex(indices[0], indices[1]);
-     }
-     //! \return the minimal data size
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type
-     getUnderlyingArrayMinimalSize() const noexcept {
-       return this->size();
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RuntimeRowMajorMatrixIndexingPolicy
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RuntimeRowMajorMatrixIndexingPolicy
-     getRowMajorIndexingPolicy() {
-       return {*this};
-     }  // end of getRowMajorIndexingPolicy
-        //! \return if the matrix is empty
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr bool empty() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool empty() const noexcept {
-       return (this->getNumberOfRows() == 0) ||
-              (this->getNumberOfColumns() == 0);
-     }
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size() const noexcept {
-       return this->getNumberOfRows() * this->getNumberOfColumns();
-     }
-     /*!
-      * \return the logical size of the array for the given dimension
-      * \param[in] i: dimension
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size(
-         const size_type i) const noexcept {
-       if (i > 1) {
-         tfel::reportContractViolation(
-@@ -206,12 +206,12 @@ namespace tfel::math {
-       return i == 0 ? this->getNumberOfRows() : this->getNumberOfColumns();
-     }
-     //! \return the number of rows
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getNumberOfRows()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getNumberOfRows()
-         const noexcept {
-       return this->n_rows;
-     }
-     //! \return the number of cols
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type getNumberOfColumns()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type getNumberOfColumns()
-         const noexcept {
-       return this->n_columns;
-     }
-diff --git a/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx b/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx
-index 56ee42540..6d9848070 100644
---- a/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx
-+++ b/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx
-@@ -64,46 +64,46 @@ namespace tfel::math {
-      */
-     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_reference front()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_reference front()
-         const noexcept;
-     //!
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_reference back()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_reference back()
-         const noexcept;
-     //! \return an const iterator to the first element of the array.
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_iterator begin()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_iterator begin()
-         const noexcept;
-     //! \return an const iterator to the first element of the array.
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_iterator cbegin()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_iterator cbegin()
-         const noexcept;
-     //! \return an const iterator after the last element of the array.
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_iterator end()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_iterator end()
-         const noexcept;
-     //! \return an const iterator after the last element of the array.
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_iterator cend()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_iterator cend()
-         const noexcept;
-     /*!
-      * \return an const reverse iterator past the last element of the
-      * array.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_reverse_iterator rbegin()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_reverse_iterator rbegin()
-         const noexcept;
-     /*!
-      * \return an const reverse iterator past the last element of the
-      * array.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_reverse_iterator crbegin()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_reverse_iterator crbegin()
-         const noexcept;
-     /*!
-      * \return an const reverse iterator before the first element of the
-      * array.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_reverse_iterator rend()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_reverse_iterator rend()
-         const noexcept;
-     /*!
-      * \return an const reverse iterator before the first element of the
-      * array.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_reverse_iterator crend()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_reverse_iterator crend()
-         const noexcept;
-   };  // end of struct ConstArrayWithContiguousDataSTLCompatibilityLayer
- 
-diff --git a/include/TFEL/Math/Array/View.hxx b/include/TFEL/Math/Array/View.hxx
-index 228da5a47..011fd3d9c 100644
---- a/include/TFEL/Math/Array/View.hxx
-+++ b/include/TFEL/Math/Array/View.hxx
-@@ -207,13 +207,14 @@ namespace tfel::math {
-     using selectViewArrayBase<MappedType, IndexingPolicyType>::operator[];
-     using selectViewArrayBase<MappedType, IndexingPolicyType>::operator();
-     //! \return a pointer to the underlying array serving as element storage.
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr data_pointer_type data() noexcept
--        requires(!is_const) {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr data_pointer_type data() noexcept
-+      requires(!is_const)
-+    {
-       return this->data_pointer;
-     }  // end of data
- 
-     //! \return a pointer to the underlying array serving as element storage.
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const_data_pointer_type data()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const_data_pointer_type data()
-         const noexcept {
-       return this->data_pointer;
-     }  // end of data
-diff --git a/include/TFEL/Math/General/Abs.hxx b/include/TFEL/Math/General/Abs.hxx
-index a8a3c7b7c..960041ffb 100644
---- a/include/TFEL/Math/General/Abs.hxx
-+++ b/include/TFEL/Math/General/Abs.hxx
-@@ -27,7 +27,7 @@ namespace tfel::math {
-    * \param[in] s: value
-    */
-   template <ScalarConcept NumericType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto abs(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto abs(
-       const NumericType& s) noexcept {
-     return (s < NumericType(0)) ? -s : s;
-   }
-@@ -36,7 +36,7 @@ namespace tfel::math {
-    * \param[in] s: value
-    */
-   template <ScalarConcept NumericType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto abs(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto abs(
-       const Complex<NumericType>& s) {
-     return s.norm();
-   }
-diff --git a/include/TFEL/Math/General/MathObjectTraits.hxx b/include/TFEL/Math/General/MathObjectTraits.hxx
-index a575174b6..6aee2ee93 100644
---- a/include/TFEL/Math/General/MathObjectTraits.hxx
-+++ b/include/TFEL/Math/General/MathObjectTraits.hxx
-@@ -88,12 +88,12 @@ namespace tfel::math {
- 
-   //! \brief cast the value to the base type
-   template <StandardArithmeticTypeConcept T>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr T& base_type_cast(T& v) noexcept {
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr T& base_type_cast(T& v) noexcept {
-     return v;
-   }
-   //! \brief cast the value to the base type
-   template <StandardArithmeticTypeConcept T>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr const T& base_type_cast(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr const T& base_type_cast(
-       const T& v) noexcept {
-     return v;
-   }
-@@ -132,7 +132,7 @@ namespace tfel::math {
-    */
-   template <MathObjectConcept MathObjectType1,
-             MathObjectConcept... MathObjectTypes>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr bool
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr bool
-   checkThatAllSpaceDimensionsAreEqual() noexcept {
-     constexpr auto N = space_dimension<MathObjectType1>;
-     return (true && ... && (space_dimension<MathObjectTypes> == N));
 diff --git a/include/TFEL/Math/LU/TinyMatrixSolve.ixx b/include/TFEL/Math/LU/TinyMatrixSolve.ixx
-index fe2716110..c3f3e6404 100644
+index 43185904c..66bc9d7e5 100644
 --- a/include/TFEL/Math/LU/TinyMatrixSolve.ixx
 +++ b/include/TFEL/Math/LU/TinyMatrixSolve.ixx
 @@ -54,7 +54,7 @@ namespace tfel::math {
@@ -2122,7 +1178,18 @@ index fe2716110..c3f3e6404 100644
              tfel::raise<LUNullPivot>();
            } else {
              return false;
-@@ -288,7 +288,7 @@ namespace tfel::math {
+@@ -212,7 +212,9 @@ namespace tfel::math {
+         return false;
+       }
+     }
+-    return LUDecomp<use_exceptions>::exe(m, p, eps).first;
++    return LUDecomp<use_exceptions &&
++                    internals::tiny_matrix_solve_throws>::exe(m, p, eps)
++        .first;
+   }  // end of TinyMatrixSolve<N,T>::exe
+ 
+   template <unsigned short N,
+@@ -288,7 +290,7 @@ namespace tfel::math {
        }
      }
      if (tfel::math::abs(m(0, 0)) < eps) {
@@ -2131,7 +1198,7 @@ index fe2716110..c3f3e6404 100644
          tfel::raise<LUNullDeterminant>();
        } else {
          return false;
-@@ -306,7 +306,7 @@ namespace tfel::math {
+@@ -306,7 +308,7 @@ namespace tfel::math {
        tmatrix<1u, M, T>& b,
        const T eps) noexcept(!use_exceptions) {
      if (tfel::math::abs(m(0, 0)) < eps) {
@@ -2140,7 +1207,7 @@ index fe2716110..c3f3e6404 100644
          tfel::raise<LUNullDeterminant>();
        } else {
          return false;
-@@ -338,7 +338,7 @@ namespace tfel::math {
+@@ -338,7 +340,7 @@ namespace tfel::math {
      }
      const auto det = m(0, 0) * m(1, 1) - m(0, 1) * m(1, 0);
      if (tfel::math::abs(det) < eps) {
@@ -2149,7 +1216,7 @@ index fe2716110..c3f3e6404 100644
          tfel::raise<LUNullDeterminant>();
        } else {
          return false;
-@@ -360,7 +360,7 @@ namespace tfel::math {
+@@ -360,7 +362,7 @@ namespace tfel::math {
        const T eps) noexcept(!use_exceptions) {
      const auto det = m(0, 0) * m(1, 1) - m(0, 1) * m(1, 0);
      if (tfel::math::abs(det) < eps) {
@@ -2158,7 +1225,7 @@ index fe2716110..c3f3e6404 100644
          tfel::raise<LUNullDeterminant>();
        } else {
          return false;
-@@ -399,7 +399,7 @@ namespace tfel::math {
+@@ -399,7 +401,7 @@ namespace tfel::math {
                       m(0, 1) * (m(1, 0) * m(2, 2) - m(1, 2) * m(2, 0)) +
                       m(0, 2) * (m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0));
      if (tfel::math::abs(det) < eps) {
@@ -2167,7 +1234,7 @@ index fe2716110..c3f3e6404 100644
          tfel::raise<LUNullDeterminant>();
        } else {
          return false;
-@@ -434,7 +434,7 @@ namespace tfel::math {
+@@ -434,7 +436,7 @@ namespace tfel::math {
                       m(0, 1) * (m(1, 0) * m(2, 2) - m(1, 2) * m(2, 0)) +
                       m(0, 2) * (m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0));
      if (tfel::math::abs(det) < eps) {
@@ -2176,102 +1243,11 @@ index fe2716110..c3f3e6404 100644
          tfel::raise<LUNullDeterminant>();
        } else {
          return false;
-diff --git a/include/TFEL/Math/LU/TinyPermutation.hxx b/include/TFEL/Math/LU/TinyPermutation.hxx
-index 5bd29793b..727487854 100644
---- a/include/TFEL/Math/LU/TinyPermutation.hxx
-+++ b/include/TFEL/Math/LU/TinyPermutation.hxx
-@@ -39,7 +39,7 @@ namespace tfel::math {
-     TFEL_HOST_DEVICE constexpr void swap(const unsigned short,
-                                          const unsigned short);
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr bool isIdentity() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool isIdentity() const;
- 
-    protected:
-     bool is_identity = true;
-diff --git a/include/TFEL/Math/Matrix/TMatrixTMatrixExpr.hxx b/include/TFEL/Math/Matrix/TMatrixTMatrixExpr.hxx
-index be808cbec..e0d5f10f9 100644
---- a/include/TFEL/Math/Matrix/TMatrixTMatrixExpr.hxx
-+++ b/include/TFEL/Math/Matrix/TMatrixTMatrixExpr.hxx
-@@ -54,7 +54,7 @@ namespace tfel::math {
-     //
-     TMatrixTMatrixExpr() = delete;
-     //
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -72,12 +72,12 @@ namespace tfel::math {
-                                                   const unsigned short i_)
-           : m(m_), i(i_) {}
-       //! go to the next column
--      TFEL_HOST_DEVICE [[nodiscard]] constexpr RowConstIterator& operator++() {
-+      [[nodiscard]] TFEL_HOST_DEVICE constexpr RowConstIterator& operator++() {
-         ++j;
-         return *this;
-       }  // end of operator++
-       //! \return the current matrix value
--      TFEL_HOST_DEVICE [[nodiscard]] constexpr NumType operator*() const {
-+      [[nodiscard]] TFEL_HOST_DEVICE constexpr NumType operator*() const {
-         return this->m(this->i, this->j);
-       }
- 
-@@ -93,12 +93,12 @@ namespace tfel::math {
-       TFEL_HOST_DEVICE constexpr ColumnConstIterator(const MType& m_,
-                                                      const size_type j_)
-           : m(m_), i(0), j(j_) {}
--      TFEL_HOST_DEVICE [[nodiscard]] constexpr ColumnConstIterator&
-+      [[nodiscard]] TFEL_HOST_DEVICE constexpr ColumnConstIterator&
-       operator++() noexcept {
-         ++i;
-         return *this;
-       }  // end of operator++
--      TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator*() const noexcept {
-+      [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator*() const noexcept {
-         return m(i, j);
-       }
- 
-@@ -112,7 +112,7 @@ namespace tfel::math {
-                                                   const B& r) noexcept
-         : a(l), b(r) {}
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator()(
-         const IndexType i, const IndexType j) const noexcept {
-       using namespace tfel::fsalgo;
-       return inner_product<K>::template exe<NumType>(RowConstIterator(a, i),
-diff --git a/include/TFEL/Math/Matrix/TMatrixTVectorExpr.hxx b/include/TFEL/Math/Matrix/TMatrixTVectorExpr.hxx
-index 3a814e5f5..17f93a521 100644
---- a/include/TFEL/Math/Matrix/TMatrixTVectorExpr.hxx
-+++ b/include/TFEL/Math/Matrix/TMatrixTVectorExpr.hxx
-@@ -45,7 +45,7 @@ namespace tfel::math {
-     //! \brief a simple alias
-     using RunTimeProperties = EmptyRunTimeProperties;
-     //! \brief return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const {
-       return {};
-     }  // end of getRunTimeProperties
-diff --git a/include/TFEL/Math/Matrix/TVectorTMatrixExpr.hxx b/include/TFEL/Math/Matrix/TVectorTMatrixExpr.hxx
-index 7dac36a1e..8b527802d 100644
---- a/include/TFEL/Math/Matrix/TVectorTMatrixExpr.hxx
-+++ b/include/TFEL/Math/Matrix/TVectorTMatrixExpr.hxx
-@@ -49,7 +49,7 @@ namespace tfel::math {
-     //
-     TVectorTMatrixExpr() = delete;
-     //
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
 diff --git a/include/TFEL/Math/Matrix/TinyMatrixInvert.ixx b/include/TFEL/Math/Matrix/TinyMatrixInvert.ixx
-index 0cfbc42e5..e683ff8a5 100644
+index f14cf5fed..2fe50bad0 100644
 --- a/include/TFEL/Math/Matrix/TinyMatrixInvert.ixx
 +++ b/include/TFEL/Math/Matrix/TinyMatrixInvert.ixx
-@@ -17,23 +17,25 @@
+@@ -17,25 +17,30 @@
  namespace tfel::math {
  
    template <unsigned short N, typename T>
@@ -2283,20 +1259,26 @@ index 0cfbc42e5..e683ff8a5 100644
      constexpr auto one = T(1);
 -    tmatrix<N, N, T> t(m);
 -    TinyPermutation<N> p;
--    TinyMatrixSolve<N, T, true>::decomp(t, p, eps);
+-    if (!TinyMatrixSolve<N, T, true>::decomp(t, p, eps)) {
+-      tfel::raise<LUNullPivot>();
++    auto t = tmatrix<N, N, T>{m};
++    auto p = TinyPermutation<N>{};
++    auto r = TinyMatrixSolve<N, T, true>::decomp(t, p, eps);
++    if constexpr (internals::tiny_matrix_solve_throws) {
++      if (!r) {
++        tfel::raise<LUNullPivot>();
++      }
+     }
 -    typename tmatrix<N, N, T>::size_type i;
 -    typename tmatrix<N, N, T>::size_type j;
 -    for (i = 0; i != N; ++i) {
 -      tvector<N, T> e(zero);
-+    auto t = tmatrix<N, N, T>{m};
-+    auto p = TinyPermutation<N>{};
-+    auto r = TinyMatrixSolve<N, T, true>::decomp(t, p, eps);
 +    for (unsigned short i = 0; (r) && (i != N); ++i) {
 +      auto e = tvector<N, T>{zero};
        e(i) = one;
--      TinyMatrixSolve<N, T, true>::back_substitute(t, p, e);
+-      TinyMatrixSolve<N, T, true>::back_substitute(t, p, e, eps);
 -      for (j = 0; j != N; ++j) {
-+      r = TinyMatrixSolve<N, T, true>::back_substitute(t, p, e);
++      r = TinyMatrixSolve<N, T, true>::back_substitute(t, p, e, eps);
 +      for (unsigned short j = 0; j != N; ++j) {
          m(j, i) = e(j);
        }
@@ -2309,7 +1291,7 @@ index 0cfbc42e5..e683ff8a5 100644
  
  }  // end of namespace tfel::math
 diff --git a/include/TFEL/Math/Matrix/tmatrix.ixx b/include/TFEL/Math/Matrix/tmatrix.ixx
-index ab33c2b89..e2ab4986d 100644
+index e6a839e60..c54eda0e2 100644
 --- a/include/TFEL/Math/Matrix/tmatrix.ixx
 +++ b/include/TFEL/Math/Matrix/tmatrix.ixx
 @@ -585,6 +585,27 @@ namespace tfel::math {
@@ -2340,511 +1322,6 @@ index ab33c2b89..e2ab4986d 100644
  }  // namespace tfel::math
  
  #endif /* LIB_TFEL_MATH_TINY_MATRIX_IXX */
-diff --git a/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.hxx b/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.hxx
-index 6cfb61366..65610a7cc 100644
---- a/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.hxx
-+++ b/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.hxx
-@@ -164,15 +164,15 @@ namespace tfel::math {
-     TFEL_HOST_DEVICE constexpr void
-     executeInitialisationTaskBeforeBeginningOfCoreAlgorithm() noexcept {}
-     //! \return the norm of the residual
--    TFEL_HOST_DEVICE [[nodiscard]] NumericType computeResidualNorm()
--        const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE NumericType
-+    computeResidualNorm() const noexcept {
-       return norm(this->fzeros);
-     }
-     /*!
-      * \brief check the convergence of the method
-      * \param[in] e: current error
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr bool checkConvergence(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool checkConvergence(
-         const NumericType e) const noexcept {
-       return e < this->epsilon;
-     }
-@@ -184,7 +184,7 @@ namespace tfel::math {
-      */
-     template <MatrixConcept FixedSizeMatrixType,
-               VectorConcept FixedSizeVectorType>
--    TFEL_HOST_DEVICE [[nodiscard]] bool solveLinearSystem(
-+    [[nodiscard]] TFEL_HOST_DEVICE bool solveLinearSystem(
-         FixedSizeMatrixType&, FixedSizeVectorType&) const noexcept;
-     /*!
-      * \brief update the jacobian matrix if required.
-diff --git a/include/TFEL/Math/Quantity/qtOperations.hxx b/include/TFEL/Math/Quantity/qtOperations.hxx
-index 43a48faf8..be26e70ca 100644
---- a/include/TFEL/Math/Quantity/qtOperations.hxx
-+++ b/include/TFEL/Math/Quantity/qtOperations.hxx
-@@ -49,38 +49,38 @@
-       !NoUnitImmutableQuantityConcept<QuantityType>) =                       \
-       delete /*("invalid operation (unmatched unit)") */
- 
--#define TFEL_MATH_QT_SCALAR_OPERATIONS(Op)                               \
--  template <ImmutableQuantityConcept QuantityType,                       \
--            StandardArithmeticTypeConcept ScalarType>                    \
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto                          \
--  operator Op(const QuantityType&, const ScalarType&) noexcept requires( \
--      NoUnitImmutableQuantityConcept<QuantityType>);                     \
--  template <ImmutableQuantityConcept QuantityType,                       \
--            StandardArithmeticTypeConcept ScalarType>                    \
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto                          \
--  operator Op(const QuantityType&, const ScalarType&) noexcept requires( \
--      !NoUnitImmutableQuantityConcept<QuantityType>) =                   \
--      delete /* ("invalid operation (unmatched unit)") */;               \
--  template <StandardArithmeticTypeConcept ScalarType,                    \
--            ImmutableQuantityConcept QuantityType>                       \
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto                          \
--  operator Op(const ScalarType&, const QuantityType&) noexcept requires( \
--      NoUnitImmutableQuantityConcept<QuantityType>);                     \
--  template <StandardArithmeticTypeConcept ScalarType,                    \
--            ImmutableQuantityConcept QuantityType>                       \
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto                          \
--  operator Op(const ScalarType&, const QuantityType&) noexcept requires( \
--      !NoUnitImmutableQuantityConcept<QuantityType>) =                   \
--      delete /* ("invalid operation (unmatched unit)") */
-+#define TFEL_MATH_QT_SCALAR_OPERATIONS(Op)                   \
-+  template <ImmutableQuantityConcept QuantityType,           \
-+            StandardArithmeticTypeConcept ScalarType>        \
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator Op( \
-+      const QuantityType&, const ScalarType&) noexcept       \
-+    requires(NoUnitImmutableQuantityConcept<QuantityType>);  \
-+  template <ImmutableQuantityConcept QuantityType,           \
-+            StandardArithmeticTypeConcept ScalarType>        \
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator Op( \
-+      const QuantityType&, const ScalarType&) noexcept       \
-+    requires(!NoUnitImmutableQuantityConcept<QuantityType>)  \
-+  = delete /* ("invalid operation (unmatched unit)") */;     \
-+  template <StandardArithmeticTypeConcept ScalarType,        \
-+            ImmutableQuantityConcept QuantityType>           \
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator Op( \
-+      const ScalarType&, const QuantityType&) noexcept       \
-+    requires(NoUnitImmutableQuantityConcept<QuantityType>);  \
-+  template <StandardArithmeticTypeConcept ScalarType,        \
-+            ImmutableQuantityConcept QuantityType>           \
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator Op( \
-+      const ScalarType&, const QuantityType&) noexcept       \
-+    requires(!NoUnitImmutableQuantityConcept<QuantityType>)  \
-+  = delete /* ("invalid operation (unmatched unit)") */
- 
- #define TFEL_MATH_QT_SCALAR_OPERATIONS2(Op)                  \
-   template <ImmutableQuantityConcept QuantityType,           \
-             StandardArithmeticTypeConcept ScalarType>        \
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator Op( \
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator Op( \
-       const QuantityType&, const ScalarType&) noexcept;      \
-   template <StandardArithmeticTypeConcept ScalarType,        \
-             ImmutableQuantityConcept QuantityType>           \
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator Op( \
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator Op( \
-       const ScalarType&, const QuantityType&) noexcept
- 
- namespace tfel::math {
-@@ -94,7 +94,7 @@ namespace tfel::math {
- 
-   //! \brief negation operator
-   template <ImmutableQuantityConcept QuantityType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator-(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator-(
-       const QuantityType& q) noexcept {
-     return qt_rebind<QuantityType>{-base_type_cast(q)};
-   }  // end of operator-
-diff --git a/include/TFEL/Math/Quantity/qtOperations.ixx b/include/TFEL/Math/Quantity/qtOperations.ixx
-index 195766499..a0dc8f390 100644
---- a/include/TFEL/Math/Quantity/qtOperations.ixx
-+++ b/include/TFEL/Math/Quantity/qtOperations.ixx
-@@ -20,7 +20,7 @@ namespace tfel::math {
-                                                                                  \
-   template <ImmutableQuantityConcept QuantityType,                               \
-             StandardArithmeticTypeConcept ScalarType>                            \
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator Op(                     \
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator Op(                     \
-       const QuantityType& lhs,                                                   \
-       const ScalarType&                                                          \
-           rhs) noexcept requires(NoUnitImmutableQuantityConcept<QuantityType>) { \
-@@ -31,7 +31,7 @@ namespace tfel::math {
-                                                                                  \
-   template <StandardArithmeticTypeConcept ScalarType,                            \
-             ImmutableQuantityConcept QuantityType>                               \
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator Op(                     \
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator Op(                     \
-       const ScalarType& lhs,                                                     \
-       const QuantityType&                                                        \
-           rhs) noexcept requires(NoUnitImmutableQuantityConcept<QuantityType>) { \
-@@ -45,7 +45,7 @@ namespace tfel::math {
- 
-   template <ImmutableQuantityConcept QuantityType,
-             StandardArithmeticTypeConcept ScalarType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator*(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator*(
-       const QuantityType& lhs, const ScalarType& rhs) noexcept {
-     return qt<quantity_unit<QuantityType>,
-               typename tfel::typetraits::Promote<base_type<QuantityType>,
-@@ -55,7 +55,7 @@ namespace tfel::math {
- 
-   template <StandardArithmeticTypeConcept ScalarType,
-             ImmutableQuantityConcept QuantityType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator*(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator*(
-       const ScalarType& lhs, const QuantityType& rhs) noexcept {
-     return qt<quantity_unit<QuantityType>,
-               typename tfel::typetraits::Promote<base_type<QuantityType>,
-@@ -65,7 +65,7 @@ namespace tfel::math {
- 
-   template <ImmutableQuantityConcept QuantityType,
-             StandardArithmeticTypeConcept ScalarType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator/(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator/(
-       const QuantityType& lhs, const ScalarType& rhs) noexcept {
-     return qt<quantity_unit<QuantityType>,
-               typename tfel::typetraits::Promote<base_type<QuantityType>,
-@@ -75,7 +75,7 @@ namespace tfel::math {
- 
-   template <StandardArithmeticTypeConcept ScalarType,
-             ImmutableQuantityConcept QuantityType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator/(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator/(
-       const ScalarType& lhs, const QuantityType& rhs) noexcept {
-     return qt<typename unit::internals::SubtractUnit<
-                   unit::NoUnit, quantity_unit<QuantityType>>::type,
-diff --git a/include/TFEL/Math/ST2toST2/BuildFromRotationMatrix.hxx b/include/TFEL/Math/ST2toST2/BuildFromRotationMatrix.hxx
-index d00286119..3fd7bd22c 100644
---- a/include/TFEL/Math/ST2toST2/BuildFromRotationMatrix.hxx
-+++ b/include/TFEL/Math/ST2toST2/BuildFromRotationMatrix.hxx
-@@ -37,7 +37,7 @@ namespace tfel::math::st2tost2_internals {
-      * \return the st2tost2 that has the same effect as applying
-      * the rotation
-      */
--    static TFEL_MATH_INLINE2 tfel::math::st2tost2<1u, T> exe(
-+    TFEL_HOST_DEVICE static TFEL_MATH_INLINE2 tfel::math::st2tost2<1u, T> exe(
-         const rotation_matrix<T>&) {
-       return tfel::math::st2tost2<1u, T>::Id();
-     }
-@@ -52,7 +52,7 @@ namespace tfel::math::st2tost2_internals {
-      * the rotation
-      * \param[in] r : rotation matrix
-      */
--    static TFEL_MATH_INLINE2 tfel::math::st2tost2<2u, T> exe(
-+    TFEL_HOST_DEVICE static TFEL_MATH_INLINE2 tfel::math::st2tost2<2u, T> exe(
-         const rotation_matrix<T>& r) {
-       tfel::math::st2tost2<2u, T> s;
-       constexpr auto cste = Cste<T>::sqrt2;
-@@ -94,7 +94,7 @@ namespace tfel::math::st2tost2_internals {
-      * the rotation
-      * \param[in] r : rotation matrix
-      */
--    static TFEL_MATH_INLINE2 tfel::math::st2tost2<3u, T> exe(
-+    TFEL_HOST_DEVICE static TFEL_MATH_INLINE2 tfel::math::st2tost2<3u, T> exe(
-         const rotation_matrix<T>& r) {
-       constexpr auto cste = Cste<T>::sqrt2;
-       tfel::math::st2tost2<3u, T> s;
-diff --git a/include/TFEL/Math/ST2toST2/ST2toST2ST2toST2ProductExpr.hxx b/include/TFEL/Math/ST2toST2/ST2toST2ST2toST2ProductExpr.hxx
-index f9cf09564..5f38b3205 100644
---- a/include/TFEL/Math/ST2toST2/ST2toST2ST2toST2ProductExpr.hxx
-+++ b/include/TFEL/Math/ST2toST2/ST2toST2ST2toST2ProductExpr.hxx
-@@ -74,14 +74,14 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const {
-       return this->v[i * 3 + j];
-     }  // end of operator()
-     /*!
-      * \return the runtime properties
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const {
-       return {};
-     }
-@@ -157,14 +157,14 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const {
-       return this->v[i * 4 + j];
-     }  // end of operator()
-     /*!
-      * \return the runtime properties
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const {
-       return {};
-     }
-@@ -280,14 +280,14 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const {
-       return this->v[i * 6 + j];
-     }  // end of operator()
-     /*!
-      * \return the runtime properties
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const {
-       return {};
-     }
-diff --git a/include/TFEL/Math/ST2toST2/ST2toST2StensorProductExpr.hxx b/include/TFEL/Math/ST2toST2/ST2toST2StensorProductExpr.hxx
-index 78d280d9a..4a74783da 100644
---- a/include/TFEL/Math/ST2toST2/ST2toST2StensorProductExpr.hxx
-+++ b/include/TFEL/Math/ST2toST2/ST2toST2StensorProductExpr.hxx
-@@ -60,7 +60,7 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator()
-@@ -68,12 +68,12 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator[](
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator[]
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -116,7 +116,7 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator()
-@@ -124,12 +124,12 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator[](
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator[]
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const noexcept {
-       return {};
-     }
-@@ -176,7 +176,7 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator()
-@@ -184,12 +184,12 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator[](
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator[]
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-diff --git a/include/TFEL/Math/ST2toST2/ST2toST2TransposeExpr.hxx b/include/TFEL/Math/ST2toST2/ST2toST2TransposeExpr.hxx
-index ce21476d7..58b52025f 100644
---- a/include/TFEL/Math/ST2toST2/ST2toST2TransposeExpr.hxx
-+++ b/include/TFEL/Math/ST2toST2/ST2toST2TransposeExpr.hxx
-@@ -39,7 +39,7 @@ namespace tfel::math {
-     //! a simple alias
-     using NumType = numeric_type<A>;
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return EmptyRunTimeProperties();
-     }
-@@ -63,7 +63,7 @@ namespace tfel::math {
-      * \param[in] i: row number
-      * \param[in] j: column number
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr NumType operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr NumType operator()(
-         const IndexType i, const IndexType j) const noexcept {
-       return this->a(j, i);
-     }  // end of operator()
-diff --git a/include/TFEL/Math/ST2toST2/StensorST2toST2ProductExpr.hxx b/include/TFEL/Math/ST2toST2/StensorST2toST2ProductExpr.hxx
-index eed5b4072..d952284b7 100644
---- a/include/TFEL/Math/ST2toST2/StensorST2toST2ProductExpr.hxx
-+++ b/include/TFEL/Math/ST2toST2/StensorST2toST2ProductExpr.hxx
-@@ -58,7 +58,7 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator[](
-         const unsigned short i) const noexcept {
-       return this->operator()(i);
-     }
-@@ -66,12 +66,12 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -112,7 +112,7 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator[](
-         const unsigned short i) const noexcept {
-       return this->operator()(i);
-     }
-@@ -120,12 +120,12 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -170,7 +170,7 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator[](
-         const unsigned short i) const noexcept {
-       return this->operator()(i);
-     }
-@@ -178,12 +178,12 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-diff --git a/include/TFEL/Math/ST2toST2/WalpoleBasis.hxx b/include/TFEL/Math/ST2toST2/WalpoleBasis.hxx
-index fe432e8f2..fa5325fc2 100644
---- a/include/TFEL/Math/ST2toST2/WalpoleBasis.hxx
-+++ b/include/TFEL/Math/ST2toST2/WalpoleBasis.hxx
-@@ -24,19 +24,19 @@ namespace tfel::math {
- 
-   template <typename real>
-   struct TransverseIsotropicWalpoleBasis {
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr stensor<3u, real> p(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr stensor<3u, real> p(
-         const tvector<3u, real>& n) {
-       constexpr auto sqrt2 = Cste<real>::sqrt2;
-       return {n(0) * n(0),         n(1) * n(1),         n(2) * n(2),
-               sqrt2 * n(0) * n(1), sqrt2 * n(0) * n(2), sqrt2 * n(1) * n(2)};
-     }
- 
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr stensor<3u, real> q(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr stensor<3u, real> q(
-         const tvector<3u, real>& n) {
-       return stensor<3u, real>::Id() - p(n);
-     }
- 
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr st2tost2<3u, real>
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr st2tost2<3u, real>
-     dyadic_ov(const stensor<3u, real>& a, const stensor<3u, real>& b) {
-       constexpr auto sqrt2 = Cste<real>::sqrt2;
-       constexpr auto isqrt2 = Cste<real>::isqrt2;
-@@ -92,35 +92,35 @@ namespace tfel::math {
-       return a_b;
-     }
- 
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr st2tost2<3u, real> E1(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr st2tost2<3u, real> E1(
-         const tvector<3u, real>& n) {
-       return p(n) ^ p(n);
-     }
- 
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr st2tost2<3u, real> E2(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr st2tost2<3u, real> E2(
-         const tvector<3u, real>& n) {
-       return (q(n) ^ q(n)) / 2;
-     }
- 
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr st2tost2<3u, real> E3(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr st2tost2<3u, real> E3(
-         const tvector<3u, real>& n) {
-       constexpr auto isqrt2 = Cste<real>::isqrt2;
-       return isqrt2 * (p(n) ^ q(n));
-     }
- 
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr st2tost2<3u, real> E4(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr st2tost2<3u, real> E4(
-         const tvector<3u, real>& n) {
-       constexpr auto isqrt2 = Cste<real>::isqrt2;
-       return isqrt2 * (q(n) ^ p(n));
-     }
- 
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr st2tost2<3u, real> F(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr st2tost2<3u, real> F(
-         const tvector<3u, real>& n) {
-       const st2tost2<3u, real> F_ = dyadic_ov(q(n), q(n));
-       return F_ - E2(n);
-     }
- 
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr st2tost2<3u, real> G(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr st2tost2<3u, real> G(
-         const tvector<3u, real>& n) {
-       st2tost2<3u, real> G_ = dyadic_ov(p(n), q(n));
-       G_ += dyadic_ov(q(n), p(n));
-@@ -128,7 +128,7 @@ namespace tfel::math {
-     }
- 
-     template <typename T>
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr std::array<T, 6> components(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr std::array<T, 6> components(
-         const tvector<3u, real>& n, const st2tost2<3u, T>& P) {
-       const auto p1 = trace(E1(n) * P * E1(n));
-       const auto p2 = trace(E2(n) * P * E2(n));
 diff --git a/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.hxx b/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.hxx
 index ba30e66e1..f441e7ae3 100644
 --- a/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.hxx
@@ -3050,572 +1527,11 @@ index 820587aa2..6783cd5ef 100644
    };
  
  }  // end of namespace tfel::math::internals
-diff --git a/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.hxx b/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.hxx
-index 6b747ba23..07d73384c 100644
---- a/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.hxx
-+++ b/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.hxx
-@@ -52,14 +52,14 @@ namespace tfel::math::internals {
-     // iterations used by the algorithm.
- 
-     TFEL_HOST_DEVICE static int exe(tvector<3u, real>& vp,
--                   tmatrix<3u, 3u, real>& m,
--                   real a00,
--                   real a01,
--                   real a02,
--                   real a11,
--                   real a12,
--                   real a22,
--                   bool aggressive);
-+                                    tmatrix<3u, 3u, real>& m,
-+                                    real a00,
-+                                    real a01,
-+                                    real a02,
-+                                    real a11,
-+                                    real a12,
-+                                    real a22,
-+                                    bool aggressive);
- 
-    private:
-     // update Q = Q*G in-place using G = {{c,0,-s},{s,0,c},{0,0,1}}.
-@@ -90,15 +90,18 @@ namespace tfel::math::internals {
-     // means bSuper is effectively zero compared to the sizes of the diagonal
-     // entries.
-     TFEL_HOST_DEVICE static bool converged(bool aggressive,
--                          real bDiag0,
--                          real bDiag1,
--                          real bSuper);
-+                                           real bDiag0,
-+                                           real bDiag1,
-+                                           real bSuper);
- 
-     // Support for sorting the eigenvalues and eigenvectors.  The output
-     // (i0,i1,i2) is a permutation of (0,1,2) so that d[i0] <= d[i1] <= d[i2].
-     // The 'bool' return indicates whether the permutation is odd.  If it is
-     // not, the handedness of the Q matrix must be adjusted.
--    TFEL_HOST_DEVICE static bool sort(const tvector<3u, real>& d, int& i0, int& i1, int& i2);
-+    TFEL_HOST_DEVICE static bool sort(const tvector<3u, real>& d,
-+                                      int& i0,
-+                                      int& i1,
-+                                      int& i2);
-   };
- 
- }  // end of namespace tfel::math::internals
-diff --git a/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.hxx b/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.hxx
-index 3037abf0b..3bddc5cb4 100644
---- a/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.hxx
-+++ b/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.hxx
-@@ -45,13 +45,13 @@ namespace tfel::math::internals {
-      * \param[in]  F:  component of the matrix
-      */
-     TFEL_HOST_DEVICE static void computeEigenVectors(tvector<3u, real>&,
--                                    tmatrix<3u, 3u, real>&,
--                                    const real,
--                                    const real,
--                                    const real,
--                                    const real,
--                                    const real,
--                                    const real);
-+                                                     tmatrix<3u, 3u, real>&,
-+                                                     const real,
-+                                                     const real,
-+                                                     const real,
-+                                                     const real,
-+                                                     const real,
-+                                                     const real);
- 
-     /*!
-      * \brief computes the first eigen value of a real symmetric 3x3 matrix
-@@ -67,12 +67,12 @@ namespace tfel::math::internals {
-      * \param[in]  F:  component of the matrix
-      */
-     TFEL_HOST_DEVICE static void computeEigenValues(tvector<3u, real>&,
--                                   const real,
--                                   const real,
--                                   const real,
--                                   const real,
--                                   const real,
--                                   const real);
-+                                                    const real,
-+                                                    const real,
-+                                                    const real,
-+                                                    const real,
-+                                                    const real,
-+                                                    const real);
- 
-    private:
-     /*!
-@@ -95,13 +95,13 @@ namespace tfel::math::internals {
-      * \param[in]  F:  component of the matrix
-      */
-     TFEL_HOST_DEVICE static void computeProjectionBasis(tvector<3u, real>&,
--                                       tmatrix<3u, 3u, real>&,
--                                       const real,
--                                       const real,
--                                       const real,
--                                       const real,
--                                       const real,
--                                       const real);
-+                                                        tmatrix<3u, 3u, real>&,
-+                                                        const real,
-+                                                        const real,
-+                                                        const real,
-+                                                        const real,
-+                                                        const real,
-+                                                        const real);
-   };
- 
- }  // end of namespace tfel::math::internals
-diff --git a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx b/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
-index 3f9ab5ae4..d84acab18 100644
---- a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
-+++ b/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
-@@ -35,7 +35,8 @@ namespace tfel::math::internals {
-      * \param[in] o:   eigen value ordering
-      */
-     template <typename T>
--    TFEL_HOST_DEVICE static void exe(T&, T&, T&, const EigenValuesOrdering) {}  // end of exe
-+    TFEL_HOST_DEVICE static void exe(T&, T&, T&, const EigenValuesOrdering) {
-+    }  // end of exe
-   };  // end of struct SortEigenValues<1u>
-   //! \brief partial specialisation of the `SortEigenValues` in 2D
-   template <>
-@@ -50,7 +51,10 @@ namespace tfel::math::internals {
-      * \param[in] o:   eigen value ordering
-      */
-     template <typename T>
--    TFEL_HOST_DEVICE static void exe(T& vp0, T& vp1, T&, const EigenValuesOrdering o) {
-+    TFEL_HOST_DEVICE static void exe(T& vp0,
-+                                     T& vp1,
-+                                     T&,
-+                                     const EigenValuesOrdering o) {
-       if (o == EigenValuesOrdering::ASCENDING) {
-         if (vp0 > vp1) {
-           std::swap(vp0, vp1);
-@@ -75,7 +79,10 @@ namespace tfel::math::internals {
-      * \param[in] o:   eigen value ordering
-      */
-     template <typename T>
--    TFEL_HOST_DEVICE static void exe(T& vp0, T& vp1, T& vp2, const EigenValuesOrdering o) {
-+    TFEL_HOST_DEVICE static void exe(T& vp0,
-+                                     T& vp1,
-+                                     T& vp2,
-+                                     const EigenValuesOrdering o) {
-       auto swap_if_greater = [](T& x, T& y) {
-         if (x > y) {
-           std::swap(x, y);
-diff --git a/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
-index abe7b6797..544ed1fcf 100644
---- a/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
-+++ b/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
-@@ -36,8 +36,9 @@ namespace tfel::math::internals {
-      */
-     template <typename T>
-     TFEL_HOST_DEVICE static void exe(tfel::math::tvector<3u, T>&,
--                    tfel::math::tmatrix<3u, 3u, T>&,
--                    const EigenValuesOrdering) {}  // end of exe
-+                                     tfel::math::tmatrix<3u, 3u, T>&,
-+                                     const EigenValuesOrdering) {
-+    }  // end of exe
-   };  // end of struct SortEigenVectors<1u>
-   //! \brief partial specialisation of the `SortEigenVectors` in 2D
-   template <>
-@@ -52,8 +53,8 @@ namespace tfel::math::internals {
-      */
-     template <typename T>
-     TFEL_HOST_DEVICE static void exe(tfel::math::tvector<3u, T>& vp,
--                    tfel::math::tmatrix<3u, 3u, T>& m,
--                    const EigenValuesOrdering o) {
-+                                     tfel::math::tmatrix<3u, 3u, T>& m,
-+                                     const EigenValuesOrdering o) {
-       if (o == EigenValuesOrdering::ASCENDING) {
-         if (vp(1) < vp(0)) {
-           std::swap(vp(0), vp(1));
-@@ -82,8 +83,8 @@ namespace tfel::math::internals {
-      */
-     template <typename T>
-     TFEL_HOST_DEVICE static void exe(tfel::math::tvector<3u, T>& vp,
--                    tfel::math::tmatrix<3u, 3u, T>& m,
--                    const EigenValuesOrdering o) {
-+                                     tfel::math::tmatrix<3u, 3u, T>& m,
-+                                     const EigenValuesOrdering o) {
-       using size_type = decltype(vp.size());
-       size_type zero = 0;
-       size_type one = 1;
-diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-index 35b6a5f2f..062f936c9 100644
---- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-+++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-@@ -38,15 +38,15 @@ namespace tfel::math::internals {
-   struct StensorComputeEigenVectors<1u> {
-     template <typename T>
-     TFEL_HOST_DEVICE static bool test(const T* const,
--                     const tfel::math::tvector<3u, T>&,
--                     const tfel::math::rotation_matrix<T>&) {
-+                                      const tfel::math::tvector<3u, T>&,
-+                                      const tfel::math::rotation_matrix<T>&) {
-       return true;
-     }
- 
-     template <typename VectorType, typename T>
-     TFEL_HOST_DEVICE static bool computeEigenVector(VectorType& v,
--                                   const T* const s,
--                                   const T vp) {
-+                                                    const T* const s,
-+                                                    const T vp) {
-       static_assert(tfel::typetraits::IsFundamentalNumericType<
-                     numeric_type<VectorType>>::cond);
-       static_assert(std::is_same_v<numeric_type<VectorType>, T>);
-@@ -72,9 +72,9 @@ namespace tfel::math::internals {
- 
-     template <typename T>
-     TFEL_HOST_DEVICE static bool exe(const T* const s,
--                    tfel::math::tvector<3u, T>& vp,
--                    tfel::math::rotation_matrix<T>& m,
--                    const bool) {
-+                                     tfel::math::tvector<3u, T>& vp,
-+                                     tfel::math::rotation_matrix<T>& m,
-+                                     const bool) {
-       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
-       static_assert(tfel::typetraits::IsReal<T>::cond);
-       vp = {s[0], s[1], s[2]};
-@@ -87,8 +87,8 @@ namespace tfel::math::internals {
-   struct StensorComputeEigenVectors<2u> {
-     template <typename T>
-     TFEL_HOST_DEVICE static bool test(const T* const s,
--                     const tfel::math::tvector<3u, T>& vp,
--                     const tfel::math::rotation_matrix<T>& m) {
-+                                      const tfel::math::tvector<3u, T>& vp,
-+                                      const tfel::math::rotation_matrix<T>& m) {
-       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
-       static_assert(tfel::typetraits::IsReal<T>::cond);
-       using tfel::math::constexpr_fct::sqrt;
-@@ -112,8 +112,8 @@ namespace tfel::math::internals {
- 
-     template <typename VectorType, typename T>
-     TFEL_HOST_DEVICE static bool computeEigenVector(VectorType& v,
--                                   const T* const s,
--                                   const T vp) {
-+                                                    const T* const s,
-+                                                    const T vp) {
-       using namespace tfel::typetraits;
-       static_assert(IsFundamentalNumericType<numeric_type<VectorType>>::cond);
-       static_assert(std::is_same_v<numeric_type<VectorType>, T>);
-@@ -133,9 +133,9 @@ namespace tfel::math::internals {
- 
-     template <typename T>
-     TFEL_HOST_DEVICE static bool exe(const T* const s,
--                    tfel::math::tvector<3u, T>& vp,
--                    tfel::math::rotation_matrix<T>& vec,
--                    const bool) {
-+                                     tfel::math::tvector<3u, T>& vp,
-+                                     tfel::math::rotation_matrix<T>& vec,
-+                                     const bool) {
-       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
-       static_assert(tfel::typetraits::IsReal<T>::cond);
-       vp(2) = s[2];
-@@ -225,8 +225,8 @@ namespace tfel::math::internals {
-   struct StensorComputeEigenVectors<3u> {
-     template <typename T>
-     TFEL_HOST_DEVICE static bool test(const T* const s,
--                     const tfel::math::tvector<3u, T>& vp,
--                     const tfel::math::rotation_matrix<T>& m) {
-+                                      const tfel::math::tvector<3u, T>& vp,
-+                                      const tfel::math::rotation_matrix<T>& m) {
-       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
-       static_assert(tfel::typetraits::IsReal<T>::cond);
-       constexpr auto icste = Cste<T>::isqrt2;
-@@ -268,8 +268,8 @@ namespace tfel::math::internals {
- 
-     template <typename VectorType, typename T>
-     TFEL_HOST_DEVICE static bool computeEigenVector(VectorType& v,
--                                   const T* const src,
--                                   const T vp) {
-+                                                    const T* const src,
-+                                                    const T vp) {
-       using namespace tfel::typetraits;
-       static_assert(IsFundamentalNumericType<numeric_type<VectorType>>::cond);
-       static_assert(std::is_same_v<numeric_type<VectorType>, T>);
-@@ -280,18 +280,19 @@ namespace tfel::math::internals {
- 
-     template <typename T>
-     TFEL_HOST_DEVICE static bool exe(const T* const s,
--                    tfel::math::tvector<3u, T>& vp,
--                    tfel::math::rotation_matrix<T>& vec,
--                    const bool b) {
-+                                     tfel::math::tvector<3u, T>& vp,
-+                                     tfel::math::rotation_matrix<T>& vec,
-+                                     const bool b) {
-       StensorComputeEigenValues<3u>::exe(s, vp(0), vp(1), vp(2), b);
-       vp = {vp(0), vp(1), vp(2)};
-       return computeEigenVectors<T>(s, vp, vec);
-     }
- 
-     template <typename T>
--    TFEL_HOST_DEVICE static bool computeEigenVectors(const T* const s,
--                                    const tfel::math::tvector<3u, T>& vp,
--                                    tfel::math::rotation_matrix<T>& vec) {
-+    TFEL_HOST_DEVICE static bool computeEigenVectors(
-+        const T* const s,
-+        const tfel::math::tvector<3u, T>& vp,
-+        tfel::math::rotation_matrix<T>& vec) {
-       using namespace std;
-       using tfel::math::tvector;
-       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
-@@ -410,7 +411,9 @@ namespace tfel::math::internals {
- 
-    private:
-     template <typename T>
--    TFEL_HOST_DEVICE static T conditionning_number(const T a, const T b, const T c) {
-+    TFEL_HOST_DEVICE static T conditionning_number(const T a,
-+                                                   const T b,
-+                                                   const T c) {
-       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
-       static_assert(tfel::typetraits::IsReal<T>::cond);
-       auto tmp = a + b;
-@@ -448,14 +451,14 @@ namespace tfel::math::internals {
- 
-     template <typename T>
-     TFEL_HOST_DEVICE static void cross_product(T& z0,
--                              T& z1,
--                              T& z2,
--                              const T x0,
--                              const T x1,
--                              const T x2,
--                              const T y0,
--                              const T y1,
--                              const T y2) {
-+                                               T& z1,
-+                                               T& z2,
-+                                               const T x0,
-+                                               const T x1,
-+                                               const T x2,
-+                                               const T y0,
-+                                               const T y1,
-+                                               const T y2) {
-       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
-       static_assert(tfel::typetraits::IsReal<T>::cond);
-       z0 = x1 * y2 - x2 * y1;
-diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx
-index 38929e3a7..f64461784 100644
---- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx
-+++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx
-@@ -21,7 +21,7 @@ namespace tfel::math::internals {
- 
-   struct StensorComputeEigenTensorsDerivativesBase {
-     template <typename NumType>
--    TFEL_MATH_INLINE static
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static
-         typename ComputeBinaryResult<base_type<NumType>, NumType, OpDiv>::Result
-         regularized_inverse(const NumType x, const NumType eps) {
-       if (tfel::math::abs(x) < 100 * std::numeric_limits<NumType>::min()) {
-@@ -31,7 +31,8 @@ namespace tfel::math::internals {
-     }  // end of regularization
-    protected:
-     template <typename NumType>
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static NumType regularization_function(const NumType x) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static NumType regularization_function(
-+        const NumType x) {
-       if (tfel::math::abs(x) > 1) {
-         return NumType(1);
-       }
-@@ -49,12 +50,12 @@ namespace tfel::math::internals {
-         const tfel::math::tvector<3u, NumType>&,
-         const tfel::math::rotation_matrix<NumType>&,
-         const NumType)  //
--        requires(
--            (getSpaceDimension<ST2toST2Type>() == 1u) &&
--            (isAssignableTo<typename ComputeBinaryResult<base_type<NumType>,
--                                                         NumType,
--                                                         OpDiv>::Result,
--                            numeric_type<ST2toST2Type>>())) {
-+      requires((getSpaceDimension<ST2toST2Type>() == 1u) &&
-+               (isAssignableTo<typename ComputeBinaryResult<base_type<NumType>,
-+                                                            NumType,
-+                                                            OpDiv>::Result,
-+                               numeric_type<ST2toST2Type>>()))
-+    {
-       using namespace tfel::math;
-       using namespace tfel::typetraits;
-       using InvNumType = typename ComputeBinaryResult<base_type<NumType>,
-@@ -76,12 +77,12 @@ namespace tfel::math::internals {
-         const tfel::math::tvector<3u, NumType>& vp,
-         const tfel::math::rotation_matrix<NumType>& m,
-         const NumType eps)  //
--        requires(
--            (getSpaceDimension<ST2toST2Type>() == 2u) &&
--            (isAssignableTo<typename ComputeBinaryResult<base_type<NumType>,
--                                                         NumType,
--                                                         OpDiv>::Result,
--                            numeric_type<ST2toST2Type>>())) {
-+      requires((getSpaceDimension<ST2toST2Type>() == 2u) &&
-+               (isAssignableTo<typename ComputeBinaryResult<base_type<NumType>,
-+                                                            NumType,
-+                                                            OpDiv>::Result,
-+                               numeric_type<ST2toST2Type>>()))
-+    {
-       using base = base_type<NumType>;
-       using InvNumType = BinaryOperationResult<base, NumType, OpDiv>;
-       constexpr auto icste = Cste<base>::isqrt2;
-@@ -107,12 +108,12 @@ namespace tfel::math::internals {
-         const tfel::math::tvector<3u, NumType>& vp,
-         const tfel::math::rotation_matrix<NumType>& m,
-         const NumType eps)  //
--        requires(
--            (getSpaceDimension<ST2toST2Type>() == 3u) &&
--            (isAssignableTo<typename ComputeBinaryResult<base_type<NumType>,
--                                                         NumType,
--                                                         OpDiv>::Result,
--                            numeric_type<ST2toST2Type>>())) {
-+      requires((getSpaceDimension<ST2toST2Type>() == 3u) &&
-+               (isAssignableTo<typename ComputeBinaryResult<base_type<NumType>,
-+                                                            NumType,
-+                                                            OpDiv>::Result,
-+                               numeric_type<ST2toST2Type>>()))
-+    {
-       using namespace tfel::math;
-       using base = base_type<NumType>;
-       constexpr auto cste = Cste<base>::isqrt2;
-diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeIsotropicFunctionDerivative.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeIsotropicFunctionDerivative.hxx
-index d5bc33e4f..92b83fa51 100644
---- a/include/TFEL/Math/Stensor/Internals/StensorComputeIsotropicFunctionDerivative.hxx
-+++ b/include/TFEL/Math/Stensor/Internals/StensorComputeIsotropicFunctionDerivative.hxx
-@@ -35,13 +35,14 @@ namespace tfel::math::internals {
-               typename Function,
-               typename FunctionDerivative,
-               typename T>
--    static void exe2(ST2toST2Type& d,
--                     const Function&,
--                     const FunctionDerivative& df,
--                     const tvector<3u, T>& vp,
--                     const rotation_matrix<T>&,
--                     const T)  //
--        requires(getSpaceDimension<ST2toST2Type>() == 1u) {
-+    TFEL_HOST_DEVICE static void exe2(ST2toST2Type& d,
-+                                      const Function&,
-+                                      const FunctionDerivative& df,
-+                                      const tvector<3u, T>& vp,
-+                                      const rotation_matrix<T>&,
-+                                      const T)  //
-+      requires(getSpaceDimension<ST2toST2Type>() == 1u)
-+    {
-       using real = numeric_type<ST2toST2Type>;
-       constexpr auto zero = real(0);
-       d(0, 0) = df(vp[0]);
-@@ -65,13 +66,14 @@ namespace tfel::math::internals {
-               typename T1,
-               typename T2,
-               typename T3>
--    static void exe(ST2toST2Type& d,
--                    const tvector<3u, T1>&,
--                    const tvector<3u, T2>& df,
--                    const tvector<3u, T3>&,
--                    const tmatrix<3u, 3u, base_type<T3>>&,
--                    const T3)  //
--        requires(getSpaceDimension<ST2toST2Type>() == 1u) {
-+    TFEL_HOST_DEVICE static void exe(ST2toST2Type& d,
-+                                     const tvector<3u, T1>&,
-+                                     const tvector<3u, T2>& df,
-+                                     const tvector<3u, T3>&,
-+                                     const tmatrix<3u, 3u, base_type<T3>>&,
-+                                     const T3)  //
-+      requires(getSpaceDimension<ST2toST2Type>() == 1u)
-+    {
-       using real = numeric_type<ST2toST2Type>;
-       constexpr auto zero = real(0);
-       d(0, 0) = df[0];
-@@ -99,13 +101,14 @@ namespace tfel::math::internals {
-               typename T1,
-               typename T2,
-               typename T3>
--    static void exe(ST2toST2Type& d,
--                    const tvector<3u, T1>& f,
--                    const tvector<3u, T2>& df,
--                    const tvector<3u, T3>& vp,
--                    const tmatrix<3u, 3u, base_type<T3>>& m,
--                    const T3 eps)  //
--        requires(getSpaceDimension<ST2toST2Type>() == 2u) {
-+    TFEL_HOST_DEVICE static void exe(ST2toST2Type& d,
-+                                     const tvector<3u, T1>& f,
-+                                     const tvector<3u, T2>& df,
-+                                     const tvector<3u, T3>& vp,
-+                                     const tmatrix<3u, 3u, base_type<T3>>& m,
-+                                     const T3 eps)  //
-+      requires(getSpaceDimension<ST2toST2Type>() == 2u)
-+    {
-       using real = numeric_type<ST2toST2Type>;
-       using base = base_type<real>;
-       using tvector = tfel::math::tvector<3u, real>;
-@@ -139,13 +142,14 @@ namespace tfel::math::internals {
-               typename T,
-               typename Function,
-               typename FunctionDerivative>
--    static void exe2(ST2toST2Type& d,
--                     const Function& f,
--                     const FunctionDerivative& df,
--                     const tvector<3u, T>& vp,
--                     const rotation_matrix<T>& m,
--                     const T eps)  //
--        requires(getSpaceDimension<ST2toST2Type>() == 2u) {
-+    TFEL_HOST_DEVICE static void exe2(ST2toST2Type& d,
-+                                      const Function& f,
-+                                      const FunctionDerivative& df,
-+                                      const tvector<3u, T>& vp,
-+                                      const rotation_matrix<T>& m,
-+                                      const T eps)  //
-+      requires(getSpaceDimension<ST2toST2Type>() == 2u)
-+    {
-       const auto fv = map(f, vp);
-       const auto dfv = map(df, vp);
-       StensorComputeIsotropicFunctionDerivative::exe(d, fv, dfv, vp, m, eps);
-@@ -168,13 +172,14 @@ namespace tfel::math::internals {
-               typename T1,
-               typename T2,
-               typename T3>
--    static void exe(ST2toST2Type& d,
--                    const tvector<3u, T1>& f,
--                    const tvector<3u, T2>& df,
--                    const tvector<3u, T3>& vp,
--                    const tmatrix<3u, 3u, base_type<T3>>& m,
--                    const T3 eps)  //
--        requires(getSpaceDimension<ST2toST2Type>() == 3u) {
-+    TFEL_HOST_DEVICE static void exe(ST2toST2Type& d,
-+                                     const tvector<3u, T1>& f,
-+                                     const tvector<3u, T2>& df,
-+                                     const tvector<3u, T3>& vp,
-+                                     const tmatrix<3u, 3u, base_type<T3>>& m,
-+                                     const T3 eps)  //
-+      requires(getSpaceDimension<ST2toST2Type>() == 3u)
-+    {
-       using real = numeric_type<ST2toST2Type>;
-       using base = base_type<real>;
-       using tvector = tfel::math::tvector<3u, real>;
-@@ -256,13 +261,14 @@ namespace tfel::math::internals {
-               typename T,
-               typename Function,
-               typename FunctionDerivative>
--    static void exe2(ST2toST2Type& d,
--                     const Function& f,
--                     const FunctionDerivative& df,
--                     const tvector<3u, T>& vp,
--                     const rotation_matrix<T>& m,
--                     const T eps)  //
--        requires(getSpaceDimension<ST2toST2Type>() == 3u) {
-+    TFEL_HOST_DEVICE static void exe2(ST2toST2Type& d,
-+                                      const Function& f,
-+                                      const FunctionDerivative& df,
-+                                      const tvector<3u, T>& vp,
-+                                      const rotation_matrix<T>& m,
-+                                      const T eps)  //
-+      requires(getSpaceDimension<ST2toST2Type>() == 3u)
-+    {
-       const auto fv = map(f, vp);
-       const auto dfv = map(df, vp);
-       StensorComputeIsotropicFunctionDerivative::exe(d, fv, dfv, vp, m, eps);
 diff --git a/include/TFEL/Math/Stensor/Internals/StensorEigenSolver.hxx b/include/TFEL/Math/Stensor/Internals/StensorEigenSolver.hxx
-index d472fd09a..b267442c7 100644
+index 1296d13a5..560efd050 100644
 --- a/include/TFEL/Math/Stensor/Internals/StensorEigenSolver.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/StensorEigenSolver.hxx
-@@ -40,7 +40,8 @@ namespace tfel::math::internals {
+@@ -50,7 +50,8 @@ namespace tfel::math::internals {
          tfel::typetraits::IsFundamentalNumericType<base_type<NumType>>::cond);
      static_assert(tfel::typetraits::IsReal<base_type<NumType>>::cond);
      //! build a matrix of the base type
@@ -3625,109 +1541,7 @@ index d472fd09a..b267442c7 100644
        constexpr auto icste = Cste<NumType>::isqrt2;
        return tmatrix<3u, 3u, base_type<NumType>>{
            base_type_cast(v[0]),          //
-@@ -76,11 +77,12 @@ namespace tfel::math::internals {
-      * \param[in]  v:   stensor values
-      * \param[in]  b:   refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
--                                                    NumType& vp1,
--                                                    NumType& vp2,
--                                                    const NumType* const v,
--                                                    const bool b) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(
-+        NumType& vp0,
-+        NumType& vp1,
-+        NumType& vp2,
-+        const NumType* const v,
-+        const bool b) {
-       real values[StensorDimeToSize<N>::value];
-       real eigen_values[3];
-       tfel::fsalgo::transform<StensorDimeToSize<N>::value>::exe(
-@@ -97,10 +99,11 @@ namespace tfel::math::internals {
-      * \param[in]  v:  stensor values
-      * \param[in]  b:  refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
--                                                     tmatrix<3u, 3u, real>& vec,
--                                                     const NumType* const v,
--                                                     const bool b) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(
-+        tvector<3u, NumType>& vp,
-+        tmatrix<3u, 3u, real>& vec,
-+        const NumType* const v,
-+        const bool b) {
-       real values[StensorDimeToSize<N>::value];
-       tvector<3u, real> eigen_values;
-       tfel::fsalgo::transform<StensorDimeToSize<N>::value>::exe(
-@@ -129,11 +132,12 @@ namespace tfel::math::internals {
-      * \param[in]  v:   stensor values
-      * \param[in]  b:   refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
--                                                    NumType& vp1,
--                                                    NumType& vp2,
--                                                    const NumType* const v,
--                                                    const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(
-+        NumType& vp0,
-+        NumType& vp1,
-+        NumType& vp2,
-+        const NumType* const v,
-+        const bool) {
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       auto vp = tvector<3u, real>{};
-       HarariEigensolver3x3<real>::computeEigenValues(
-@@ -148,10 +152,11 @@ namespace tfel::math::internals {
-      * \param[in]  v:  stensor values
-      * \param[in]  b:  refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
--                                                     tmatrix<3u, 3u, real>& m,
--                                                     const NumType* const v,
--                                                     const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(
-+        tvector<3u, NumType>& vp,
-+        tmatrix<3u, 3u, real>& m,
-+        const NumType* const v,
-+        const bool) {
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       auto vp2 = tvector<3u, real>{};
-       HarariEigensolver3x3<real>::computeEigenVectors(
-@@ -179,11 +184,12 @@ namespace tfel::math::internals {
-      * \param[in]  v:   stensor values
-      * \param[in]  b:   refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
--                                                    NumType& vp1,
--                                                    NumType& vp2,
--                                                    const NumType* const v,
--                                                    const bool b) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(
-+        NumType& vp0,
-+        NumType& vp1,
-+        NumType& vp2,
-+        const NumType* const v,
-+        const bool b) {
-       constexpr auto icste = Cste<real>::isqrt2;
-       auto vp = tvector<3u, real>{};
-       auto m = tmatrix<3u, 3u, real>{};
-@@ -201,10 +207,11 @@ namespace tfel::math::internals {
-      * \param[in]  v:  stensor values
-      * \param[in]  b:  refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
--                                                     tmatrix<3u, 3u, real>& m,
--                                                     const NumType* const v,
--                                                     const bool b) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(
-+        tvector<3u, NumType>& vp,
-+        tmatrix<3u, 3u, real>& m,
-+        const NumType* const v,
-+        const bool b) {
-       constexpr auto icste = Cste<real>::isqrt2;
-       auto vp2 = tvector<3u, real>{};
-       GteSymmetricEigensolver3x3<real>::exe(
-@@ -233,11 +240,12 @@ namespace tfel::math::internals {
+@@ -322,11 +323,12 @@ namespace tfel::math::internals {
       * \param[in]  v:   stensor values
       * \param[in]  b:   refine eigenvalues
       */
@@ -3745,7 +1559,7 @@ index d472fd09a..b267442c7 100644
        constexpr auto icste = Cste<real>::isqrt2;
        auto vp = tvector<3u, real>{};
        FSESAnalyticalSymmetricEigensolver2x2<real>::computeEigenValues(
-@@ -253,10 +261,11 @@ namespace tfel::math::internals {
+@@ -342,10 +344,11 @@ namespace tfel::math::internals {
       * \param[in]  v:  stensor values
       * \param[in]  b:  refine eigenvalues
       */
@@ -3761,7 +1575,7 @@ index d472fd09a..b267442c7 100644
        constexpr auto icste = Cste<real>::isqrt2;
        auto vp2 = tvector<3u, real>{};
        FSESAnalyticalSymmetricEigensolver2x2<real>::computeEigenVectors(
-@@ -289,11 +298,12 @@ namespace tfel::math::internals {
+@@ -444,11 +447,12 @@ namespace tfel::math::internals {
       * \param[in]  v:   stensor values
       * \param[in]  b:   refine eigenvalues
       */
@@ -3778,8 +1592,8 @@ index d472fd09a..b267442c7 100644
 +        const bool) {
        auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
        auto vp = tvector<3u, real>{};
-       FSESAnalyticalSymmetricEigensolver3x3<real>::computeEigenValues(vp, sm);
-@@ -307,10 +317,11 @@ namespace tfel::math::internals {
+       auto m = tmatrix<3u, 3u, real>{};
+@@ -466,10 +470,11 @@ namespace tfel::math::internals {
       * \param[in]  v:  stensor values
       * \param[in]  b:  refine eigenvalues
       */
@@ -3794,721 +1608,73 @@ index d472fd09a..b267442c7 100644
 +        const bool) {
        auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
        auto vp2 = tvector<3u, real>{};
-       FSESAnalyticalSymmetricEigensolver3x3<real>::computeEigenVectors(vp2, m,
-@@ -349,11 +360,12 @@ namespace tfel::math::internals {
-      * \param[in]  v:   stensor values
-      * \param[in]  b:   refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
--                                                    NumType& vp1,
--                                                    NumType& vp2,
--                                                    const NumType* const v,
--                                                    const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(
-+        NumType& vp0,
-+        NumType& vp1,
-+        NumType& vp2,
-+        const NumType* const v,
-+        const bool) {
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       auto vp = tvector<3u, real>{};
-       auto m = tmatrix<3u, 3u>{};
-@@ -368,10 +380,11 @@ namespace tfel::math::internals {
-      * \param[in]  v:  stensor values
-      * \param[in]  b:  refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
--                                                     tmatrix<3u, 3u, real>& m,
--                                                     const NumType* const v,
--                                                     const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(
-+        tvector<3u, NumType>& vp,
-+        tmatrix<3u, 3u, real>& m,
-+        const NumType* const v,
-+        const bool) {
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       auto vp2 = tvector<3u, real>{};
-       fses::syevj3(m, vp2, sm);
-@@ -408,11 +421,12 @@ namespace tfel::math::internals {
-      * \param[in]  v:   stensor values
-      * \param[in]  b:   refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
--                                                    NumType& vp1,
--                                                    NumType& vp2,
--                                                    const NumType* const v,
--                                                    const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(
-+        NumType& vp0,
-+        NumType& vp1,
-+        NumType& vp2,
-+        const NumType* const v,
-+        const bool) {
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       auto vp = tvector<3u, real>{};
-       auto m = tmatrix<3u, 3u>{};
-@@ -427,10 +441,11 @@ namespace tfel::math::internals {
-      * \param[in]  v:  stensor values
-      * \param[in]  b:  refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
--                                                     tmatrix<3u, 3u, real>& m,
--                                                     const NumType* const v,
--                                                     const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(
-+        tvector<3u, NumType>& vp,
-+        tmatrix<3u, 3u, real>& m,
-+        const NumType* const v,
-+        const bool) {
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       auto vp2 = tvector<3u, real>{};
-       fses::syevq3(m, vp2, sm);
-@@ -467,11 +482,12 @@ namespace tfel::math::internals {
-      * \param[in]  v:   stensor values
-      * \param[in]  b:   refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
--                                                    NumType& vp1,
--                                                    NumType& vp2,
--                                                    const NumType* const v,
--                                                    const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(
-+        NumType& vp0,
-+        NumType& vp1,
-+        NumType& vp2,
-+        const NumType* const v,
-+        const bool) {
-       auto vp = tvector<3u, real>{};
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       auto m = tmatrix<3u, 3u>{};
-@@ -486,10 +502,11 @@ namespace tfel::math::internals {
-      * \param[in]  v:  stensor values
-      * \param[in]  b:  refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
--                                                     tmatrix<3u, 3u, real>& m,
--                                                     const NumType* const v,
--                                                     const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(
-+        tvector<3u, NumType>& vp,
-+        tmatrix<3u, 3u, real>& m,
-+        const NumType* const v,
-+        const bool) {
-       auto vp2 = tvector<3u, real>{};
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       fses::syevd3(m, vp2, sm);
-@@ -527,11 +544,12 @@ namespace tfel::math::internals {
-      * \param[in]  v:   stensor values
-      * \param[in]  b:   refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
--                                                    NumType& vp1,
--                                                    NumType& vp2,
--                                                    const NumType* const v,
--                                                    const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(
-+        NumType& vp0,
-+        NumType& vp1,
-+        NumType& vp2,
-+        const NumType* const v,
-+        const bool) {
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       auto vp = tvector<3u, real>{};
-       fses::syevc3(vp, sm);
-@@ -545,10 +563,11 @@ namespace tfel::math::internals {
-      * \param[in]  v:  stensor values
-      * \param[in]  b:  refine eigenvalues
-      */
--    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
--                                                     tmatrix<3u, 3u, real>& m,
--                                                     const NumType* const v,
--                                                     const bool) {
-+    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(
-+        tvector<3u, NumType>& vp,
-+        tmatrix<3u, 3u, real>& m,
-+        const NumType* const v,
-+        const bool) {
-       auto sm = StensorEigenSolverBase<3u, NumType>::as_base_matrix(v);
-       auto vp2 = tvector<3u, real>{};
-       fses::syevh3(m, vp2, sm);
+       if (fses::syevj3(m, vp2, sm) != 0) {
 diff --git a/include/TFEL/Math/Stensor/StensorProduct.hxx b/include/TFEL/Math/Stensor/StensorProduct.hxx
-index 503c981dc..bb9757a3d 100644
+index 496f537ab..bb9757a3d 100644
 --- a/include/TFEL/Math/Stensor/StensorProduct.hxx
 +++ b/include/TFEL/Math/Stensor/StensorProduct.hxx
-@@ -44,7 +44,8 @@ namespace tfel::math {
+@@ -44,7 +44,7 @@ namespace tfel::math {
      typedef ptrdiff_t difference_type;
  
     protected:
--    TFEL_MATH_INLINE StensorProductExprBase(A l, B r) : a(l), b(r) {}
+-    TFEL_HOST_DEVICE TFEL_MATH_INLINE StensorProductExprBase(A l, B r)
 +    TFEL_HOST_DEVICE constexpr StensorProductExprBase(A l, B r)
-+        : a(l), b(r) {}
+         : a(l), b(r) {}
  
      ArgumentStorage<A> a;
-     ArgumentStorage<B> b;
-@@ -53,7 +54,7 @@ namespace tfel::math {
+@@ -54,7 +54,7 @@ namespace tfel::math {
      //
      StensorProductExprBase() = delete;
      //
--    [[nodiscard]] TFEL_MATH_INLINE RunTimeProperties
+-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_MATH_INLINE RunTimeProperties
 +    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
      getRunTimeProperties() const {
        return {};
      }
-@@ -67,11 +68,11 @@ namespace tfel::math {
+@@ -68,11 +68,11 @@ namespace tfel::math {
  
      using size_type = typename StensorProductExprBase<A, B>::size_type;
  
--    TFEL_MATH_INLINE StensorProductExpr1D(A l, B r)
+-    TFEL_HOST_DEVICE TFEL_MATH_INLINE StensorProductExpr1D(A l, B r)
 +    TFEL_HOST_DEVICE constexpr StensorProductExpr1D(A l, B r)
          : StensorProductExprBase<A, B>(std::forward<A>(l), std::forward<B>(r)) {
      }
  
--    [[nodiscard]] TFEL_MATH_INLINE
+-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_MATH_INLINE
 +    [[nodiscard]] TFEL_HOST_DEVICE constexpr
          BinaryOperationResult<std::invoke_result_t<A, size_type>,
                                std::invoke_result_t<B, size_type>,
                                OpMult>
-@@ -88,11 +89,11 @@ namespace tfel::math {
+@@ -89,11 +89,11 @@ namespace tfel::math {
  
      using size_type = typename StensorProductExprBase<A, B>::size_type;
  
--    TFEL_MATH_INLINE StensorProductExpr2D(A l, B r)
+-    TFEL_HOST_DEVICE TFEL_MATH_INLINE StensorProductExpr2D(A l, B r)
 +    TFEL_HOST_DEVICE constexpr StensorProductExpr2D(A l, B r)
          : StensorProductExprBase<A, B>(std::forward<A>(l), std::forward<B>(r)) {
      }
  
--    [[nodiscard]] TFEL_MATH_INLINE
+-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_MATH_INLINE
 +    [[nodiscard]] TFEL_HOST_DEVICE constexpr
          BinaryOperationResult<std::invoke_result_t<A, size_type>,
                                std::invoke_result_t<B, size_type>,
                                OpMult>
-@@ -125,11 +126,11 @@ namespace tfel::math {
+@@ -126,11 +126,11 @@ namespace tfel::math {
  
      using size_type = typename StensorProductExprBase<A, B>::size_type;
  
--    TFEL_MATH_INLINE StensorProductExpr3D(A l, B r)
+-    TFEL_HOST_DEVICE TFEL_MATH_INLINE StensorProductExpr3D(A l, B r)
 +    TFEL_HOST_DEVICE constexpr StensorProductExpr3D(A l, B r)
          : StensorProductExprBase<A, B>(std::forward<A>(l), std::forward<B>(r)) {
      }
  
--    [[nodiscard]] TFEL_MATH_INLINE
+-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_MATH_INLINE
 +    [[nodiscard]] TFEL_HOST_DEVICE constexpr
          BinaryOperationResult<std::invoke_result_t<A, size_type>,
                                std::invoke_result_t<B, size_type>,
                                OpMult>
-diff --git a/include/TFEL/Math/T2toST2/LeftCauchyGreenTensorDerivativeExpr.hxx b/include/TFEL/Math/T2toST2/LeftCauchyGreenTensorDerivativeExpr.hxx
-index 4851166f7..2e29221b6 100644
---- a/include/TFEL/Math/T2toST2/LeftCauchyGreenTensorDerivativeExpr.hxx
-+++ b/include/TFEL/Math/T2toST2/LeftCauchyGreenTensorDerivativeExpr.hxx
-@@ -66,7 +66,7 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 3 + j];
-     }  // end of operator()
-@@ -122,7 +122,7 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 5 + j];
-     }  // end of operator()
-@@ -206,7 +206,7 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 9 + j];
-     }  // end of operator()
-diff --git a/include/TFEL/Math/T2toST2/RightCauchyGreenTensorDerivativeExpr.hxx b/include/TFEL/Math/T2toST2/RightCauchyGreenTensorDerivativeExpr.hxx
-index f33d9bce4..7fc31b838 100644
---- a/include/TFEL/Math/T2toST2/RightCauchyGreenTensorDerivativeExpr.hxx
-+++ b/include/TFEL/Math/T2toST2/RightCauchyGreenTensorDerivativeExpr.hxx
-@@ -66,14 +66,14 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const {
-       return this->v[i * 3 + j];
-     }  // end of operator()
-     /*!
-      * \return the runtime properties
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const noexcept {
-       return {};
-     }
-@@ -127,14 +127,14 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 5 + j];
-     }  // end of operator()
-     /*!
-      * \return the runtime properties
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const noexcept {
-       return {};
-     }
-@@ -218,14 +218,14 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 9 + j];
-     }  // end of operator()
-     /*!
-      * \return the runtime properties
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const noexcept {
-       return {};
-     }
-diff --git a/include/TFEL/Math/T2toST2/ST2toST2T2toST2ProductExpr.hxx b/include/TFEL/Math/T2toST2/ST2toST2T2toST2ProductExpr.hxx
-index b7b7c8e3c..6ae5d74b5 100644
---- a/include/TFEL/Math/T2toST2/ST2toST2T2toST2ProductExpr.hxx
-+++ b/include/TFEL/Math/T2toST2/ST2toST2T2toST2ProductExpr.hxx
-@@ -68,12 +68,12 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 3 + j];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -149,12 +149,12 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 5 + j];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -298,14 +298,14 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 9 + j];
-     }  // end of operator()
-     /*!
-      * \return the runtime properties
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-diff --git a/include/TFEL/Math/T2toST2/T2toST2T2toT2ProductExpr.hxx b/include/TFEL/Math/T2toST2/T2toST2T2toT2ProductExpr.hxx
-index 1adcdb418..985636ebb 100644
---- a/include/TFEL/Math/T2toST2/T2toST2T2toT2ProductExpr.hxx
-+++ b/include/TFEL/Math/T2toST2/T2toST2T2toT2ProductExpr.hxx
-@@ -69,12 +69,12 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 3 + j];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -150,12 +150,12 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 5 + j];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -353,14 +353,14 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 9 + j];
-     }  // end of operator()
-     /*!
-      * \return the runtime properties
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-diff --git a/include/TFEL/Math/T2toT2/ConvertFromPK1Derivative.hxx b/include/TFEL/Math/T2toT2/ConvertFromPK1Derivative.hxx
-index 7cae3c9c4..2f7fe97bd 100644
---- a/include/TFEL/Math/T2toT2/ConvertFromPK1Derivative.hxx
-+++ b/include/TFEL/Math/T2toT2/ConvertFromPK1Derivative.hxx
-@@ -40,7 +40,7 @@ namespace tfel ::math {
-    * the deformation gradient.
-    */
-   template <unsigned short N, typename stress, typename real>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr t2tost2<N, stress>
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr t2tost2<N, stress>
-   convertFirstPiolaKirchoffStressDerivativeToKirchhoffStressDerivative(
-       const t2tot2<N, stress>&,
-       const tensor<N, real>&,
-diff --git a/include/TFEL/Math/T2toT2/ConvertToPK1Derivative.hxx b/include/TFEL/Math/T2toT2/ConvertToPK1Derivative.hxx
-index 484952c55..19be916e1 100644
---- a/include/TFEL/Math/T2toT2/ConvertToPK1Derivative.hxx
-+++ b/include/TFEL/Math/T2toT2/ConvertToPK1Derivative.hxx
-@@ -39,10 +39,10 @@ namespace tfel::math {
-   template <StressT2toST2Concept CauchyStressDerivativeType,
-             NoUnitTensorConcept DeformationGradientType,
-             StressStensorConcept CauchyStressType>
--  requires(checkThatAllSpaceDimensionsAreEqual<CauchyStressDerivativeType,
--                                               DeformationGradientType,
--                                               CauchyStressType>())  //
--      TFEL_HOST_DEVICE [[nodiscard]] constexpr                       //
-+    requires(checkThatAllSpaceDimensionsAreEqual<CauchyStressDerivativeType,
-+                                                 DeformationGradientType,
-+                                                 CauchyStressType>())  //
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr                             //
-       t2tot2<space_dimension<CauchyStressDerivativeType>,
-              numeric_type<CauchyStressDerivativeType>>  //
-       convertCauchyStressDerivativeToFirstPiolaKirchoffStressDerivative(
-@@ -91,10 +91,10 @@ namespace tfel::math {
-   template <StressST2toST2Concept PK2StressDerivativeType,
-             NoUnitTensorConcept DeformationGradientType,
-             StressStensorConcept CauchyStressType>
--  requires(checkThatAllSpaceDimensionsAreEqual<PK2StressDerivativeType,
--                                               DeformationGradientType,
--                                               CauchyStressType>())  //
--      TFEL_HOST_DEVICE [[nodiscard]] constexpr                       //
-+    requires(checkThatAllSpaceDimensionsAreEqual<PK2StressDerivativeType,
-+                                                 DeformationGradientType,
-+                                                 CauchyStressType>())  //
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr                             //
-       t2tot2<space_dimension<PK2StressDerivativeType>,
-              numeric_type<PK2StressDerivativeType>>  //
-       convertSecondPiolaKirchhoffStressDerivativeToFirstPiolaKirchoffStressDerivative(
-diff --git a/include/TFEL/Math/T2toT2/ConvertToPK1Derivative.ixx b/include/TFEL/Math/T2toT2/ConvertToPK1Derivative.ixx
-index 09777a0f5..9cab9a933 100644
---- a/include/TFEL/Math/T2toT2/ConvertToPK1Derivative.ixx
-+++ b/include/TFEL/Math/T2toT2/ConvertToPK1Derivative.ixx
-@@ -652,7 +652,7 @@ namespace tfel::math {
-   requires(checkThatAllSpaceDimensionsAreEqual<CauchyStressDerivativeType,
-                                                DeformationGradientType,
-                                                CauchyStressType>())  //
--      TFEL_HOST_DEVICE [[nodiscard]] constexpr                       //
-+      [[nodiscard]] TFEL_HOST_DEVICE constexpr                       //
-       t2tot2<space_dimension<CauchyStressDerivativeType>,
-              numeric_type<CauchyStressDerivativeType>>  //
-       convertCauchyStressDerivativeToFirstPiolaKirchoffStressDerivative(
-@@ -691,7 +691,7 @@ namespace tfel::math {
-   requires(checkThatAllSpaceDimensionsAreEqual<PK2StressDerivativeType,
-                                                DeformationGradientType,
-                                                CauchyStressType>())  //
--      TFEL_HOST_DEVICE [[nodiscard]] constexpr                       //
-+      [[nodiscard]] TFEL_HOST_DEVICE constexpr                       //
-       t2tot2<space_dimension<PK2StressDerivativeType>,
-              numeric_type<PK2StressDerivativeType>>  //
-       convertSecondPiolaKirchhoffStressDerivativeToFirstPiolaKirchoffStressDerivative(
-diff --git a/include/TFEL/Math/T2toT2/T2toT2T2toT2ProductExpr.hxx b/include/TFEL/Math/T2toT2/T2toT2T2toT2ProductExpr.hxx
-index b713bdf3d..e47b33b1a 100644
---- a/include/TFEL/Math/T2toT2/T2toT2T2toT2ProductExpr.hxx
-+++ b/include/TFEL/Math/T2toT2/T2toT2T2toT2ProductExpr.hxx
-@@ -67,12 +67,12 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const {
-       return this->v[i * 3 + j];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties() const {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties() const {
-       return RunTimeProperties();
-     }
-   };  // end of struct Expr<T2toT2ResultType,T2toT2T2toT2ProductExpr>
-@@ -159,12 +159,12 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 5 + j];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -445,12 +445,12 @@ namespace tfel::math {
-      * \param[in] i : line index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 9 + j];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-diff --git a/include/TFEL/Math/T2toT2/TensorProductLeftDerivativeExpr.hxx b/include/TFEL/Math/T2toT2/TensorProductLeftDerivativeExpr.hxx
-index d582aa8f3..d3a6cb2ed 100644
---- a/include/TFEL/Math/T2toT2/TensorProductLeftDerivativeExpr.hxx
-+++ b/include/TFEL/Math/T2toT2/TensorProductLeftDerivativeExpr.hxx
-@@ -88,7 +88,7 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 3 + j];
-     }  // end of operator()
-@@ -97,7 +97,7 @@ namespace tfel::math {
-      * In this case, the number of lines and columns
-      * are deduced from the template parameter
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -201,7 +201,7 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 5 + j];
-     }  // end of operator()
-@@ -210,7 +210,7 @@ namespace tfel::math {
-      * In this case, the number of lines and columns
-      * are deduced from the template parameter
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties() const {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties() const {
-       return RunTimeProperties();
-     }
-   };  // end of struct Expr<T2toT2ResultType,TensorProductLeftDerivativeExpr<1u>
-@@ -388,7 +388,7 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 9 + j];
-     }  // end of operator()
-@@ -397,7 +397,7 @@ namespace tfel::math {
-      * In this case, the number of lines and columns
-      * are deduced from the template parameter
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties() const {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties() const {
-       return RunTimeProperties();
-     }
-   };  // end of struct Expr<T2toT2ResultType,TensorProductLeftDerivativeExpr<1u>
-diff --git a/include/TFEL/Math/T2toT2/TensorProductRightDerivativeExpr.hxx b/include/TFEL/Math/T2toT2/TensorProductRightDerivativeExpr.hxx
-index 207f13c7b..562074cde 100644
---- a/include/TFEL/Math/T2toT2/TensorProductRightDerivativeExpr.hxx
-+++ b/include/TFEL/Math/T2toT2/TensorProductRightDerivativeExpr.hxx
-@@ -88,7 +88,7 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 3 + j];
-     }  // end of operator()
-@@ -97,7 +97,7 @@ namespace tfel::math {
-      * In this case, the number of lines and columns
-      * are deduced from the template parameter
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -190,7 +190,7 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 5 + j];
-     }  // end of operator()
-@@ -199,7 +199,7 @@ namespace tfel::math {
-      * In this case, the number of lines and columns
-      * are deduced from the template parameter
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-@@ -379,7 +379,7 @@ namespace tfel::math {
-      * \param[in] i : line   index
-      * \param[in] j : column index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i, const unsigned short j) const noexcept {
-       return this->v[i * 9 + j];
-     }  // end of operator()
-@@ -388,7 +388,7 @@ namespace tfel::math {
-      * In this case, the number of lines and columns
-      * are deduced from the template parameter
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
-diff --git a/include/TFEL/Math/T2toT2/TensorT2toT2ProductExpr.hxx b/include/TFEL/Math/T2toT2/TensorT2toT2ProductExpr.hxx
-index be9112251..28872118a 100644
---- a/include/TFEL/Math/T2toT2/TensorT2toT2ProductExpr.hxx
-+++ b/include/TFEL/Math/T2toT2/TensorT2toT2ProductExpr.hxx
-@@ -57,7 +57,7 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator[](
-         const unsigned short i) const noexcept {
-       return this->operator()(i);
-     }
-@@ -65,12 +65,12 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const noexcept {
-       return {};
-     }
-@@ -115,7 +115,7 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator[](
-         const unsigned short i) const noexcept {
-       return this->operator()(i);
-     }
-@@ -123,12 +123,12 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const noexcept {
-       return {};
-     }
-@@ -190,7 +190,7 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator[](
-         const unsigned short i) const noexcept {
-       return this->operator()(i);
-     }
-@@ -198,12 +198,12 @@ namespace tfel::math {
-      * \brief access operator
-      * \param[in] i : index
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const value_type& operator()(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const value_type& operator()(
-         const unsigned short i) const noexcept {
-       return this->v[i];
-     }  // end of operator()
-     //! \return the runtime properties
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const noexcept {
-       return {};
-     }
-diff --git a/include/TFEL/Math/Tensor/MatrixViewFromTensor.hxx b/include/TFEL/Math/Tensor/MatrixViewFromTensor.hxx
-index 795bea019..9361b9c88 100644
---- a/include/TFEL/Math/Tensor/MatrixViewFromTensor.hxx
-+++ b/include/TFEL/Math/Tensor/MatrixViewFromTensor.hxx
-@@ -41,7 +41,7 @@ namespace tfel::math {
-     typedef unsigned short IndexType;
-     typedef EmptyRunTimeProperties RunTimeProperties;
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return RunTimeProperties();
-     }
 diff --git a/include/TFEL/Math/Tensor/TensorConcept.ixx b/include/TFEL/Math/Tensor/TensorConcept.ixx
-index aff0440c9..6e054151a 100644
+index 8acb9f5a6..1fe156ef9 100644
 --- a/include/TFEL/Math/Tensor/TensorConcept.ixx
 +++ b/include/TFEL/Math/Tensor/TensorConcept.ixx
 @@ -29,7 +29,7 @@ namespace tfel::math::internals {
@@ -4538,94 +1704,6 @@ index aff0440c9..6e054151a 100644
          const TensorType& t, const unsigned short i, const unsigned short j) {
        if ((i == j) && (i < 3)) {
          return t(i);
-diff --git a/include/TFEL/Math/Tensor/TensorProduct.hxx b/include/TFEL/Math/Tensor/TensorProduct.hxx
-index d7cc55f42..552b4e041 100644
---- a/include/TFEL/Math/Tensor/TensorProduct.hxx
-+++ b/include/TFEL/Math/Tensor/TensorProduct.hxx
-@@ -28,7 +28,7 @@ namespace tfel::math {
-     //
-     TensorProductExprBase() = delete;
-     //
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getRunTimeProperties()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getRunTimeProperties()
-         const noexcept {
-       return EmptyRunTimeProperties();
-     }
-@@ -62,14 +62,14 @@ namespace tfel::math {
-     TFEL_HOST_DEVICE constexpr TensorProductExpr1D(A l, B r) noexcept
-         : TensorProductExprBase<A, B>(std::forward<A>(l), std::forward<B>(r)) {}
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr
-         typename TensorProductExprBase<A, B>::NumType
-         operator()(const typename TensorProductExprBase<A, B>::IndexType i)
-             const noexcept {
-       return (this->a(i)) * (this->b(i));
-     }  // end of operator()
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator[](
-         const typename TensorProductExprBase<A, B>::IndexType i)
-         const noexcept {
-       return this->operator()(i);
-@@ -106,7 +106,7 @@ namespace tfel::math {
-       return T(0);
-     }  // end of operator()
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator[](
-         const typename TensorProductExprBase<A, B>::IndexType i)
-         const noexcept {
-       return this->operator()(i);
-@@ -119,7 +119,7 @@ namespace tfel::math {
-     TFEL_HOST_DEVICE constexpr TensorProductExpr3D(A l, B r) noexcept
-         : TensorProductExprBase<A, B>(std::forward<A>(l), std::forward<B>(r)) {}
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr
-         typename TensorProductExprBase<A, B>::NumType
-         operator()(const typename TensorProductExprBase<A, B>::IndexType i)
-             const noexcept {
-@@ -159,7 +159,7 @@ namespace tfel::math {
-       return T(0);
-     }  // end of operator()
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto operator[](
-         const typename TensorProductExprBase<A, B>::IndexType i)
-         const noexcept {
-       return this->operator()(i);
-diff --git a/include/TFEL/Math/Tensor/TensorTransposeExpr.hxx b/include/TFEL/Math/Tensor/TensorTransposeExpr.hxx
-index 1fecee291..2b011a4c5 100644
---- a/include/TFEL/Math/Tensor/TensorTransposeExpr.hxx
-+++ b/include/TFEL/Math/Tensor/TensorTransposeExpr.hxx
-@@ -31,7 +31,7 @@ namespace tfel::math {
-     using IndexType = index_type<A>;
-     using NumType = numeric_type<A>;
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr RunTimeProperties
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr RunTimeProperties
-     getRunTimeProperties() const noexcept {
-       return {};
-     }
-diff --git a/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx b/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx
-index 763168c21..517b92a2b 100644
---- a/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx
-+++ b/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx
-@@ -45,11 +45,11 @@ namespace tfel::math {
-     TFEL_HOST_DEVICE constexpr Expr& operator=(const Expr&) = default;
-     TFEL_HOST_DEVICE constexpr Expr& operator=(Expr&&) = default;
- 
--    TFEL_HOST [[nodiscard]] ValueType operator[](const unsigned short i) const {
-+    [[nodiscard]] TFEL_HOST ValueType operator[](const unsigned short i) const {
-       return this->operator()(i);
-     }
- 
--    TFEL_HOST [[nodiscard]] ValueType operator()(const unsigned short i) const {
-+    [[nodiscard]] TFEL_HOST ValueType operator()(const unsigned short i) const {
-       constexpr auto icste = Cste<ValueType>::isqrt2;
-       switch (i) {
-         case 0:
 diff --git a/include/TFEL/Math/TinyMatrixInvert.hxx b/include/TFEL/Math/TinyMatrixInvert.hxx
 index dcd1e0dab..815c834b3 100644
 --- a/include/TFEL/Math/TinyMatrixInvert.hxx
@@ -4689,501 +1767,10 @@ index dc4e73af5..fcd3bcccc 100644
  #ifndef TFEL_NO_RUNTIME_CHECK_BOUNDS
  //	typedef typename T1::RunTimeProperties RunTimeProperties;
  //	RunTimeCheck<RunTimeProperties>::exe(v1.getRunTimeProperties(),
-diff --git a/include/TFEL/Math/fsarray.hxx b/include/TFEL/Math/fsarray.hxx
-index 9db2bdf01..4538cf58d 100644
---- a/include/TFEL/Math/fsarray.hxx
-+++ b/include/TFEL/Math/fsarray.hxx
-@@ -30,7 +30,7 @@ namespace tfel::math {
-     //! \brief a simple alias
-     using size_type = unsigned short;
-     //
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr size_type size() const noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr size_type size() const noexcept {
-       return N;
-     }
-     //
-@@ -38,11 +38,11 @@ namespace tfel::math {
-     //
-     [[nodiscard]] constexpr auto data() const noexcept { return this->v; }
-     //! \brief access operator
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr ValueType& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr ValueType& operator[](
-         const size_type i) noexcept {
-       return v[i];
-     }
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const ValueType& operator[](
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const ValueType& operator[](
-         const size_type i) const noexcept {
-       return v[i];
-     }
-diff --git a/include/TFEL/Math/qt.hxx b/include/TFEL/Math/qt.hxx
-index cd196730a..b63753225 100644
---- a/include/TFEL/Math/qt.hxx
-+++ b/include/TFEL/Math/qt.hxx
-@@ -75,11 +75,11 @@ namespace tfel::math::internals {
-         : value(src) {}
-     // NOLINTEND(google-explicit-constructor)
-     //! \brief return the value
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr ValueType& getValue() noexcept {
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr ValueType& getValue() noexcept {
-       return this->value;
-     }
-     //! \brief return the value
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr const ValueType& getValue()
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr const ValueType& getValue()
-         const noexcept {
-       return this->value;
-     }
-@@ -541,21 +541,23 @@ namespace tfel::math {
-   };
- 
-   template <int N, ImmutableQuantityConcept T>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto power(const T& x) requires(
--      std::is_floating_point_v<base_type<T>>) {
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto power(const T& x)
-+    requires(std::is_floating_point_v<base_type<T>>)
-+  {
-     using Result = typename UnaryResultType<T, Power<N, 1u>>::type;
-     return Result{power<N>(base_type_cast(x))};
-   }
- 
-   template <int N, unsigned int D, ImmutableQuantityConcept T>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto power(const T& x) requires(
--      std::is_floating_point_v<base_type<T>>) {
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto power(const T& x)
-+    requires(std::is_floating_point_v<base_type<T>>)
-+  {
-     using Result = typename UnaryResultType<T, Power<N, D>>::type;
-     return Result{power<N, D>(base_type_cast(x))};
-   }
- 
-   template <ImmutableQuantityConcept T>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr auto square_root(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr auto square_root(
-       const T& q) noexcept {
-     return power<1, 2>(base_type_cast(q));
-   }
-@@ -575,7 +577,7 @@ namespace tfel::math::ieee754 {
-    * \param[in] q: value to be tested
-    */
-   template <QuantityConcept QuantityType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr int fpclassify(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr int fpclassify(
-       const QuantityType& q) noexcept {
-     static_assert(std::is_floating_point_v<base_type<QuantityType>>,
-                   "base type must a floating point value");
-@@ -587,7 +589,7 @@ namespace tfel::math::ieee754 {
-    * \param[in] q: value to be tested
-    */
-   template <QuantityConcept QuantityType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr bool isnan(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr bool isnan(
-       const QuantityType& q) noexcept {
-     static_assert(std::is_floating_point_v<base_type<QuantityType>>,
-                   "base type must a floating point value");
-@@ -599,7 +601,7 @@ namespace tfel::math::ieee754 {
-    * \param[in] q: value to be tested
-    */
-   template <QuantityConcept QuantityType>
--  TFEL_HOST_DEVICE [[nodiscard]] constexpr bool isfinite(
-+  [[nodiscard]] TFEL_HOST_DEVICE constexpr bool isfinite(
-       const QuantityType& q) noexcept {
-     static_assert(std::is_floating_point_v<base_type<QuantityType>>,
-                   "base type must a floating point value");
-diff --git a/include/TFEL/Math/stensor.hxx b/include/TFEL/Math/stensor.hxx
-index cded9da44..632ff278a 100644
---- a/include/TFEL/Math/stensor.hxx
-+++ b/include/TFEL/Math/stensor.hxx
-@@ -180,7 +180,7 @@ namespace tfel::math {
-      * \return eigen values
-      */
-     template <EigenSolver = TFELEIGENSOLVER>
--    TFEL_HOST_DEVICE [[nodiscard]] TFEL_MATH_INLINE2 tvector<3u, ValueType>
-+    [[nodiscard]] TFEL_HOST_DEVICE TFEL_MATH_INLINE2 tvector<3u, ValueType>
-     computeEigenValues(const bool = false) const;
-     /*!
-      * compute eigenvalues
-@@ -233,7 +233,7 @@ namespace tfel::math {
-      * sorted.
-      */
-     template <EigenSolver = TFELEIGENSOLVER>
--    TFEL_HOST_DEVICE [[nodiscard]] TFEL_MATH_INLINE2 tvector<3u, ValueType>
-+    [[nodiscard]] TFEL_HOST_DEVICE TFEL_MATH_INLINE2 tvector<3u, ValueType>
-     computeEigenValues(const EigenValuesOrdering, const bool = false) const;
-     /*!
-      * compute eigenvectors and eigenvalues
-@@ -241,7 +241,7 @@ namespace tfel::math {
-      * \param[in] b:  refine eigenvalues
-      */
-     template <EigenSolver = TFELEIGENSOLVER>
--    TFEL_HOST_DEVICE [[nodiscard]] TFEL_MATH_INLINE2
-+    [[nodiscard]] TFEL_HOST_DEVICE TFEL_MATH_INLINE2
-         std::tuple<tvector<3u, ValueType>, rotation_matrix<ValueType>>
-         computeEigenVectors(const bool = false) const;
-     /*!
-@@ -268,7 +268,7 @@ namespace tfel::math {
-      * sorted.
-      */
-     template <EigenSolver = TFELEIGENSOLVER>
--    TFEL_HOST_DEVICE [[nodiscard]] TFEL_MATH_INLINE2
-+    [[nodiscard]] TFEL_HOST_DEVICE TFEL_MATH_INLINE2
-         std::tuple<tvector<3u, ValueType>, rotation_matrix<ValueType>>
-         computeEigenVectors(const EigenValuesOrdering,
-                             const bool = false) const;
-@@ -303,7 +303,7 @@ namespace tfel::math {
-      * \param[in]  vp : eigenvalue
-      */
-     template <typename VectorType>
--    TFEL_HOST_DEVICE [[nodiscard]] TFEL_MATH_INLINE2 bool computeEigenVector(
-+    [[nodiscard]] TFEL_HOST_DEVICE TFEL_MATH_INLINE2 bool computeEigenVector(
-         VectorType&, const ValueType) const;
-     /*!
-      * \brief change basis
-@@ -312,8 +312,9 @@ namespace tfel::math {
-     TFEL_HOST_DEVICE constexpr void changeBasis(
-         const rotation_matrix<base_type<ValueType>>&) noexcept;
-     //! \return the identity
--    TFEL_HOST_DEVICE
--    [[nodiscard]] static constexpr stensor<N, base_type<ValueType>>
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr stensor<
-+        N,
-+        base_type<ValueType>>
-     Id() noexcept;
- 
-     /*!
-@@ -341,7 +342,7 @@ namespace tfel::math {
-      * \param[in] A: `stensor`
-      * \param[in] i,j: `unsigned short`
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto getComponent(
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto getComponent(
-         const StensorConcept auto&, unsigned short, unsigned short);
- 
-     /*!
-@@ -354,9 +355,9 @@ namespace tfel::math {
-      * \param[in] m : matrix
-      */
-     template <MatrixConcept MatrixType>
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto buildFromMatrix(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto buildFromMatrix(
-         const MatrixType&) noexcept
--        requires(isAssignableTo<numeric_type<MatrixType>, ValueType>());
-+      requires(isAssignableTo<numeric_type<MatrixType>, ValueType>());
- 
-     /*!
-      * build a symmetric tensor from the diadic product of a vector with
-@@ -364,11 +365,12 @@ namespace tfel::math {
-      * \param[in] v : vector
-      */
-     template <VectorConcept VectorType>
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
--    buildFromVectorDiadicProduct(const VectorType&) noexcept requires(
--        isAssignableTo<typename ComputeUnaryResult<numeric_type<VectorType>,
--                                                   Power<2>>::Result,
--                       ValueType>());
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-+    buildFromVectorDiadicProduct(const VectorType&) noexcept
-+      requires(
-+          isAssignableTo<typename ComputeUnaryResult<numeric_type<VectorType>,
-+                                                     Power<2>>::Result,
-+                         ValueType>());
- 
-     /*!
-      * build a symmetric tensor from the symmetric diadic product of two
-@@ -377,13 +379,13 @@ namespace tfel::math {
-      * \param[in] v1 : second vector
-      */
-     template <VectorConcept VectorType, VectorConcept VectorType2>
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     buildFromVectorsSymmetricDiadicProduct(const VectorType&,
-                                            const VectorType2&) noexcept
--        requires(isAssignableTo<BinaryOperationResult<numeric_type<VectorType>,
--                                                      numeric_type<VectorType2>,
--                                                      OpMult>,
--                                ValueType>());
-+      requires(isAssignableTo<BinaryOperationResult<numeric_type<VectorType>,
-+                                                    numeric_type<VectorType2>,
-+                                                    OpMult>,
-+                              ValueType>());
- 
-     /*!
-      * build a symmetric tensor from its eigen values and vectors
-@@ -392,7 +394,7 @@ namespace tfel::math {
-      * \param[in] v2 : third  eigen value
-      * \param[in] m  : matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     buildFromEigenValuesAndVectors(const ValueType&,
-                                    const ValueType&,
-                                    const ValueType&,
-@@ -403,7 +405,7 @@ namespace tfel::math {
-      * \param[in] vp : eigen values
-      * \param[in] m  : matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     buildFromEigenValuesAndVectors(const tvector<3u, ValueType>&,
-                                    const rotation_matrix<ValueType>&) noexcept;
- 
-@@ -415,7 +417,7 @@ namespace tfel::math {
-      * \param[in] v2 : third  eigen value
-      * \param[in] m  : matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static auto
-     buildLogarithmFromEigenValuesAndVectors(
-         const ValueType&,
-         const ValueType&,
-@@ -428,7 +430,7 @@ namespace tfel::math {
-      * \param[in] vp : eigen values
-      * \param[in] m  : matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static auto
-     buildLogarithmFromEigenValuesAndVectors(
-         const tvector<3u, ValueType>&,
-         const rotation_matrix<ValueType>&) noexcept;
-@@ -441,7 +443,7 @@ namespace tfel::math {
-      * \param[in] v2 : third  eigen value
-      * \param[in] m  : matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     buildAbsoluteValueFromEigenValuesAndVectors(
-         const ValueType&,
-         const ValueType&,
-@@ -453,7 +455,7 @@ namespace tfel::math {
-      * eigen values and vectors \param[in] vp : eigen values \param[in] m  :
-      * matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     buildAbsoluteValueFromEigenValuesAndVectors(
-         const tvector<3u, ValueType>&,
-         const rotation_matrix<ValueType>&) noexcept;
-@@ -466,7 +468,7 @@ namespace tfel::math {
-      * \param[in] v2 : third  eigen value
-      * \param[in] m  : matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     buildPositivePartFromEigenValuesAndVectors(
-         const ValueType&,
-         const ValueType&,
-@@ -478,7 +480,7 @@ namespace tfel::math {
-      * \param[in] vp : eigen values
-      * \param[in] m  : matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     buildPositivePartFromEigenValuesAndVectors(
-         const tvector<3u, ValueType>&,
-         const rotation_matrix<ValueType>&) noexcept;
-@@ -490,7 +492,7 @@ namespace tfel::math {
-      * \param[in] v2 : third  eigen value
-      * \param[in] m  : matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     buildNegativePartFromEigenValuesAndVectors(
-         const ValueType&,
-         const ValueType&,
-@@ -502,7 +504,7 @@ namespace tfel::math {
-      * \param[in] vp : eigen values
-      * \param[in] m  : matrix containing the eigen vectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     buildNegativePartFromEigenValuesAndVectors(
-         const tvector<3u, ValueType>&,
-         const rotation_matrix<ValueType>&) noexcept;
-@@ -519,7 +521,7 @@ namespace tfel::math {
-      * \(\underbrace{n}_{i}\) are the eigen tensors associated to the given
-      * tensor.
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     computeEigenValuesDerivatives(const rotation_matrix<ValueType>&) noexcept;
-     /*!
-      * compute the eigenvalues derivatives with respect with this tensor
-@@ -548,7 +550,7 @@ namespace tfel::math {
-      * \return the eigentensors
-      * \param[in]  m: eigenvectors
-      */
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto computeEigenTensors(
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto computeEigenTensors(
-         const rotation_matrix<ValueType>&) noexcept;
-     /*!
-      * \brief compute the eigentensors
-@@ -595,7 +597,7 @@ namespace tfel::math {
-      * \param[in]  m:   eigenvectors
-      */
-     template <typename Function>
--    TFEL_HOST_DEVICE [[nodiscard]] static auto computeIsotropicFunction(
-+    [[nodiscard]] TFEL_HOST_DEVICE static auto computeIsotropicFunction(
-         const Function&,
-         const tvector<3u, ValueType>&,
-         const rotation_matrix<ValueType>&);
-@@ -605,7 +607,7 @@ namespace tfel::math {
-      * \param[in]  m: eigenvectors
-      */
-     template <typename T2>
--    TFEL_HOST_DEVICE [[nodiscard]] static constexpr auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static constexpr auto
-     computeIsotropicFunction(const tvector<3u, T2>&,
-                              const rotation_matrix<ValueType>&) noexcept;
-     /*!
-@@ -618,7 +620,7 @@ namespace tfel::math {
-      * equals
-      */
-     template <typename T1, typename T2>
--    TFEL_HOST_DEVICE [[nodiscard]] static auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static auto
-     computeIsotropicFunctionDerivative(const tvector<3u, T1>&,
-                                        const tvector<3u, T2>&,
-                                        const tvector<3u, ValueType>&,
-@@ -659,7 +661,7 @@ namespace tfel::math {
-      * equals
-      */
-     template <typename Function, typename FunctionDerivative>
--    TFEL_HOST_DEVICE [[nodiscard]] static auto
-+    [[nodiscard]] TFEL_HOST_DEVICE static auto
-     computeIsotropicFunctionDerivative(const Function&,
-                                        const FunctionDerivative&,
-                                        const tvector<3u, ValueType>&,
-@@ -697,7 +699,7 @@ namespace tfel::math {
-      * \param[in] b:   if true, refinement of eigen values is performed
-      */
-     template <EigenSolver = TFELEIGENSOLVER, typename Function>
--    TFEL_HOST_DEVICE [[nodiscard]] auto computeIsotropicFunction(
-+    [[nodiscard]] TFEL_HOST_DEVICE auto computeIsotropicFunction(
-         const Function&, const bool = false) const;
-     /*!
-      * \return the derivative of an isotropic function
-@@ -710,7 +712,7 @@ namespace tfel::math {
-     template <EigenSolver = TFELEIGENSOLVER,
-               typename Function,
-               typename FunctionDerivative>
--    TFEL_HOST_DEVICE [[nodiscard]] auto computeIsotropicFunctionDerivative(
-+    [[nodiscard]] TFEL_HOST_DEVICE auto computeIsotropicFunctionDerivative(
-         const Function&,
-         const FunctionDerivative&,
-         const ValueType,
-@@ -726,7 +728,7 @@ namespace tfel::math {
-     template <EigenSolver = TFELEIGENSOLVER,
-               typename Function,
-               typename FunctionDerivative>
--    TFEL_HOST_DEVICE [[nodiscard]] auto computeIsotropicFunctionAndDerivative(
-+    [[nodiscard]] TFEL_HOST_DEVICE auto computeIsotropicFunctionAndDerivative(
-         const Function&,
-         const FunctionDerivative&,
-         const ValueType,
 diff --git a/include/TFEL/Math/tmatrix.hxx b/include/TFEL/Math/tmatrix.hxx
-index ad979605b..47c4630a1 100644
+index bc32e8dc2..47c4630a1 100644
 --- a/include/TFEL/Math/tmatrix.hxx
 +++ b/include/TFEL/Math/tmatrix.hxx
-@@ -327,15 +327,15 @@ namespace tfel::math {
-     using GenericFixedSizeArrayBase::operator[];
-     using GenericFixedSizeArrayBase::operator();
-     //! return the number of columns of the matrix
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr unsigned short getNbCols() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned short getNbCols() const;
-     //! return the number of rows of the matrix
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr unsigned short getNbRows() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned short getNbRows() const;
-     /*!
-      * \return a view of a row of this matrix
-      * \param[in] I : row index
-      */
-     template <unsigned short I>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto row_view();
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto row_view();
-     /*!
-      * \return a view of a slice of row of this matrix
-      * \param[in] I : row index
-@@ -343,13 +343,13 @@ namespace tfel::math {
-      * \param[in] K : size of the slice
-      */
-     template <unsigned short I, unsigned short J, unsigned short K>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto row_view();
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto row_view();
-     /*!
-      * \return a view of a row of this matrix
-      * \param[in] I : row index
-      */
-     template <unsigned short I>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto row_view() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto row_view() const;
-     /*!
-      * \return a view of a slice of row of this matrix
-      * \param[in] I : row index
-@@ -357,13 +357,13 @@ namespace tfel::math {
-      * \param[in] K : size of the slice
-      */
-     template <unsigned short I, unsigned short J, unsigned short K>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto row_view() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto row_view() const;
-     /*!
-      * \return a view of a column of this matrix
-      * \param[in] I : column index
-      */
-     template <unsigned short I>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto column_view();
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto column_view();
-     /*!
-      * \return a view of a slice of column of this matrix
-      * \param[in] I : column index
-@@ -371,7 +371,7 @@ namespace tfel::math {
-      * \param[in] K : size of the slice
-      */
-     template <unsigned short I, unsigned short J, unsigned short K>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto column_view();
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto column_view();
-     /*!
-      * \return a view of a slice of column of this matrix
-      * \param[in] I : column index
-@@ -379,13 +379,13 @@ namespace tfel::math {
-      * \param[in] K : size of the slice
-      */
-     template <unsigned short I, unsigned short J, unsigned short K>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto column_view() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto column_view() const;
-     /*!
-      * \return a view of a column of this matrix
-      * \param[in] I : column index
-      */
-     template <unsigned short I>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto column_view() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto column_view() const;
-     /*!
-      * \return a view of a sub matrix of this matrix
-      * \param[in] I : submatrix row    starting index
-@@ -397,7 +397,7 @@ namespace tfel::math {
-               unsigned short J,
-               unsigned short R,
-               unsigned short C>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto submatrix_view();
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto submatrix_view();
-     /*!
-      * \return a view of a sub matrix of this matrix
-      * \param[in] I : submatrix row    starting index
-@@ -409,11 +409,11 @@ namespace tfel::math {
-               unsigned short J,
-               unsigned short R,
-               unsigned short C>
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto submatrix_view() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto submatrix_view() const;
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto max() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto max() const;
- 
--    TFEL_HOST_DEVICE [[nodiscard]] constexpr auto abs_max() const;
-+    [[nodiscard]] TFEL_HOST_DEVICE constexpr auto abs_max() const;
- 
-     TFEL_HOST_DEVICE constexpr void swap_rows(const unsigned short i,
-                                               const unsigned short j);
 @@ -615,6 +615,22 @@ namespace tfel::math {
    template <unsigned short N, typename T>
    TFEL_HOST_DEVICE constexpr tvector<N, T> change_basis(
@@ -5701,10 +2288,10 @@ index d8b991f61..000000000
 -
 -}  // end of namespace tfel::material
 diff --git a/tests/Math/CMakeLists.txt b/tests/Math/CMakeLists.txt
-index f3928d823..1e5168bea 100644
+index a95353670..9ab0773d5 100644
 --- a/tests/Math/CMakeLists.txt
 +++ b/tests/Math/CMakeLists.txt
-@@ -106,6 +106,7 @@ tests_math(tvector)
+@@ -108,6 +108,7 @@ tests_math(tvector)
  tests_math(tvector2)
  tests_math(tvector3)
  tests_math(tvector4)

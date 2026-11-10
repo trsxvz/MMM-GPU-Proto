@@ -1,4 +1,4 @@
-From 2bc7788dc2d1c7f73a7d9b2f2d0fbac8eea9cc22 Mon Sep 17 00:00:00 2001
+From cd55e49d533b3fde0cfb432025ca0fbcc3db1da0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 19:45:27 +0200
 Subject: [PATCH] TFEL, MFront: error reporting in host and device code,
@@ -110,10 +110,10 @@ index 33552035a..5242ba1b4 100644
    objects built at compile time must be accessed through
    `tfel::utilities::getConstantObject` (`nvcc` does not initialize the
 diff --git a/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.hxx b/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.hxx
-index 65610a7cc..a797325a9 100644
+index eb6c65201..1e59acd08 100644
 --- a/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.hxx
 +++ b/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.hxx
-@@ -236,6 +236,25 @@ namespace tfel::math {
+@@ -251,6 +251,25 @@ namespace tfel::math {
       */
      TFEL_HOST_DEVICE constexpr void reportStandardIteration(
          const NumericType) const noexcept {}
@@ -195,10 +195,10 @@ index 80d45c3f6..c0d717e01 100644
  
  #endif /* LIB_TFEL_RAISE_IXX */
 diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-index 3004df865..e0d0ecb3d 100644
+index 67233d70b..f1319388f 100644
 --- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
 +++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-@@ -341,14 +341,31 @@ namespace mfront {
+@@ -370,14 +370,31 @@ namespace mfront {
           << "} // end of " << this->bd.getClassName()
           << "::computeFinalThermodynamicForces\n\n";
      }
@@ -278,10 +278,10 @@ index 3acb657c4..12a8495d4 100644
  }
  
 diff --git a/mfront/tests/behaviours/FiniteStrainSingleCrystal2.mfront b/mfront/tests/behaviours/FiniteStrainSingleCrystal2.mfront
-index bd5514750..7f3e4891b 100644
+index 7fcb25c14..e41164e91 100644
 --- a/mfront/tests/behaviours/FiniteStrainSingleCrystal2.mfront
 +++ b/mfront/tests/behaviours/FiniteStrainSingleCrystal2.mfront
-@@ -93,7 +93,7 @@
+@@ -101,7 +101,7 @@
  
  @InitLocalVariables{
    if(dt>1.e-5){

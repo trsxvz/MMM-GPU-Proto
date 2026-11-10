@@ -1,4 +1,4 @@
-From 8db273520ac9655d51ed6a6f3d48b35df530b5ed Mon Sep 17 00:00:00 2001
+From 0d4e388befff3875028b0af606bf07cfed6f68e1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
 Subject: [PATCH] TFEL: consistent host and device annotations, device code of
@@ -27,10 +27,9 @@ Subject: [PATCH] TFEL: consistent host and device annotations, device code of
  .../Cazacu2004OrthotropicYieldCriterion.ixx   |  25 +--
  ...eedleman1980StrainBasedNucleationModel.ixx |  10 +-
  ...eedleman1980StressBasedNucleationModel.ixx |  17 +-
- include/TFEL/Material/DDIF2Base.hxx           |  18 +-
  include/TFEL/Material/DDIF2Base.ixx           | 111 ++++++------
  .../Material/Drucker1949YieldCriterion.ixx    |  22 +--
- ...nTvergaardNeedleman1982StressCriterion.ixx |  14 +-
+ ...nTvergaardNeedleman1982StressCriterion.ixx |  17 +-
  ...rmonicSumOfNortonHoffViscoplasticFlows.ixx |   8 +-
  .../Material/LinearHomogenizationSchemes.ixx  | 168 +++++++++---------
  ...eAxialStrainIncrementElasticPrediction.ixx |   9 +-
@@ -39,7 +38,7 @@ Subject: [PATCH] TFEL: consistent host and device annotations, device code of
  include/TFEL/Material/PiPlane.ixx             |  15 +-
  .../PowerLawStrainBasedNucleationModel.ixx    |  10 +-
  .../PowerLawStressBasedNucleationModel.ixx    |   7 +-
- ...sselierTanguyBesson2002StressCriterion.ixx |  14 +-
+ ...sselierTanguyBesson2002StressCriterion.ixx |  13 +-
  .../AitkenAccelerationAlgorithm.hxx           |   5 +-
  .../AitkenAccelerationAlgorithm.ixx           |   6 +-
  include/TFEL/Math/CubicSpline.hxx             |   4 +-
@@ -57,13 +56,12 @@ Subject: [PATCH] TFEL: consistent host and device annotations, device code of
  .../StensorSymmetricProductDerivative.hxx     |   2 +
  .../Stensor/Internals/SortEigenValues.hxx     |   2 +
  .../Stensor/Internals/SortEigenVectors.hxx    |   2 +
- .../StensorComputeEigenValuesDerivatives.hxx  |   2 +
- .../StensorComputeEigenVectorsDerivatives.hxx |   2 +
- ...nsorComputeIsotropicFunctionDerivative.hxx |   2 +
- 39 files changed, 398 insertions(+), 321 deletions(-)
+ .../StensorComputeEigenValuesDerivatives.hxx  |   1 +
+ ...nsorComputeIsotropicFunctionDerivative.hxx |   1 +
+ 37 files changed, 385 insertions(+), 314 deletions(-)
 
 diff --git a/include/TFEL/Material/Barlat2004YieldCriterion.ixx b/include/TFEL/Material/Barlat2004YieldCriterion.ixx
-index d520c2407..aeb9bd4d2 100644
+index ba49d127a..be11cce1a 100644
 --- a/include/TFEL/Material/Barlat2004YieldCriterion.ixx
 +++ b/include/TFEL/Material/Barlat2004YieldCriterion.ixx
 @@ -199,7 +199,7 @@ namespace tfel::material {
@@ -120,7 +118,7 @@ index d520c2407..aeb9bd4d2 100644
        const StressStensor& s,
        const BarlatLinearTransformationType<StressStensor>& l1,
 diff --git a/include/TFEL/Material/Cazacu2001YieldCriterion.ixx b/include/TFEL/Material/Cazacu2001YieldCriterion.ixx
-index f613d2116..9be954451 100644
+index 128170f73..109db3b83 100644
 --- a/include/TFEL/Material/Cazacu2001YieldCriterion.ixx
 +++ b/include/TFEL/Material/Cazacu2001YieldCriterion.ixx
 @@ -17,11 +17,11 @@
@@ -137,10 +135,10 @@ index f613d2116..9be954451 100644
 +                                   const J2OCoefficients<StressStensor>& a,
 +                                   const J3OCoefficients<StressStensor>& b,
 +                                   const Cazacu2001BaseType<StressStensor> c) {
+     using stress = Cazacu2001StressType<StressStensor>;
      using real = Cazacu2001BaseType<StressStensor>;
      constexpr const auto e = real(1) / 6;
-     constexpr const auto sqrt3 = tfel::math::Cste<real>::sqrt3;
-@@ -31,8 +31,8 @@ namespace tfel::material {
+@@ -40,8 +40,8 @@ namespace tfel::material {
    }  // end of computeCazacu2001StressCriterion
  
    template <typename StressStensor>
@@ -151,7 +149,7 @@ index f613d2116..9be954451 100644
    computeCazacu2001StressCriterionNormal(
        const StressStensor& sig,
        const J2OCoefficients<StressStensor>& a,
-@@ -63,15 +63,16 @@ namespace tfel::material {
+@@ -77,15 +77,16 @@ namespace tfel::material {
    }  // end of computeCazacu2001StressCriterion
  
    template <typename StressStensor>
@@ -178,7 +176,7 @@ index f613d2116..9be954451 100644
      using real = Cazacu2001BaseType<StressStensor>;
      using istress = Cazacu2001InvertStressType<StressStensor>;
 diff --git a/include/TFEL/Material/Cazacu2004IsotropicYieldCriterion.ixx b/include/TFEL/Material/Cazacu2004IsotropicYieldCriterion.ixx
-index 90a9e6dd3..e392fda89 100644
+index 3abff40a4..b81c23556 100644
 --- a/include/TFEL/Material/Cazacu2004IsotropicYieldCriterion.ixx
 +++ b/include/TFEL/Material/Cazacu2004IsotropicYieldCriterion.ixx
 @@ -19,7 +19,8 @@
@@ -189,9 +187,9 @@ index 90a9e6dd3..e392fda89 100644
 +  TFEL_HOST_DEVICE Cazacu2004StressType<StressStensor>
 +  computeCazacu2004IsotropicStressCriterion(
        const StressStensor& sig, const Cazacu2004BaseType<StressStensor> c) {
+     using stress = Cazacu2004StressType<StressStensor>;
      const auto s = tfel::math::deviator(sig);
-     const auto J2 = (s | s) / 2;
-@@ -28,8 +29,8 @@ namespace tfel::material {
+@@ -31,8 +32,8 @@ namespace tfel::material {
    }  // end of computeCazacu2004IsotropicStressCriterion
  
    template <typename StressStensor>
@@ -202,7 +200,7 @@ index 90a9e6dd3..e392fda89 100644
    computeCazacu2004IsotropicStressCriterionNormal(
        const StressStensor& sig,
        const Cazacu2004BaseType<StressStensor> c,
-@@ -47,13 +48,14 @@ namespace tfel::material {
+@@ -53,13 +54,14 @@ namespace tfel::material {
    }  // end of computeCazacu2004IsotropicStressCriterionNormal
  
    template <typename StressStensor>
@@ -222,10 +220,10 @@ index 90a9e6dd3..e392fda89 100644
 +          const Cazacu2004BaseType<StressStensor> c,
 +          const Cazacu2004StressType<StressStensor> seps) {
      using real = Cazacu2004BaseType<StressStensor>;
+     using stress = Cazacu2004StressType<StressStensor>;
      constexpr auto N = tfel::math::getSpaceDimension<StressStensor>();
-     const auto s = tfel::math::deviator(sig);
 diff --git a/include/TFEL/Material/Cazacu2004OrthotropicYieldCriterion.ixx b/include/TFEL/Material/Cazacu2004OrthotropicYieldCriterion.ixx
-index 876bc4313..16407b5f5 100644
+index 9de9dcc9b..7bca42f54 100644
 --- a/include/TFEL/Material/Cazacu2004OrthotropicYieldCriterion.ixx
 +++ b/include/TFEL/Material/Cazacu2004OrthotropicYieldCriterion.ixx
 @@ -17,7 +17,7 @@
@@ -237,7 +235,7 @@ index 876bc4313..16407b5f5 100644
    computeCazacu2004OrthotropicStressCriterion(
        const StressStensor& sig,
        const J2OCoefficients<StressStensor>& a,
-@@ -29,8 +29,8 @@ namespace tfel::material {
+@@ -32,8 +32,8 @@ namespace tfel::material {
    }  // end of computeCazacu2004OrthotropicStressCriterion
  
    template <typename StressStensor>
@@ -248,7 +246,7 @@ index 876bc4313..16407b5f5 100644
    computeCazacu2004OrthotropicStressCriterionNormal(
        const StressStensor& sig,
        const J2OCoefficients<StressStensor>& a,
-@@ -49,15 +49,16 @@ namespace tfel::material {
+@@ -55,15 +55,16 @@ namespace tfel::material {
    }  // end of computeCazacu2004OrthotropicStressCriterion
  
    template <typename StressStensor>
@@ -271,9 +269,9 @@ index 876bc4313..16407b5f5 100644
 +          const J3OCoefficients<StressStensor>& b,
 +          const Cazacu2004BaseType<StressStensor> c,
 +          const Cazacu2004StressType<StressStensor> seps) {
+     using stress = Cazacu2004StressType<StressStensor>;
      const auto J2O = computeJ2O(sig, a);
      const auto J3O = computeJ3O(sig, b);
-     const auto seq = std::cbrt(tfel::math::power<3>(sqrt(J2O)) - c * J3O);
 diff --git a/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx b/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx
 index 66e0c07d7..cd4770e4e 100644
 --- a/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx
@@ -351,69 +349,8 @@ index 0201d564a..641386ee0 100644
        ChuNeedleman1980StressBasedNucleationModelRealType<StressStensorType>,
        ChuNeedleman1980StressBasedNucleationModeDerivativeType<
            StressStensorType>>
-diff --git a/include/TFEL/Material/DDIF2Base.hxx b/include/TFEL/Material/DDIF2Base.hxx
-index 314ae2666..4277294cd 100644
---- a/include/TFEL/Material/DDIF2Base.hxx
-+++ b/include/TFEL/Material/DDIF2Base.hxx
-@@ -154,7 +154,7 @@ namespace tfel::material {
-      * matrix.
-      */
-     template <typename Stensor2Type1, typename Stensor, typename real>
--    TFEL_HOST_DEVICE TFEL_VISIBILITY_LOCAL static void treatFracture(
-+    TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE static void treatFracture(
-         Stensor2Type1&,
-         real&,
-         real&,
-@@ -174,7 +174,7 @@ namespace tfel::material {
-      * in explicit integration.
-      */
-     template <typename real>
--    TFEL_HOST_DEVICE TFEL_VISIBILITY_LOCAL static void rk(
-+    TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE static void rk(
-         tfel::math::tmatrix<3, 3, real>&,
-         tfel::math::tvector<3, real>&,
-         real&,
-@@ -190,31 +190,31 @@ namespace tfel::material {
-         const unsigned short);
- 
-     template <typename real>
--    TFEL_HOST_DEVICE TFEL_VISIBILITY_LOCAL static void cart2cyl(
-+    TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE static void cart2cyl(
-         tfel::math::stensor<1u, real>&, const real);
- 
-     template <typename real>
--    TFEL_HOST_DEVICE TFEL_VISIBILITY_LOCAL static void cart2cyl(
-+    TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE static void cart2cyl(
-         tfel::math::stensor<2u, real>&, const real);
- 
-     template <typename real>
--    TFEL_HOST_DEVICE TFEL_VISIBILITY_LOCAL static void cart2cyl(
-+    TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE static void cart2cyl(
-         tfel::math::stensor<3u, real>&, const real);
- 
-     template <typename real>
--    TFEL_HOST_DEVICE TFEL_VISIBILITY_LOCAL static void cyl2cart(
-+    TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE static void cyl2cart(
-         tfel::math::stensor<1u, real>&, const real);
- 
-     template <typename real>
--    TFEL_HOST_DEVICE TFEL_VISIBILITY_LOCAL static void cyl2cart(
-+    TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE static void cyl2cart(
-         tfel::math::stensor<2u, real>&, const real);
- 
-     template <typename real>
--    TFEL_HOST_DEVICE TFEL_VISIBILITY_LOCAL static void cyl2cart(
-+    TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE static void cyl2cart(
-         tfel::math::stensor<3u, real>&, const real);
- 
-     template <typename real>
--    TFEL_HOST_DEVICE TFEL_VISIBILITY_LOCAL static void invmat(
-+    TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE static void invmat(
-         tfel::math::tmatrix<3, 3, real>&,
-         tfel::math::tmatrix<3, 3, real>&,
-         tfel::math::tvector<3, real>&);
 diff --git a/include/TFEL/Material/DDIF2Base.ixx b/include/TFEL/Material/DDIF2Base.ixx
-index 5ba80ae55..99bbe1518 100644
+index f3b61e6b2..5ea82a96a 100644
 --- a/include/TFEL/Material/DDIF2Base.ixx
 +++ b/include/TFEL/Material/DDIF2Base.ixx
 @@ -24,11 +24,12 @@ namespace tfel::material {
@@ -581,7 +518,7 @@ index 5ba80ae55..99bbe1518 100644
      using namespace std;
      constexpr auto cste = tfel::math::Cste<real>::sqrt2;
      constexpr auto icste = tfel::math::Cste<real>::isqrt2;
-@@ -285,7 +294,7 @@ namespace tfel::material {
+@@ -314,7 +323,7 @@ namespace tfel::material {
    }  // end of DDIF2Base::cyl2cart
  
    template <typename real>
@@ -590,7 +527,7 @@ index 5ba80ae55..99bbe1518 100644
        tfel::math::tmatrix<3, 3, real>& m,
        tfel::math::tvector<3, real>& v,
        real& Hr,
-@@ -322,9 +331,9 @@ namespace tfel::material {
+@@ -351,9 +360,9 @@ namespace tfel::material {
    }
  
    template <typename real>
@@ -604,7 +541,7 @@ index 5ba80ae55..99bbe1518 100644
      const real Y = m(0, 0) * m(1, 1) * m(2, 2) + m(0, 1) * m(1, 2) * m(2, 0) +
                     m(1, 0) * m(2, 1) * m(0, 2) - m(2, 0) * m(1, 1) * m(0, 2) -
 diff --git a/include/TFEL/Material/Drucker1949YieldCriterion.ixx b/include/TFEL/Material/Drucker1949YieldCriterion.ixx
-index 3f3246c4b..b5f529c5d 100644
+index ea67ad833..8e28f89bd 100644
 --- a/include/TFEL/Material/Drucker1949YieldCriterion.ixx
 +++ b/include/TFEL/Material/Drucker1949YieldCriterion.ixx
 @@ -19,7 +19,8 @@
@@ -615,9 +552,9 @@ index 3f3246c4b..b5f529c5d 100644
 +  TFEL_HOST_DEVICE Drucker1949StressType<StressStensor>
 +  computeDrucker1949StressCriterion(
        const StressStensor& sig, const Drucker1949BaseType<StressStensor> c) {
+     using stress = Drucker1949StressType<StressStensor>;
      using real = Drucker1949BaseType<StressStensor>;
-     constexpr const auto e = real(1) / 6;
-@@ -31,8 +32,8 @@ namespace tfel::material {
+@@ -40,8 +41,8 @@ namespace tfel::material {
    }  // end of computeDrucker1949StressCriterion
  
    template <typename StressStensor>
@@ -628,7 +565,7 @@ index 3f3246c4b..b5f529c5d 100644
    computeDrucker1949StressCriterionNormal(
        const StressStensor& sig,
        const Drucker1949BaseType<StressStensor> c,
-@@ -62,13 +63,14 @@ namespace tfel::material {
+@@ -76,13 +77,14 @@ namespace tfel::material {
    }  // end of computeDrucker1949StressCriterionNormal
  
    template <typename StressStensor>
@@ -651,18 +588,10 @@ index 3f3246c4b..b5f529c5d 100644
      using real = Drucker1949BaseType<StressStensor>;
      using istress = Drucker1949InvertStressType<StressStensor>;
 diff --git a/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx b/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx
-index 0893bd779..3233f8997 100644
+index bc1cc3f6d..4e104b7d3 100644
 --- a/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx
 +++ b/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx
-@@ -16,6 +16,7 @@
- 
- #include <cmath>
- #include <tuple>
-+#include <limits>
- #include <ostream>
- #include <algorithm>
- #include "TFEL/Math/power.hxx"
-@@ -37,7 +38,7 @@ namespace tfel::material {
+@@ -38,7 +38,7 @@ namespace tfel::material {
    }  // end of operator <<
  
    template <typename StressStensor>
@@ -671,9 +600,9 @@ index 0893bd779..3233f8997 100644
    computeGursonTvergaardNeedleman1982Stress(
        const StressStensor& sig,
        const GursonTvergaardNeedleman1982PorosityType<StressStensor> f,
-@@ -121,13 +122,20 @@ namespace tfel::material {
-     };
-     const auto r = tfel::math::scalarNewtonRaphson(SdS, c, x0, size_type{100});
+@@ -145,13 +145,20 @@ namespace tfel::material {
+     const auto r = tfel::math::scalarNewtonRaphson(SdS, c, base_type_cast(x0),
+                                                    size_type{100});
      if (!std::get<0>(r)) {
 +#ifdef TFEL_DEVICE_CODE
 +      // exceptions are not supported in device code: the invalid value
@@ -684,7 +613,7 @@ index 0893bd779..3233f8997 100644
        throw(DivergenceException());
 +#endif /* TFEL_DEVICE_CODE */
      }
-     return 1 / std::get<1>(r);
+     return stress(1 / std::get<1>(r));
    }  // end of computeGursonTvergaardNeedleman1982Stress
  
    template <typename StressStensor>
@@ -693,7 +622,16 @@ index 0893bd779..3233f8997 100644
        GursonTvergaardNeedleman1982StressType<StressStensor>,
        GursonTvergaardNeedleman1982StressNormalType<StressStensor>,
        GursonTvergaardNeedleman1982StressDerivativeWithRespectToPorosityType<
-@@ -178,7 +186,7 @@ namespace tfel::material {
+@@ -188,7 +195,7 @@ namespace tfel::material {
+     const real a = 3 * p.q_2 * pr * iss / 2;
+     const auto e = std::exp(
+         (tfel::math::ieee754::fpclassify(p.q_1 * fstar) == FP_ZERO)
+-            ? std::clamp(a, real(-40), real(40))
++            ? std::min(std::max(a, real(-40)), real(40))
+             : a);
+     const auto ch = (e + 1 / e) / 2;
+     const auto sh = (e - 1 / e) / 2;
+@@ -214,7 +221,7 @@ namespace tfel::material {
    }  // end of computeGursonTvergaardNeedleman1982StressNormal
  
    template <typename StressStensor>
@@ -702,11 +640,20 @@ index 0893bd779..3233f8997 100644
        GursonTvergaardNeedleman1982StressType<StressStensor>,
        GursonTvergaardNeedleman1982StressNormalType<StressStensor>,
        GursonTvergaardNeedleman1982StressDerivativeWithRespectToPorosityType<
+@@ -261,7 +268,7 @@ namespace tfel::material {
+     const real a = 3 * p.q_2 * pr * iss / 2;
+     const auto e = std::exp(
+         (tfel::math::ieee754::fpclassify(p.q_1 * fstar) == FP_ZERO)
+-            ? std::clamp(a, real(-40), real(40))
++            ? std::min(std::max(a, real(-40)), real(40))
+             : a);
+     const auto ch = (e + 1 / e) / 2;
+     const auto sh = (e - 1 / e) / 2;
 diff --git a/include/TFEL/Material/HarmonicSumOfNortonHoffViscoplasticFlows.ixx b/include/TFEL/Material/HarmonicSumOfNortonHoffViscoplasticFlows.ixx
-index 931684270..b8ddb5f3b 100644
+index 23fcccd06..0f75195a7 100644
 --- a/include/TFEL/Material/HarmonicSumOfNortonHoffViscoplasticFlows.ixx
 +++ b/include/TFEL/Material/HarmonicSumOfNortonHoffViscoplasticFlows.ixx
-@@ -19,7 +19,7 @@
+@@ -20,7 +20,7 @@
  namespace tfel::material {
  
    template <typename strainrate, typename stress, typename real>
@@ -715,7 +662,7 @@ index 931684270..b8ddb5f3b 100644
    computeEquivalentStrainRateOfHarmonicSumOfNortonHoffViscoplasticFlows(
        const strainrate A, const stress K, const real n, const stress seq) {
      if (!(seq > stress(0))) {
-@@ -30,7 +30,7 @@ namespace tfel::material {
+@@ -31,7 +31,7 @@ namespace tfel::material {
       // computeEquivalentStrainRateOfHarmonicSumOfNortonHoffViscoplasticFlows
  
    template <typename strainrate, typename stress, typename real>
@@ -724,7 +671,7 @@ index 931684270..b8ddb5f3b 100644
        strainrate,
        tfel::math::BinaryOperationResult<strainrate, stress, tfel::math::OpDiv>>
    computeEquivalentStrainRateAndDerivativeOfHarmonicSumOfNortonHoffViscoplasticFlows(
-@@ -51,7 +51,7 @@ namespace tfel::material {
+@@ -52,7 +52,7 @@ namespace tfel::material {
              typename strainrate,
              typename stress,
              typename real>
@@ -733,7 +680,7 @@ index 931684270..b8ddb5f3b 100644
    computeEquivalentStrainRateOfHarmonicSumOfNortonHoffViscoplasticFlows(
        const tfel::math::fsarray<N, strainrate>& A,
        const tfel::math::fsarray<N, stress>& K,
-@@ -72,7 +72,7 @@ namespace tfel::material {
+@@ -73,7 +73,7 @@ namespace tfel::material {
              typename strainrate,
              typename stress,
              typename real>
@@ -743,7 +690,7 @@ index 931684270..b8ddb5f3b 100644
        tfel::math::BinaryOperationResult<strainrate, stress, tfel::math::OpDiv>>
    computeEquivalentStrainRateAndDerivativeOfHarmonicSumOfNortonHoffViscoplasticFlows(
 diff --git a/include/TFEL/Material/LinearHomogenizationSchemes.ixx b/include/TFEL/Material/LinearHomogenizationSchemes.ixx
-index 8f89c65f8..7eb71f908 100644
+index 86ff7fb60..91e6ec7ec 100644
 --- a/include/TFEL/Material/LinearHomogenizationSchemes.ixx
 +++ b/include/TFEL/Material/LinearHomogenizationSchemes.ixx
 @@ -451,16 +451,16 @@ namespace tfel::material::homogenization::elasticity {
@@ -773,7 +720,7 @@ index 8f89c65f8..7eb71f908 100644
      using real = types::real<StressType>;
      using LengthType = types::length<StressType>;
      if ((f < 0) || (f > 1)) {
-@@ -506,18 +506,18 @@ namespace tfel::material::homogenization::elasticity {
+@@ -504,18 +504,18 @@ namespace tfel::material::homogenization::elasticity {
    }
  
    template <tfel::math::ScalarConcept StressType>
@@ -804,7 +751,7 @@ index 8f89c65f8..7eb71f908 100644
      using real = types::real<StressType>;
      if ((f < 0) || (f > 1)) {
        tfel::reportContractViolation("f<0 or f>1");
-@@ -533,16 +533,16 @@ namespace tfel::material::homogenization::elasticity {
+@@ -531,16 +531,16 @@ namespace tfel::material::homogenization::elasticity {
    }
  
    template <tfel::math::ScalarConcept StressType>
@@ -831,7 +778,7 @@ index 8f89c65f8..7eb71f908 100644
      const auto Enu0 = IM0.ToYoungNu();
      const auto Enui = IM_i.ToYoungNu();
      return computeIsotropicPCWScheme(Enu0.young, Enu0.nu, f, Enui.young,
-@@ -550,19 +550,20 @@ namespace tfel::material::homogenization::elasticity {
+@@ -548,19 +548,20 @@ namespace tfel::material::homogenization::elasticity {
    }
  
    template <tfel::math::ScalarConcept StressType>
@@ -865,7 +812,7 @@ index 8f89c65f8..7eb71f908 100644
      if ((f < 0) || (f > 1)) {
        tfel::reportContractViolation("f<0 or f>1");
      }
-@@ -575,17 +576,18 @@ namespace tfel::material::homogenization::elasticity {
+@@ -573,17 +574,18 @@ namespace tfel::material::homogenization::elasticity {
    }
  
    template <tfel::math::ScalarConcept StressType>
@@ -895,7 +842,7 @@ index 8f89c65f8..7eb71f908 100644
      const auto Enu0 = IM0.ToYoungNu();
      const auto Enui = IM_i.ToYoungNu();
      return computeTransverseIsotropicPCWScheme(
-@@ -593,20 +595,21 @@ namespace tfel::material::homogenization::elasticity {
+@@ -591,20 +593,21 @@ namespace tfel::material::homogenization::elasticity {
    }
  
    template <tfel::math::ScalarConcept StressType>
@@ -931,7 +878,7 @@ index 8f89c65f8..7eb71f908 100644
      if ((f < 0) || (f > 1)) {
        tfel::reportContractViolation("f<0 or f>1");
      }
-@@ -618,18 +621,19 @@ namespace tfel::material::homogenization::elasticity {
+@@ -616,18 +619,19 @@ namespace tfel::material::homogenization::elasticity {
    }
  
    template <tfel::math::ScalarConcept StressType>
@@ -1001,7 +948,7 @@ index c9432f17f..855a1710c 100644
        x -= f / df;
        fdfv = fdf(x);
 diff --git a/include/TFEL/Material/MichelAndSuquet1992HollowSphereStressCriterion.ixx b/include/TFEL/Material/MichelAndSuquet1992HollowSphereStressCriterion.ixx
-index a726a335a..ac4ca6aef 100644
+index 684992284..7a8d65c69 100644
 --- a/include/TFEL/Material/MichelAndSuquet1992HollowSphereStressCriterion.ixx
 +++ b/include/TFEL/Material/MichelAndSuquet1992HollowSphereStressCriterion.ixx
 @@ -32,7 +32,7 @@ namespace tfel::material {
@@ -1013,7 +960,7 @@ index a726a335a..ac4ca6aef 100644
    computeMichelAndSuquet1992HollowSphereStress(
        const StressStensor& sig,
        const MichelAndSuquet1992HollowSpherePorosityType<StressStensor> f,
-@@ -55,7 +55,7 @@ namespace tfel::material {
+@@ -56,7 +56,7 @@ namespace tfel::material {
    }  // end of computeMichelAndSuquet1992HollowSphereYieldStress
  
    template <typename StressStensor>
@@ -1022,7 +969,7 @@ index a726a335a..ac4ca6aef 100644
        MichelAndSuquet1992HollowSphereStressType<StressStensor>,
        MichelAndSuquet1992HollowSphereStressNormalType<StressStensor>,
        MichelAndSuquet1992HollowSphereStressDerivativeWithRespectToPorosityType<
-@@ -96,7 +96,7 @@ namespace tfel::material {
+@@ -98,7 +98,7 @@ namespace tfel::material {
    }  // end of computeMichelAndSuquet1992HollowSphereStressNormal
  
    template <typename StressStensor>
@@ -1032,10 +979,10 @@ index a726a335a..ac4ca6aef 100644
        MichelAndSuquet1992HollowSphereStressNormalType<StressStensor>,
        MichelAndSuquet1992HollowSphereStressDerivativeWithRespectToPorosityType<
 diff --git a/include/TFEL/Material/MohrCoulombYieldCriterion.ixx b/include/TFEL/Material/MohrCoulombYieldCriterion.ixx
-index 3e8502fff..8eb6fdb6a 100644
+index 9e4e5fa32..08e9c931e 100644
 --- a/include/TFEL/Material/MohrCoulombYieldCriterion.ixx
 +++ b/include/TFEL/Material/MohrCoulombYieldCriterion.ixx
-@@ -20,7 +20,7 @@
+@@ -21,7 +21,7 @@
  namespace tfel::material {
  
    template <typename StressStensor>
@@ -1044,7 +991,7 @@ index 3e8502fff..8eb6fdb6a 100644
        const stress c_c,
        const real angle_c,
        const real lodeT_c,
-@@ -42,33 +42,34 @@ namespace tfel::material {
+@@ -43,33 +43,34 @@ namespace tfel::material {
    }  // end of MohrCoulombParameters<StressStensor>::MohrCoulombParameters
  
    template <typename StressStensor>
@@ -1086,9 +1033,9 @@ index 3e8502fff..8eb6fdb6a 100644
 +                            const MohrCoulombBaseType<StressStensor> lodeT,
 +                            const MohrCoulombStressType<StressStensor> a) {
      using real = MohrCoulombBaseType<StressStensor>;
-     constexpr real pi = real(3.14159265358979323846);
+     constexpr real pi = std::numbers::pi_v<real>;
      if (u == MohrCoulombParameters<StressStensor>::DEGREE) {
-@@ -80,7 +81,8 @@ namespace tfel::material {
+@@ -81,7 +82,8 @@ namespace tfel::material {
    }  // end of makeMohrCoulombParameters
  
    template <typename StressStensor>
@@ -1097,8 +1044,8 @@ index 3e8502fff..8eb6fdb6a 100644
 +  computeMohrCoulombStressCriterion(
        const MohrCoulombParameters<StressStensor>& p, const StressStensor& sig) {
      using real = MohrCoulombBaseType<StressStensor>;
-     constexpr auto local_zero_tolerance = real(1e-14);
-@@ -131,8 +133,8 @@ namespace tfel::material {
+     using stress = MohrCoulombStressType<StressStensor>;
+@@ -138,8 +140,8 @@ namespace tfel::material {
    }  // end of computeMohrCoulombStressCriterion
  
    template <typename StressStensor>
@@ -1109,7 +1056,7 @@ index 3e8502fff..8eb6fdb6a 100644
    computeMohrCoulombStressCriterionNormal(
        const MohrCoulombParameters<StressStensor>& p, const StressStensor& sig) {
      constexpr auto N = tfel::math::getSpaceDimension<StressStensor>();
-@@ -202,11 +204,13 @@ namespace tfel::material {
+@@ -219,11 +221,13 @@ namespace tfel::material {
    }  // end of computeMohrCoulombStressCriterionNormal
  
    template <typename StressStensor>
@@ -1127,7 +1074,7 @@ index 3e8502fff..8eb6fdb6a 100644
 +          const StressStensor& sig) {
      constexpr auto N = tfel::math::getSpaceDimension<StressStensor>();
      using real = MohrCoulombBaseType<StressStensor>;
-     using Stensor = tfel::math::stensor<N, real>;
+     using stress = MohrCoulombStressType<StressStensor>;
 diff --git a/include/TFEL/Material/PiPlane.ixx b/include/TFEL/Material/PiPlane.ixx
 index abfb4f546..411409ecd 100644
 --- a/include/TFEL/Material/PiPlane.ixx
@@ -1173,7 +1120,7 @@ index abfb4f546..411409ecd 100644
      using real = tfel::typetraits::base_type<stress>;
      constexpr auto zero = stress{0};
 diff --git a/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx b/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx
-index b2ab38cdb..c047ba2d5 100644
+index a0280c5be..f8614ed62 100644
 --- a/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx
 +++ b/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx
 @@ -27,7 +27,8 @@ namespace tfel::material {
@@ -1215,7 +1162,7 @@ index b2ab38cdb..c047ba2d5 100644
        const PowerLawStrainBasedNucleationModelParameters<real>& params,
        const real p,
 diff --git a/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx b/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx
-index 4214ce2fd..66deb905d 100644
+index 469a089f9..6bff829fc 100644
 --- a/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx
 +++ b/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx
 @@ -26,7 +26,7 @@ namespace tfel::material {
@@ -1240,18 +1187,10 @@ index 4214ce2fd..66deb905d 100644
        const PowerLawStressBasedNucleationModelParameters<StressStensorType>&
            params,
 diff --git a/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx b/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx
-index 454d09a7e..d95ab79be 100644
+index 88210ce2b..23e1200da 100644
 --- a/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx
 +++ b/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx
-@@ -15,6 +15,7 @@
- #define LIB_TFEL_MATERIAL_ROUSSELIER_TANGUY_BESSON_2002_IXX
- 
- #include <cmath>
-+#include <limits>
- #include <ostream>
- #include <algorithm>
- #include "TFEL/Math/power.hxx"
-@@ -35,7 +36,7 @@ namespace tfel::material {
+@@ -36,7 +36,7 @@ namespace tfel::material {
    }  // end of operator <<
  
    template <typename StressStensor>
@@ -1260,9 +1199,9 @@ index 454d09a7e..d95ab79be 100644
    computeRousselierTanguyBesson2002Stress(
        const StressStensor& sig,
        const RousselierTanguyBesson2002PorosityType<StressStensor> f,
-@@ -119,13 +120,20 @@ namespace tfel::material {
-     const auto r =
-         tfel::math::scalarNewtonRaphson(SdS, criterion, x0, size_type{100});
+@@ -144,13 +144,20 @@ namespace tfel::material {
+     const auto r = tfel::math::scalarNewtonRaphson(
+         SdS, criterion, base_type_cast(x0), size_type{100});
      if (!std::get<0>(r)) {
 +#ifdef TFEL_DEVICE_CODE
 +      // exceptions are not supported in device code: the invalid value
@@ -1273,7 +1212,7 @@ index 454d09a7e..d95ab79be 100644
        throw(DivergenceException());
 +#endif /* TFEL_DEVICE_CODE */
      }
-     return 1 / std::get<1>(r);
+     return stress(1 / std::get<1>(r));
    }  // end of computeRousselierTanguyBesson2002YieldStress
  
    template <typename StressStensor>
@@ -1282,7 +1221,7 @@ index 454d09a7e..d95ab79be 100644
        RousselierTanguyBesson2002StressType<StressStensor>,
        RousselierTanguyBesson2002StressNormalType<StressStensor>,
        RousselierTanguyBesson2002StressDerivativeWithRespectToPorosityType<
-@@ -176,7 +184,7 @@ namespace tfel::material {
+@@ -205,7 +212,7 @@ namespace tfel::material {
    }  // end of computeRousselierTanguyBesson2002StressNormal
  
    template <typename StressStensor>
@@ -1344,7 +1283,7 @@ index 37466f1c1..7187f843b 100644
      using real = base_type<NumericType>;
      constexpr auto one = real{1};
 diff --git a/include/TFEL/Math/CubicSpline.hxx b/include/TFEL/Math/CubicSpline.hxx
-index 7a470a51d..06b0d043c 100644
+index db0b11ab6..1edd178fa 100644
 --- a/include/TFEL/Math/CubicSpline.hxx
 +++ b/include/TFEL/Math/CubicSpline.hxx
 @@ -133,7 +133,7 @@ namespace tfel::math {
@@ -1536,7 +1475,7 @@ index 99da957c1..8b2d6dcec 100644
      return *this;
    }  // end of BissectionAlgorithm<NumericType>::getData
 diff --git a/include/TFEL/Math/NonLinearSolvers/ScalarNewtonRaphson.ixx b/include/TFEL/Math/NonLinearSolvers/ScalarNewtonRaphson.ixx
-index 3052ae8a0..06c206365 100644
+index b0595f1e3..94451198b 100644
 --- a/include/TFEL/Math/NonLinearSolvers/ScalarNewtonRaphson.ixx
 +++ b/include/TFEL/Math/NonLinearSolvers/ScalarNewtonRaphson.ixx
 @@ -23,7 +23,7 @@ namespace tfel::math {
@@ -1558,7 +1497,7 @@ index 3052ae8a0..06c206365 100644
        const Criterion& c,
        const ScalarNewtonRaphsonParameters<NumericType, IndexType>& p) {
 diff --git a/include/TFEL/Math/NonLinearSolvers/TinyBroyden2Solver.ixx b/include/TFEL/Math/NonLinearSolvers/TinyBroyden2Solver.ixx
-index b604b7975..75ec0a4d8 100644
+index 43bbaf08f..20fd4de93 100644
 --- a/include/TFEL/Math/NonLinearSolvers/TinyBroyden2Solver.ixx
 +++ b/include/TFEL/Math/NonLinearSolvers/TinyBroyden2Solver.ixx
 @@ -21,9 +21,9 @@ namespace tfel::math {
@@ -1571,7 +1510,7 @@ index b604b7975..75ec0a4d8 100644
 +            template <unsigned short, typename> typename ExternalWorkSpace>
 +  TFEL_HOST_DEVICE void
 +  TinyBroyden2Solver<N, NumericType, Child, ExternalWorkSpace>::
-       updateOrCheckJacobian() {
+       updateJacobianInvert() {
      if (this->iter == 0) {
        return;
 @@ -42,9 +42,9 @@ namespace tfel::math {
@@ -1585,10 +1524,10 @@ index b604b7975..75ec0a4d8 100644
 +  TFEL_HOST_DEVICE bool
 +  TinyBroyden2Solver<N, NumericType, Child, ExternalWorkSpace>::
        computeNewCorrection() {
-     auto& child = static_cast<Child&>(*this);
-     child.updateOrCheckJacobian();
+     this->updateJacobianInvert();
+     if (!this->callUpdateOrCheckJacobian()) {
 diff --git a/include/TFEL/Math/NonLinearSolvers/TinyBroydenSolver.ixx b/include/TFEL/Math/NonLinearSolvers/TinyBroydenSolver.ixx
-index b99485028..1e94b31b9 100644
+index 6bf61bfd0..7b1e227ed 100644
 --- a/include/TFEL/Math/NonLinearSolvers/TinyBroydenSolver.ixx
 +++ b/include/TFEL/Math/NonLinearSolvers/TinyBroydenSolver.ixx
 @@ -21,9 +21,9 @@ namespace tfel::math {
@@ -1601,7 +1540,7 @@ index b99485028..1e94b31b9 100644
 +            template <unsigned short, typename> typename ExternalWorkSpace>
 +  TFEL_HOST_DEVICE void
 +  TinyBroydenSolver<N, NumericType, Child, ExternalWorkSpace>::
-       updateOrCheckJacobian() {
+       updateJacobian() {
      if (this->iter == 0) {
        return;
 @@ -40,9 +40,9 @@ namespace tfel::math {
@@ -1616,9 +1555,9 @@ index b99485028..1e94b31b9 100644
 +  TinyBroydenSolver<N, NumericType, Child, ExternalWorkSpace>::
        computeNewCorrection() {
      auto& child = static_cast<Child&>(*this);
-     child.updateOrCheckJacobian();
+     this->updateJacobian();
 diff --git a/include/TFEL/Math/NonLinearSolvers/TinyLevenbergMarquardtSolver.ixx b/include/TFEL/Math/NonLinearSolvers/TinyLevenbergMarquardtSolver.ixx
-index 2087e7959..b025752f2 100644
+index 7ba911aa4..3ca787888 100644
 --- a/include/TFEL/Math/NonLinearSolvers/TinyLevenbergMarquardtSolver.ixx
 +++ b/include/TFEL/Math/NonLinearSolvers/TinyLevenbergMarquardtSolver.ixx
 @@ -21,9 +21,9 @@ namespace tfel::math {
@@ -1648,21 +1587,21 @@ index 2087e7959..b025752f2 100644
      auto& child = static_cast<Child&>(*this);
      this->levmar_error = norm(this->fzeros);
 diff --git a/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.ixx b/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.ixx
-index 2bacc309c..e4e5a47ae 100644
+index 4b0d0f97c..a54fa4c57 100644
 --- a/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.ixx
 +++ b/include/TFEL/Math/NonLinearSolvers/TinyNonLinearSolverBase.ixx
-@@ -70,7 +70,9 @@ namespace tfel::math {
-       this->zeros += this->delta_zeros;
-       child.processNewEstimate();
-       ++(this->iter);
+@@ -61,7 +61,9 @@ namespace tfel::math {
+       if (converged) {
+         return true;
+       }
 -      if (this->iter == this->iterMax) {
 +      // the iteration counter may have been set to its maximum value to
 +      // abort the resolution, see solveNonLinearSystem
 +      if (this->iter >= this->iterMax) {
          break;
        }
-     }
-@@ -92,13 +94,17 @@ namespace tfel::math {
+       if (!child.computeNewCorrection()) {
+@@ -98,13 +100,17 @@ namespace tfel::math {
          N, NumericType, Child, ExternalWorkSpace>::iteration_number_type{};
      this->is_delta_zeros_defined = false;
      child.executeInitialisationTaskBeforeResolution();
@@ -1683,10 +1622,10 @@ index 2bacc309c..e4e5a47ae 100644
        }
        if (this->is_delta_zeros_defined) {
 diff --git a/include/TFEL/Math/NonLinearSolvers/TinyPowellDogLegBroydenSolver.ixx b/include/TFEL/Math/NonLinearSolvers/TinyPowellDogLegBroydenSolver.ixx
-index 0c506720e..07fdc6629 100644
+index 0040428ef..91c27aad1 100644
 --- a/include/TFEL/Math/NonLinearSolvers/TinyPowellDogLegBroydenSolver.ixx
 +++ b/include/TFEL/Math/NonLinearSolvers/TinyPowellDogLegBroydenSolver.ixx
-@@ -22,9 +22,9 @@ namespace tfel::math {
+@@ -23,9 +23,9 @@ namespace tfel::math {
    template <unsigned short N,
              typename NumericType,
              typename Child,
@@ -1696,10 +1635,10 @@ index 0c506720e..07fdc6629 100644
 +            template <unsigned short, typename> typename ExternalWorkSpace>
 +  TFEL_HOST_DEVICE void
 +  TinyPowellDogLegBroydenSolver<N, NumericType, Child, ExternalWorkSpace>::
-       updateOrCheckJacobian() {
+       updateJacobian() {
      if (this->iter == 0) {
        return;
-@@ -41,9 +41,9 @@ namespace tfel::math {
+@@ -42,9 +42,9 @@ namespace tfel::math {
    template <unsigned short N,
              typename NumericType,
              typename Child,
@@ -1711,9 +1650,9 @@ index 0c506720e..07fdc6629 100644
 +  TinyPowellDogLegBroydenSolver<N, NumericType, Child, ExternalWorkSpace>::
        computeNewCorrection() {
      auto& child = static_cast<Child&>(*this);
-     child.updateOrCheckJacobian();
+     this->updateJacobian();
 diff --git a/include/TFEL/Math/NonLinearSolvers/TinyPowellDogLegNewtonRaphsonSolver.ixx b/include/TFEL/Math/NonLinearSolvers/TinyPowellDogLegNewtonRaphsonSolver.ixx
-index 082e6b723..c217529e2 100644
+index 8b15c7d95..273cb9522 100644
 --- a/include/TFEL/Math/NonLinearSolvers/TinyPowellDogLegNewtonRaphsonSolver.ixx
 +++ b/include/TFEL/Math/NonLinearSolvers/TinyPowellDogLegNewtonRaphsonSolver.ixx
 @@ -22,9 +22,8 @@ namespace tfel::math {
@@ -1729,23 +1668,23 @@ index 082e6b723..c217529e2 100644
        NumericType,
        Child,
 diff --git a/include/TFEL/Math/ST2toST2/StensorSymmetricProductDerivative.hxx b/include/TFEL/Math/ST2toST2/StensorSymmetricProductDerivative.hxx
-index d81a07d42..16babd66e 100644
+index 2fe98f3d7..de097b14e 100644
 --- a/include/TFEL/Math/ST2toST2/StensorSymmetricProductDerivative.hxx
 +++ b/include/TFEL/Math/ST2toST2/StensorSymmetricProductDerivative.hxx
-@@ -14,6 +14,8 @@
+@@ -20,6 +20,8 @@
  #ifndef LIB_STENSORSYMMETRICPRODUCTDERIVATIVE_HXX
  #define LIB_STENSORSYMMETRICPRODUCTDERIVATIVE_HXX
  
 +#include "TFEL/Config/TFELConfig.hxx"
 +
- #ifndef LIB_TFEL_MATH_ST2TOST2_HXX
- #error "This file is not meant to be included directly"
- #endif
+ namespace tfel::math {
+ 
+   template <unsigned short N, typename T>
 diff --git a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx b/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
-index d84acab18..80f30759a 100644
+index 54963c8e0..34f3f906c 100644
 --- a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
-@@ -14,6 +14,8 @@
+@@ -20,6 +20,8 @@
  #ifndef LIB_TFEL_MATH_INTERNALS_SORTEIGENVALUES_HXX
  #define LIB_TFEL_MATH_INTERNALS_SORTEIGENVALUES_HXX
  
@@ -1755,10 +1694,10 @@ index d84acab18..80f30759a 100644
  
    /*!
 diff --git a/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
-index 544ed1fcf..cc05ee829 100644
+index a02caed62..34a6cff10 100644
 --- a/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
-@@ -14,6 +14,8 @@
+@@ -20,6 +20,8 @@
  #ifndef LIB_TFEL_MATH_INTERNALS_SORTEIGENVECTORS_HXX
  #define LIB_TFEL_MATH_INTERNALS_SORTEIGENVECTORS_HXX
  
@@ -1768,44 +1707,29 @@ index 544ed1fcf..cc05ee829 100644
  
    /*!
 diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenValuesDerivatives.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenValuesDerivatives.hxx
-index ae8749794..b47e8040f 100644
+index 6ca0b162d..f024db2d2 100644
 --- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenValuesDerivatives.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenValuesDerivatives.hxx
-@@ -14,6 +14,8 @@
+@@ -14,6 +14,7 @@
  #ifndef LIB_TFEL_MATH_INTERNALS_STENSORCOMPUTEEIGENVALUESDERIVATIVES_HXX
  #define LIB_TFEL_MATH_INTERNALS_STENSORCOMPUTEEIGENVALUESDERIVATIVES_HXX
  
 +#include "TFEL/Config/TFELConfig.hxx"
-+
+ #include "TFEL/Math/Stensor/StensorConcept.hxx"
+ 
  namespace tfel::math::internals {
- 
-   template <unsigned short N>
-diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx
-index f64461784..f6ebaf83e 100644
---- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx
-+++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx
-@@ -14,6 +14,8 @@
- #ifndef LIB_TFEL_MATH_INTERNALS_STENSORCOMPUTEEIGENVECTORSDERIVATIVES_HXX
- #define LIB_TFEL_MATH_INTERNALS_STENSORCOMPUTEEIGENVECTORSDERIVATIVES_HXX
- 
-+#include "TFEL/Config/TFELConfig.hxx"
-+
- namespace tfel::math::internals {
- 
-   template <unsigned short N>
 diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeIsotropicFunctionDerivative.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeIsotropicFunctionDerivative.hxx
-index 92b83fa51..8460a3773 100644
+index 305998497..79adfd262 100644
 --- a/include/TFEL/Math/Stensor/Internals/StensorComputeIsotropicFunctionDerivative.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/StensorComputeIsotropicFunctionDerivative.hxx
-@@ -14,6 +14,8 @@
+@@ -14,6 +14,7 @@
  #ifndef LIB_TFEL_MATH_STENSORCOMPUTEISOTROPICFUNCTIONDERIVATIVE_HXX
  #define LIB_TFEL_MATH_STENSORCOMPUTEISOTROPICFUNCTIONDERIVATIVE_HXX
  
 +#include "TFEL/Config/TFELConfig.hxx"
-+
- namespace tfel::math::internals {
+ #include "TFEL/Math/ST2toST2/ST2toST2Concept.hxx"
  
-   template <unsigned short N>
+ namespace tfel::math::internals {
 -- 
 2.43.0
 

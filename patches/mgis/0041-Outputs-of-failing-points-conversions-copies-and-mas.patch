@@ -1,4 +1,4 @@
-From 3d5a1483fb8583e24ea264eb9f1b8a0eef236eb9 Mon Sep 17 00:00:00 2001
+From 313f9fb98a91e74ac2661965bb03326dbf31fa9f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:21:31 +0200
 Subject: [PATCH] Outputs of failing points, conversions, copies and mass
@@ -21,20 +21,20 @@ Subject: [PATCH] Outputs of failing points, conversions, copies and mass
   as missing by MGIS. A mass density held by a material data manager on
   the host and not accessible by the behaviour is reported as such.
 ---
- .../MGIS/Behaviour/FiniteStrainSupport.hxx    |  21 ++++
+ .../MGIS/Behaviour/FiniteStrainSupport.hxx    |  21 +++
  include/MGIS/Behaviour/Integrate.hxx          |   8 +-
  include/MGIS/FieldOperations.hxx              |  11 +-
- src/FieldOperations.cxx                       |  33 ++++--
- src/FiniteStrainSupport.cxx                   | 111 +++++++++++++++---
- src/Integrate.cxx                             |  48 +++++++-
- tests/MaterialDataViewTest.cxx                |  34 ++++--
- 7 files changed, 222 insertions(+), 44 deletions(-)
+ src/FieldOperations.cxx                       |  33 ++++-
+ src/FiniteStrainSupport.cxx                   | 131 ++++++++++++++----
+ src/Integrate.cxx                             |  48 ++++++-
+ tests/MaterialDataViewTest.cxx                |  34 +++--
+ 7 files changed, 232 insertions(+), 54 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/FiniteStrainSupport.hxx b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
-index 069f189..b156a62 100644
+index 70a8a7d..9a9195a 100644
 --- a/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 +++ b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
-@@ -84,6 +84,27 @@ namespace mgis::behaviour {
+@@ -90,6 +90,27 @@ namespace mgis::behaviour {
        std::span<real>&,
        const MaterialDataManager&,
        const FiniteStrainTangentOperator);
@@ -63,10 +63,10 @@ index 069f189..b156a62 100644
     * \param[out] s: new stress
     * \param[in] d: behaviour data
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 51c987f..96bd8b5 100644
+index fc95a4e..366000d 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
-@@ -1050,7 +1050,13 @@ namespace mgis::behaviour {
+@@ -1055,7 +1055,13 @@ namespace mgis::behaviour {
     * \param[in] b: first index of the range
     * \param[in] e: last index of the range
     * \note the views of the tangent operator blocks and of the speed of sound
@@ -157,7 +157,7 @@ index d125eaf..8ffc966 100644
      }
      this->do_copy(d, s);
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index 7f5c6ba..fb98878 100644
+index 4f79d30..959d092 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -139,6 +139,66 @@ namespace mgis::behaviour {
@@ -227,26 +227,37 @@ index 7f5c6ba..fb98878 100644
    /*!
     * \brief compute the first Piola-Kirchhoff stress from the Cauchy stress
     * and the deformation gradient at the end of the time step
-@@ -219,28 +279,34 @@ namespace mgis::behaviour {
+@@ -219,6 +279,18 @@ namespace mgis::behaviour {
    void convertFiniteStrainStress(std::span<real>& s,
                                   const MaterialDataManager& m,
                                   const FiniteStrainStress t) {
--    checkHostAccess("convertFiniteStrainStress", m);
-     const auto ts = getTensorSize(m.b.hypothesis);
-     if (s.size() != m.n * ts) {
-       mgis::raise(
-           "convertFiniteStrainStress: "
-           "unsupported stress measure");
-     }
--    convertFiniteStrainStress(makeFieldView(s, m.layout, m.n, ts), m.b,
--                              getGradientsView(m.s1),
++    const auto ts = getTensorSize(m.b.hypothesis);
++    if (s.size() != m.n * ts) {
++      mgis::raise(
++          "convertFiniteStrainStress: "
++          "unsupported stress measure");
++    }
 +    convertFiniteStrainStress(makeFieldView(s, m.layout, m.n, ts), m, t);
 +  }  // end of convertFiniteStrainStress
 +
 +  void convertFiniteStrainStress(const FieldView<real>& s,
 +                                 const MaterialDataManager& m,
 +                                 const FiniteStrainStress t) {
-+    checkHostAccess("convertFiniteStrainStress", m);
+     checkHostAccess("convertFiniteStrainStress", m);
+     // check the stress measure (see Behaviour::options)
+     if ((m.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+@@ -228,27 +300,21 @@ namespace mgis::behaviour {
+           "the behaviour must be loaded with the Cauchy stress as "
+           "stress measure");
+     }
+-    const auto ts = getTensorSize(m.b.hypothesis);
+-    if (s.size() != m.n * ts) {
+-      mgis::raise(
+-          "convertFiniteStrainStress: "
+-          "unsupported stress measure");
+-    }
+-    convertFiniteStrainStress(makeFieldView(s, m.layout, m.n, ts), m.b,
+-                              getGradientsView(m.s1),
 +    checkConversionOutput("convertFiniteStrainStress", "converted stress", s,
 +                          m.n, getTensorSize(m.b.hypothesis));
 +    convertFiniteStrainStress(s, m.b, getGradientsView(m.s1),
@@ -272,34 +283,50 @@ index 7f5c6ba..fb98878 100644
    }  // end of convertFiniteStrainStress
  
    static void convertFiniteStrainStress_PK1_2D(std::span<real>& P,
-@@ -854,7 +920,6 @@ namespace mgis::behaviour {
+@@ -870,6 +936,19 @@ namespace mgis::behaviour {
    void convertFiniteStrainTangentOperator(std::span<mgis::real>& K,
                                            const MaterialDataManager& m,
                                            const FiniteStrainTangentOperator t) {
--    checkHostAccess("convertFiniteStrainTangentOperator", m);
-     const auto ts = getTensorSize(m.b.hypothesis);
-     if (K.size() != m.n * ts * ts) {
-       mgis::raise(
-@@ -862,7 +927,17 @@ namespace mgis::behaviour {
-           "unsupported tangent operator");
-     }
-     convertFiniteStrainTangentOperator(makeFieldView(K, m.layout, m.n, ts * ts),
--                                       m.b, getTangentOperatorBlocksView(m),
++    const auto ts = getTensorSize(m.b.hypothesis);
++    if (K.size() != m.n * ts * ts) {
++      mgis::raise(
++          "convertFiniteStrainTangentOperator: "
++          "unsupported tangent operator");
++    }
++    convertFiniteStrainTangentOperator(makeFieldView(K, m.layout, m.n, ts * ts),
 +                                       m, t);
 +  }  // end of convertFiniteStrainTangentOperator
 +
 +  void convertFiniteStrainTangentOperator(const FieldView<real>& K,
 +                                          const MaterialDataManager& m,
 +                                          const FiniteStrainTangentOperator t) {
-+    checkHostAccess("convertFiniteStrainTangentOperator", m);
-+    const auto ts = getTensorSize(m.b.hypothesis);
+     checkHostAccess("convertFiniteStrainTangentOperator", m);
+     // check the stress measure and tangent operator (see Behaviour::options)
+     if ((m.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+@@ -881,19 +960,15 @@ namespace mgis::behaviour {
+           "stress measure and DSIG_DF as tangent operator");
+     }
+     const auto ts = getTensorSize(m.b.hypothesis);
+-    if (K.size() != m.n * ts * ts) {
+-      mgis::raise(
+-          "convertFiniteStrainTangentOperator: "
+-          "unsupported tangent operator");
+-    }
 +    checkConversionOutput("convertFiniteStrainTangentOperator",
 +                          "converted tangent operator", K, m.n, ts * ts);
+     // check that the tangent operator blocks are allocated
+     if (m.K.size() != m.n * m.K_stride) {
+       mgis::raise(
+           "convertFiniteStrainTangentOperator: "
+           "the array of tangent operator blocks has not been allocated");
+     }
+-    convertFiniteStrainTangentOperator(makeFieldView(K, m.layout, m.n, ts * ts),
+-                                       m.b, getTangentOperatorBlocksView(m),
 +    convertFiniteStrainTangentOperator(K, m.b, getTangentOperatorBlocksView(m),
                                         getGradientsView(m.s1),
                                         getThermodynamicForcesView(m.s1), t);
    }  // end of convertFiniteStrainTangentOperator
-@@ -870,12 +945,12 @@ namespace mgis::behaviour {
+@@ -901,12 +976,12 @@ namespace mgis::behaviour {
    void convertFiniteStrainTangentOperator(const FieldView<real>& K,
                                            const MaterialDataView& v,
                                            const FiniteStrainTangentOperator t) {
@@ -319,10 +346,10 @@ index 7f5c6ba..fb98878 100644
    }  // end of convertFiniteStrainTangentOperator
  
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index d53604a..74f66b6 100644
+index 776466f..5db7526 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
-@@ -329,14 +329,18 @@ namespace mgis::behaviour::internals {
+@@ -336,14 +336,18 @@ namespace mgis::behaviour::internals {
      if (opts.compute_speed_of_sound) {
        checkFieldView(f, {.what = "the speed of sound"}, v.speed_of_sound, v.n,
                       1, true);
@@ -344,7 +371,7 @@ index d53604a..74f66b6 100644
          checkFieldView(f,
                         {.what = "the mass density at the end of the time "
                                  "step"},
-@@ -1050,7 +1054,9 @@ namespace mgis::behaviour::internals {
+@@ -1057,7 +1061,9 @@ namespace mgis::behaviour::internals {
                            : integrate_debug(d, *(v.b), *analyser);
        if constexpr (gather) {
          data.scatterState(i);
@@ -355,7 +382,7 @@ index d53604a..74f66b6 100644
            data.scatterTangentOperator(i);
          }
        }
-@@ -1263,7 +1269,11 @@ namespace mgis::behaviour::internals {
+@@ -1270,7 +1276,11 @@ namespace mgis::behaviour::internals {
        d.dt = mgis::real{};
        const auto ri = (p.f)(outputs.output<gather>(i), &d);
        if constexpr (gather) {
@@ -368,7 +395,7 @@ index d53604a..74f66b6 100644
        }
        if (ri != 0) {
          r.exit_status = -1;
-@@ -2083,6 +2093,31 @@ namespace mgis::behaviour {
+@@ -2090,6 +2100,31 @@ namespace mgis::behaviour {
      return integrate(m, opts, dt, 0, m.n);
    }  // end of integrate
  
@@ -400,7 +427,7 @@ index d53604a..74f66b6 100644
    /*!
     * \brief integrate a behaviour generated by the `generic-parallel`
     * interface on a batch of points of a material data manager,
-@@ -2095,6 +2130,9 @@ namespace mgis::behaviour {
+@@ -2102,6 +2137,9 @@ namespace mgis::behaviour {
                                 const real dt,
                                 const size_type b,
                                 const size_type e) {

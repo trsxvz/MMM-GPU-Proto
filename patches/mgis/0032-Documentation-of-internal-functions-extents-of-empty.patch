@@ -1,4 +1,4 @@
-From 3e29f32210a02a7cb698f0ce695a61c69a8fca8e Mon Sep 17 00:00:00 2001
+From 6829826dacad88e2063fb60b7810a47e97706552 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:52:29 +0200
 Subject: [PATCH] Documentation of internal functions, extents of empty
@@ -14,7 +14,7 @@ Subject: [PATCH] Documentation of internal functions, extents of empty
  2 files changed, 46 insertions(+), 7 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
-index cdcf536..12f600d 100644
+index a2aab9c..9da7474 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 @@ -162,6 +162,23 @@ namespace mgis::behaviour {

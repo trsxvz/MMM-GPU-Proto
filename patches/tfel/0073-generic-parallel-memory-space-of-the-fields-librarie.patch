@@ -1,4 +1,4 @@
-From 9ec5451544df0c926ae6e8b5eedca812d655bcd3 Mon Sep 17 00:00:00 2001
+From 493bcd28e42cd50956810a6fc60f51881d7cb70c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 13:28:40 +0200
 Subject: [PATCH] generic-parallel: memory space of the fields, libraries kept
@@ -116,10 +116,10 @@ index 207287c81..4dadf2e05 100644
    of the material property, if modification of parameters is allowed
    (see the DSL options `parameters_as_static_variables` options).
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index c9e842d6d..5616f22a5 100644
+index 407682757..d021582be 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -134,6 +134,7 @@ install_mfront_header(MFront BehaviourRotationFunctions.hxx)
+@@ -139,6 +139,7 @@ install_mfront_header(MFront BehaviourRotationFunctions.hxx)
  install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
  install_mfront_header(MFront/GenericParallel DeviceStackSize.hxx)
  install_mfront_header(MFront/GenericParallel StatusBlockPool.hxx)

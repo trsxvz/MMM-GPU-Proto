@@ -1,4 +1,4 @@
-From da56fda1675e68d1c75f523c15dd7ddc6de049f0 Mon Sep 17 00:00:00 2001
+From 6e045d967b2597fe5511404a76709ed867754839 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 03:28:42 +0200
 Subject: [PATCH] Rotation of all the tangent operator blocks of orthotropic
@@ -64,10 +64,10 @@ index 003401146..52f951e43 100644
    (`@CompareToNumericalJacobian`) prints its results on the standard
    output: it is only performed on the host.
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index f1b5aedbd..b98df790b 100644
+index c40d07783..9f422c997 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -251,13 +251,13 @@ install_mfront_header(MFront/GenericBehaviour State.hxx)
+@@ -256,13 +256,13 @@ install_mfront_header(MFront/GenericBehaviour State.hxx)
  install_mfront_header(MFront/GenericBehaviour BehaviourData.h)
  install_mfront_header(MFront/GenericBehaviour BehaviourData.hxx)
  install_mfront_header(MFront/GenericBehaviour Integrate.hxx)
@@ -154,7 +154,7 @@ index f72cbd2fa..12a6b0bdf 100644
  
  namespace mfront::gb {
 diff --git a/mfront/src/BehaviourRotationFunctions.cxx b/mfront/src/BehaviourRotationFunctions.cxx
-index 9bb777b4e..af764979f 100644
+index 60494aa01..6d7831714 100644
 --- a/mfront/src/BehaviourRotationFunctions.cxx
 +++ b/mfront/src/BehaviourRotationFunctions.cxx
 @@ -12,7 +12,7 @@
@@ -268,7 +268,7 @@ index 9bb777b4e..af764979f 100644
  
    /*!
     * \brief add the objects associated with a variable or an array of
-@@ -225,13 +243,7 @@ namespace mfront {
+@@ -235,13 +253,7 @@ namespace mfront {
          "the tangent operator blocks from the material frame to the global "
          "frame";
      for (const auto& [v1, v2] : bd.getTangentOperatorBlocks()) {
@@ -283,7 +283,7 @@ index 9bb777b4e..af764979f 100644
      }
      functions.push_back(std::move(blocks));
      return functions;
-@@ -239,7 +251,6 @@ namespace mfront {
+@@ -249,7 +261,6 @@ namespace mfront {
  
    void writePointRotation(std::ostream& os,
                            const BehaviourRotationFunction& f) {
@@ -291,7 +291,7 @@ index 9bb777b4e..af764979f 100644
      // the components of the rotation matrix `rv` are read as the components
      // of the matrix `r` stored by rows, so that `r` is the transpose of the
      // rotation matrix from the global frame to the material frame, which is
-@@ -256,7 +267,11 @@ namespace mfront {
+@@ -266,7 +277,11 @@ namespace mfront {
      os << "};\n";
      for (const auto& o : f.objects) {
        const auto offset = std::to_string(o.offset);
@@ -305,7 +305,7 @@ index 9bb777b4e..af764979f 100644
        } else {
          // the source is copied before the destination is written, so that
 diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
-index 6013314d8..a74619d51 100644
+index 0b2288ac3..968c8269f 100644
 --- a/mfront/src/GenericBehaviourInterface.cxx
 +++ b/mfront/src/GenericBehaviourInterface.cxx
 @@ -84,15 +84,7 @@ namespace mfront {

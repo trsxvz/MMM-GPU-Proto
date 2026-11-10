@@ -1,4 +1,4 @@
-From 2bb370a42d883d9a82815c7dc7a851a9de209561 Mon Sep 17 00:00:00 2001
+From 85aeb7b4ee158b099f9d90f3f42572336f79f54c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:07:59 +0200
 Subject: [PATCH] HDF5 files written point by point, whatever the layout
@@ -17,10 +17,10 @@ values of one point.
  2 files changed, 286 insertions(+), 38 deletions(-)
 
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 808e8e9..f83cdf5 100644
+index 66de95a..2553976 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
-@@ -925,41 +925,179 @@ namespace mgis::behaviour {
+@@ -1042,27 +1042,149 @@ namespace mgis::behaviour {
  
  #ifdef MGIS_HAVE_HDF5
  
@@ -144,7 +144,7 @@ index 808e8e9..f83cdf5 100644
        const MaterialStateManager::MutableFieldHolder& f,
 +      const MaterialStateManager& s,
 +      const size_type nc,
-       const MaterialStateManagerSavingOptions& opts) noexcept {
+       const MaterialStateManagerSavingOptions& opts) MGIS_NOEXCEPT {
      using namespace mgis::utilities::hdf5;
      if (std::holds_alternative<real>(f.value)) {
        return write(ctx, g, n, std::get<real>(f.value), opts.allow_overwrite);
@@ -165,16 +165,16 @@ index 808e8e9..f83cdf5 100644
 +   * \param[in] s: material state manager
 +   * \param[in] nc: number of components of the variable
 +   */
-   [[nodiscard]] static bool save(
-       Context& ctx,
-       H5::Group& g,
-       const std::string& n,
-       const MaterialStateManager::FieldHolder& f,
-+      const MaterialStateManager& s,
-+      const size_type nc,
-       const MaterialStateManagerSavingOptions& opts) noexcept {
+   [[nodiscard]] static bool save(Context& ctx,
+                                  H5::Group& g,
+                                  const std::string& n,
+                                  const MaterialStateManager::FieldHolder& f,
++                                 const MaterialStateManager& s,
++                                 const size_type nc,
+                                  const MaterialStateManagerSavingOptions& opts)
+       MGIS_NOEXCEPT {
      using namespace mgis::utilities::hdf5;
-     if (std::holds_alternative<std::monostate>(f)) {
+@@ -1070,13 +1192,29 @@ namespace mgis::behaviour {
        return ctx.registerErrorMessage("uninitialized field holder '" + n + "'");
      }
      if (std::holds_alternative<std::span<const real>>(f)) {
@@ -207,10 +207,10 @@ index 808e8e9..f83cdf5 100644
    bool save(Context& ctx,
              H5::Group& g,
              const MaterialStateManager& s,
-@@ -969,18 +1107,21 @@ namespace mgis::behaviour {
+@@ -1086,19 +1224,22 @@ namespace mgis::behaviour {
        return ctx.registerErrorMessage(getHostAccessErrorMessage("save"));
      }
-     if (opts.save_gradients) {
+     if ((opts.save_gradients) && (!s.b.gradients.empty())) {
 -      if (!write(ctx, g, "gradients", s.gradients, opts.allow_overwrite)) {
 +      if (!writePointByPoint(ctx, g, "gradients", s.gradients, s.n,
 +                             s.gradients_stride, s.layout,
@@ -218,7 +218,8 @@ index 808e8e9..f83cdf5 100644
          return false;
        }
      }
-     if (opts.save_thermodynamic_forces) {
+     if ((opts.save_thermodynamic_forces) &&
+         (!s.b.thermodynamic_forces.empty())) {
 -      if (!write(ctx, g, "thermodynamic_forces", s.thermodynamic_forces,
 -                 opts.allow_overwrite)) {
 +      if (!writePointByPoint(
@@ -227,13 +228,13 @@ index 808e8e9..f83cdf5 100644
          return false;
        }
      }
-     if (s.mass_density.has_value()) {
+     if ((opts.save_mass_densities) && (s.mass_density.has_value())) {
 -      if (!save(ctx, g, "mass_density", *(s.mass_density), opts)) {
 +      if (!save(ctx, g, "mass_density", *(s.mass_density), s, 1, opts)) {
          return false;
        }
      }
-@@ -991,15 +1132,17 @@ namespace mgis::behaviour {
+@@ -1109,15 +1250,17 @@ namespace mgis::behaviour {
          return false;
        }
        for (const auto& [n, mp] : s.material_properties) {
@@ -254,7 +255,7 @@ index 808e8e9..f83cdf5 100644
          return false;
        }
      }
-@@ -1022,7 +1165,8 @@ namespace mgis::behaviour {
+@@ -1140,7 +1283,8 @@ namespace mgis::behaviour {
          return false;
        }
        for (const auto& [n, esv] : s.external_state_variables) {
@@ -264,7 +265,7 @@ index 808e8e9..f83cdf5 100644
            return false;
          }
        }
-@@ -1136,13 +1280,20 @@ namespace mgis::behaviour {
+@@ -1258,13 +1402,20 @@ namespace mgis::behaviour {
      return false;
    }  // end of restoreScalarMutableFieldHolder
  
@@ -280,13 +281,13 @@ index 808e8e9..f83cdf5 100644
        const H5::Group& g,
        const std::string& n,
        const size_type ng,
--      const size_type vsize) noexcept {
+-      const size_type vsize) MGIS_NOEXCEPT {
 +      const size_type vsize,
-+      const FieldLayout l) noexcept {
++      const FieldLayout l) MGIS_NOEXCEPT {
      using namespace mgis::utilities::hdf5;
      if (vsize == 1) {
        return restoreScalarMutableFieldHolder(ctx, f, g, n, ng);
-@@ -1176,11 +1327,14 @@ namespace mgis::behaviour {
+@@ -1298,11 +1449,14 @@ namespace mgis::behaviour {
                  std::to_string(ng * vsize) + "', got '" +
                  std::to_string(dims[0]) + "')");
            }
@@ -303,7 +304,7 @@ index 808e8e9..f83cdf5 100644
            }
            return true;
          }
-@@ -1195,21 +1349,26 @@ namespace mgis::behaviour {
+@@ -1317,21 +1471,26 @@ namespace mgis::behaviour {
              std::to_string(ng * vsize) + "', got '" + std::to_string(dims[0]) +
              "')");
        }
@@ -342,17 +343,18 @@ index 808e8e9..f83cdf5 100644
        return true;
      } catch (...) {
        std::ignore = registerH5ExceptionInErrorBacktrace(ctx);
-@@ -1227,12 +1386,15 @@ namespace mgis::behaviour {
+@@ -1349,13 +1508,16 @@ namespace mgis::behaviour {
        return ctx.registerErrorMessage(getHostAccessErrorMessage("restore"));
      }
-     if (opts.restore_gradients) {
+     if ((opts.restore_gradients) && (!s.b.gradients.empty())) {
 -      if (!read(ctx, s.gradients, g, "gradients")) {
 +      if (!readPointByPoint(ctx, s.gradients, g, "gradients", s.n,
 +                            s.gradients_stride, s.layout)) {
          return ctx.registerErrorMessage("restoring gradients failed");
        }
      }
-     if (opts.restore_thermodynamic_forces) {
+     if ((opts.restore_thermodynamic_forces) &&
+         (!s.b.thermodynamic_forces.empty())) {
 -      if (!read(ctx, s.thermodynamic_forces, g, "thermodynamic_forces")) {
 +      if (!readPointByPoint(ctx, s.thermodynamic_forces, g,
 +                            "thermodynamic_forces", s.n,
@@ -360,10 +362,10 @@ index 808e8e9..f83cdf5 100644
          return ctx.registerErrorMessage(
              "restoring thermodynamic forces failed");
        }
-@@ -1247,8 +1409,9 @@ namespace mgis::behaviour {
-       }
+@@ -1371,8 +1533,9 @@ namespace mgis::behaviour {
+       s.mass_density = std::move(mass_density);
      }
-     if (opts.restore_internal_state_variables) {
+     if ((opts.restore_internal_state_variables) && (!s.b.isvs.empty())) {
 -      if (!read(ctx, s.internal_state_variables, g,
 -                "internal_state_variables")) {
 +      if (!readPointByPoint(ctx, s.internal_state_variables, g,
@@ -372,7 +374,7 @@ index 808e8e9..f83cdf5 100644
          return ctx.registerErrorMessage(
              "restoring internal state variables failed");
        }
-@@ -1289,8 +1452,8 @@ namespace mgis::behaviour {
+@@ -1412,8 +1575,8 @@ namespace mgis::behaviour {
          }
          if (std::holds_alternative<MutableFieldHolder>(f)) {
            auto& mfh = std::get<MutableFieldHolder>(f);
@@ -383,7 +385,7 @@ index 808e8e9..f83cdf5 100644
              return ctx.registerErrorMessage("restoring material property '" +
                                              mp.name + "' failed");
            }
-@@ -1330,7 +1493,7 @@ namespace mgis::behaviour {
+@@ -1452,7 +1615,7 @@ namespace mgis::behaviour {
          if (std::holds_alternative<MutableFieldHolder>(f)) {
            auto& mfh = std::get<MutableFieldHolder>(f);
            if (!restoreMutableFieldHolder(ctx, mfh, *ogesv, esv.name, s.n,

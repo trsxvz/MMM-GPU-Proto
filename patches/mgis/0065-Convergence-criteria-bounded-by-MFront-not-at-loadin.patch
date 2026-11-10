@@ -1,4 +1,4 @@
-From 6692072f0b1689342864c91f2153b19b27040ba1 Mon Sep 17 00:00:00 2001
+From 28eadedeb062aa313d8a90a18cc7500b1a3cb038 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:40:29 +0200
 Subject: [PATCH] Convergence criteria bounded by MFront, not at loading
@@ -15,7 +15,7 @@ mfront changes.
  1 file changed, 40 deletions(-)
 
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 3dc713d..6a5e153 100644
+index 52e254c..ffc48d8 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -22,11 +22,8 @@

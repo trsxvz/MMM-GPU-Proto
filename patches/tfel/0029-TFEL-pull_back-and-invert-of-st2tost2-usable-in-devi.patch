@@ -1,4 +1,4 @@
-From ef7e80b4f15cd3210c98d0b68ccfd6cfe15c4bc7 Mon Sep 17 00:00:00 2001
+From f8503f15e00bb654a3c92969ca673a6870b2ac7e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 05:53:21 +0200
 Subject: [PATCH] TFEL: pull_back and invert of st2tost2 usable in device code
@@ -18,7 +18,7 @@ singular; in device code, the result is filled with NaN values.
  2 files changed, 14 insertions(+), 10 deletions(-)
 
 diff --git a/include/TFEL/Math/ST2toST2/st2tost2.ixx b/include/TFEL/Math/ST2toST2/st2tost2.ixx
-index 0702176bc..7da2e1157 100644
+index 6a56d4cf4..b8ea95ddb 100644
 --- a/include/TFEL/Math/ST2toST2/st2tost2.ixx
 +++ b/include/TFEL/Math/ST2toST2/st2tost2.ixx
 @@ -281,7 +281,7 @@ namespace tfel::math {

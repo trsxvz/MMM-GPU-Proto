@@ -66,8 +66,8 @@ jobs:
           fi
           echo "patches/$directory: applied on $base"
         }
-        check tfel https://github.com/thelfer/tfel.git 9b810aa15
-        check mgis https://github.com/thelfer/MFrontGenericInterfaceSupport.git a30dbf5
+        check tfel https://github.com/thelfer/tfel.git 60a42dd12
+        check mgis https://github.com/thelfer/MFrontGenericInterfaceSupport.git b1afeb3
         check mfem-mgis https://github.com/thelfer/mfem-mgis.git c951043fb7
         check mfem-mgis-examples https://github.com/latug0/mfem-mgis-examples.git f256bd8
         check mm-opera-hpc https://github.com/rprat-pro/mm-opera-hpc.git f3fc124
@@ -188,7 +188,7 @@ jobs:
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib
         git clone --quiet --filter=blob:none \
           https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
-        git -C mgis checkout --quiet a30dbf5
+        git -C mgis checkout --quiet b1afeb3
         git -C mgis -c user.name=ci -c user.email=ci@localhost \
           am --quiet --keep-cr $PWD/patches/mgis/*.patch
         cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
@@ -385,7 +385,7 @@ jobs:
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib
         git clone --quiet --filter=blob:none \
           https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
-        git -C mgis checkout --quiet a30dbf5
+        git -C mgis checkout --quiet b1afeb3
         git -C mgis -c user.name=ci -c user.email=ci@localhost \
           am --quiet --keep-cr $PWD/patches/mgis/*.patch
         cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
@@ -596,7 +596,7 @@ jobs:
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib
         git clone --quiet --filter=blob:none \
           https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
-        git -C mgis checkout --quiet a30dbf5
+        git -C mgis checkout --quiet b1afeb3
         git -C mgis -c user.name=ci -c user.email=ci@localhost \
           am --quiet --keep-cr $PWD/patches/mgis/*.patch
         cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \

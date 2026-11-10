@@ -1,0 +1,111 @@
+From bfc0be1ade8d496057f1bc3ad6149283e200c71a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 19:26:37 +0100
+Subject: [PATCH] arcane backend: floating point exceptions masked during a
+ SYCL launch
+
+Arcane unmasks the floating point exceptions at its initialization. With
+AdaptiveCpp on an NVIDIA GPU, the kernel of a behaviour is compiled at its
+first launch by the PTX compiler of the driver, which expects them masked:
+the compilation stopped on a SIGFPE in ArcaneFEM. The exceptions are now
+masked while the commands are launched on a SYCL queue, and restored
+afterwards. The other queues are not affected.
+---
+ .../generic-parallel-behaviour-interface.md   |  6 ++-
+ .../GenericParallel/ArcaneUtilities.hxx       | 42 ++++++++++++++++++-
+ 2 files changed, 46 insertions(+), 2 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 3e7e043a3..6a09d50f0 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -1051,7 +1051,11 @@ substitutions, see the [`TFEL/Config` page](tfel-config.html)):
+   AdaptiveCpp or the compiler of oneAPI, with `-fsycl`), the compiler
+   linking the `SYCL` runtime. Arccore runs the `SYCL` queues on a GPU. The
+   atomic operations are those of `SYCL`, and the stack size of the threads
+-  is not modified, as with the `sycl` backend.
++  is not modified, as with the `sycl` backend. The floating point
++  exceptions are masked while the commands are launched on a `SYCL` queue.
++  The `SYCL` runtime may then compile the kernel with the compiler of the
++  driver (the PTX compiler of NVIDIA with AdaptiveCpp), which expects them
++  masked, while Arcane unmasks them at its initialization.
+ 
+ With `CUDA` and `HIP`, the code is compiled for the GPU architectures given
+ by the `TFEL_ARCANE_GPU_ARCHITECTURES` variable of `CMake` (`native` by
+diff --git a/mfront/include/MFront/GenericParallel/ArcaneUtilities.hxx b/mfront/include/MFront/GenericParallel/ArcaneUtilities.hxx
+index 08e6e8898..bbf24b693 100644
+--- a/mfront/include/MFront/GenericParallel/ArcaneUtilities.hxx
++++ b/mfront/include/MFront/GenericParallel/ArcaneUtilities.hxx
+@@ -32,6 +32,7 @@
+ #endif
+ #if defined(ARCCORE_COMPILING_SYCL)
+ #include <sycl/sycl.hpp>
++#include <arccore/base/PlatformUtils.h>
+ #endif
+ 
+ namespace mfront::generic_parallel::arcane {
+@@ -72,6 +73,40 @@ namespace mfront::generic_parallel::arcane {
+            "in the same accelerator mode)";
+   }  // end of checkQueue
+ 
++#if defined(ARCCORE_COMPILING_SYCL)
++  /*!
++   * \brief masks the floating point exceptions during the launch of
++   * commands on a SYCL queue, and restores them. The SYCL runtime may
++   * compile a kernel at its launch, with the compiler of the driver (the
++   * PTX compiler of NVIDIA with AdaptiveCpp), which expects them masked.
++   * Arcane unmasks them at its initialization.
++   */
++  struct SYCLLaunchFloatingPointExceptions {
++    explicit SYCLLaunchFloatingPointExceptions(
++        const ::Arcane::Accelerator::RunQueue& q)
++        : masked(q.executionPolicy() ==
++                     ::Arcane::Accelerator::eExecutionPolicy::SYCL &&
++                 ::Arcane::Platform::isFloatingExceptionEnabled()) {
++      if (this->masked) {
++        ::Arcane::Platform::enableFloatingException(false);
++      }
++    }
++    SYCLLaunchFloatingPointExceptions(
++        const SYCLLaunchFloatingPointExceptions&) = delete;
++    SYCLLaunchFloatingPointExceptions& operator=(
++        const SYCLLaunchFloatingPointExceptions&) = delete;
++    ~SYCLLaunchFloatingPointExceptions() {
++      if (this->masked) {
++        ::Arcane::Platform::enableFloatingException(true);
++      }
++    }
++
++   private:
++    //! \brief if true, the exceptions were unmasked and are masked
++    const bool masked;
++  };
++#endif
++
+   /*!
+    * \brief launch the commands applying a function at the points `[0, n[`
+    * on a queue.
+@@ -85,7 +120,9 @@ namespace mfront::generic_parallel::arcane {
+    * (`barrier`) if needed. With the `Thread` and `Sequential` queues, the
+    * commands are completed on return. If the launch of a command fails, the
+    * commands already launched are completed before the exception is
+-   * propagated, so that the memory they access may be released.
++   * propagated, so that the memory they access may be released. With a
++   * SYCL queue, the floating point exceptions are masked during the launch
++   * (see `SYCLLaunchFloatingPointExceptions`).
+    *
+    * \tparam Index: type of the indices taken by the function
+    * \param[in] q: queue
+@@ -101,6 +138,9 @@ namespace mfront::generic_parallel::arcane {
+     constexpr auto chunk = Int64{1} << 30;
+     const auto size = static_cast<Int64>(n);
+     ::Arcane::Accelerator::RunQueue::ScopedAsync asynchronous_launch(&q);
++#if defined(ARCCORE_COMPILING_SYCL)
++    const auto floating_point_exceptions = SYCLLaunchFloatingPointExceptions(q);
++#endif
+     try {
+       for (auto offset = Int64{}; offset < size; offset += chunk) {
+         const auto m = static_cast<Int32>(std::min(chunk, size - offset));
+-- 
+2.43.0
+

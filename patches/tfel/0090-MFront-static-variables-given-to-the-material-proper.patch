@@ -1,4 +1,4 @@
-From 60d21aff6fe2c2a129c11ec96fde666313ac1824 Mon Sep 17 00:00:00 2001
+From d1bea997b4d7a2cd33fab65a217e86e740062984 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:43:32 +0200
 Subject: [PATCH] MFront: static variables given to the material properties in
@@ -22,10 +22,10 @@ variable itself in host code, a copy in device code.
  7 files changed, 24 insertions(+), 13 deletions(-)
 
 diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
-index 0a499faad..fe885d9a4 100644
+index 3f064e4f3..b0f4792dc 100644
 --- a/mfront/src/BehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
-@@ -2880,8 +2880,9 @@ namespace mfront {
+@@ -3037,8 +3037,9 @@ namespace mfront {
                {i.name, "tfel::math::base_type_cast(this->" + i.name + ")"});
          } else if (c == BehaviourDescription::MaterialPropertyInput::
                              STATICVARIABLE) {
@@ -38,10 +38,10 @@ index 0a499faad..fe885d9a4 100644
            throw_if(true,
                     "thermal expansion coefficients must depend "
 diff --git a/mfront/src/BrickUtilities.cxx b/mfront/src/BrickUtilities.cxx
-index 5bf1be5d5..ace1c27d0 100644
+index 60f5248b2..110331412 100644
 --- a/mfront/src/BrickUtilities.cxx
 +++ b/mfront/src/BrickUtilities.cxx
-@@ -37,7 +37,8 @@ namespace mfront::bbrick {
+@@ -40,7 +40,8 @@ namespace mfront::bbrick {
                   (i.category == MaterialPropertyInput::PARAMETER)) {
          return "this->" + i.name;
        } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
@@ -52,10 +52,10 @@ index 5bf1be5d5..ace1c27d0 100644
          tfel::raise("unsupported input type for variable '" + i.name + "'");
        }
 diff --git a/mfront/src/DDIF2StressPotential.cxx b/mfront/src/DDIF2StressPotential.cxx
-index a1a494efa..f2544f4cc 100644
+index 2af81e731..34679bba5 100644
 --- a/mfront/src/DDIF2StressPotential.cxx
 +++ b/mfront/src/DDIF2StressPotential.cxx
-@@ -334,7 +334,7 @@ namespace mfront::bbrick {
+@@ -338,7 +338,7 @@ namespace mfront::bbrick {
        }
        throw_if(i.category != MaterialPropertyInput::STATICVARIABLE,
                 "unsupported input type for variable '" + i.name + "'");
@@ -79,7 +79,7 @@ index 15df96fed..8594e0bf3 100644
          tfel::raise(
              "DefaultCodeGeneratorBase::"
 diff --git a/mfront/src/ImplicitCodeGeneratorBase.cxx b/mfront/src/ImplicitCodeGeneratorBase.cxx
-index 121240b74..e7b2ab015 100644
+index b0dfd2394..bf0a964d8 100644
 --- a/mfront/src/ImplicitCodeGeneratorBase.cxx
 +++ b/mfront/src/ImplicitCodeGeneratorBase.cxx
 @@ -169,7 +169,8 @@ namespace mfront {
@@ -102,7 +102,7 @@ index 121240b74..e7b2ab015 100644
        } else {
          this->throwRuntimeError(
              "ImplicitCodeGeneratorBase::"
-@@ -318,7 +320,8 @@ namespace mfront {
+@@ -327,7 +329,8 @@ namespace mfront {
                   (i.category == MaterialPropertyInput::PARAMETER)) {
          return "this->" + i.name;
        } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
@@ -112,7 +112,7 @@ index 121240b74..e7b2ab015 100644
        } else {
          this->throwRuntimeError(
              "ImplicitCodeGeneratorBase::"
-@@ -337,7 +340,8 @@ namespace mfront {
+@@ -352,7 +355,8 @@ namespace mfront {
                   (i.category == MaterialPropertyInput::PARAMETER)) {
          return "this->" + i.name;
        } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
@@ -157,10 +157,10 @@ index adf8f6e38..bc385e9a6 100644
              this->throwRuntimeError(
                  "IsotropicMisesCreepCodeGenerator::writeBehaviourIntegrator",
 diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-index e0d0ecb3d..d8a5f8ca4 100644
+index f1319388f..a4c189204 100644
 --- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
 +++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-@@ -295,7 +295,8 @@ namespace mfront {
+@@ -324,7 +324,8 @@ namespace mfront {
              (i.category == MaterialPropertyInput::PARAMETER)) {
            return "this->" + i.name;
          } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {

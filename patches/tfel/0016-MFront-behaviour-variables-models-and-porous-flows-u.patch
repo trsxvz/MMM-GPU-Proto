@@ -1,4 +1,4 @@
-From b7af5f8e586a3328f774a6b71d44c041a289b311 Mon Sep 17 00:00:00 2001
+From eac841296f1b690cb8c833a945873199bd147dd7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
 Subject: [PATCH] MFront: behaviour variables, models and porous flows usable
@@ -19,12 +19,12 @@ Subject: [PATCH] MFront: behaviour variables, models and porous flows usable
   variables, and static variables of models using quantities
 ---
  .../MFront/BehaviourCodeGeneratorBase.hxx     |   9 +
- .../include/MFront/GenericModelInterface.hxx  |  43 ++
- mfront/src/BehaviourCodeGeneratorBase.cxx     | 167 ++++---
+ .../include/MFront/GenericModelInterface.hxx  |  50 ++
+ mfront/src/BehaviourCodeGeneratorBase.cxx     | 169 ++++---
  mfront/src/DataIsotropicHardeningRule.cxx     |  10 +-
- mfront/src/GenericModelInterface.cxx          | 452 ++++++++++--------
+ mfront/src/GenericModelInterface.cxx          | 468 ++++++++++--------
  .../StandardElastoViscoPlasticityBrick.cxx    |  13 +-
- 6 files changed, 432 insertions(+), 262 deletions(-)
+ 6 files changed, 451 insertions(+), 268 deletions(-)
 
 diff --git a/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx b/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
 index c9f2468be..202855051 100644
@@ -47,10 +47,10 @@ index c9f2468be..202855051 100644
       * \brief write code which differs on the host and in device code (see
       * the `TFEL_DEVICE_CODE` macro). This is mostly meant to replace
 diff --git a/mfront/include/MFront/GenericModelInterface.hxx b/mfront/include/MFront/GenericModelInterface.hxx
-index 9eaafe946..b3830e0a4 100644
+index 9eaafe946..fd8f0136c 100644
 --- a/mfront/include/MFront/GenericModelInterface.hxx
 +++ b/mfront/include/MFront/GenericModelInterface.hxx
-@@ -18,6 +18,49 @@
+@@ -18,6 +18,56 @@
  
  namespace mfront {
  
@@ -67,6 +67,13 @@ index 9eaafe946..b3830e0a4 100644
 +    bool device = false;
 +    //! \brief type of the structure holding the values of the parameters
 +    std::string parameters_type = "";
++    /*!
++     * \brief name of the host function returning the out of bounds policy,
++     * which can be modified at runtime (see the `generic` interface). If
++     * empty, or if the class can be used in device code, the default out of
++     * bounds policy of the model is used.
++     */
++    std::string out_of_bounds_policy_function = "";
 +  };
 +
 +  /*!
@@ -101,10 +108,10 @@ index 9eaafe946..b3830e0a4 100644
     * \brief a generic interface for point-wise models implemented using the
     * `Model` domain specific language.
 diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
-index 4f6ba6fe3..c934abefe 100644
+index e21b4f8f2..658083dfb 100644
 --- a/mfront/src/BehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
-@@ -1330,7 +1330,7 @@ namespace mfront {
+@@ -1473,7 +1473,7 @@ namespace mfront {
      os << "/*!\n"
         << "* \\brief Default constructor\n"
         << "*/\n"
@@ -113,34 +120,37 @@ index 4f6ba6fe3..c934abefe 100644
         << "{}\n\n"
         << "/*!\n"
         << "* \\brief copy constructor\n"
-@@ -2432,25 +2432,44 @@ namespace mfront {
+@@ -2580,26 +2580,47 @@ namespace mfront {
    void BehaviourCodeGeneratorBase::writeBehaviourConstructors(
        std::ostream& os, const Hypothesis h) const {
      auto tmpnames = std::vector<std::string>{};
--    auto write_body = [this, &os, h](const std::string& parameters_source) {
++    // \param[in] out: output stream
 +    // \param[in] parameters_source: object giving the values of the
 +    // parameters (see writeBehaviourParameterInitialisation)
 +    // \param[in] device: if true, the parameters are initialised to their
 +    // default values in device code, where the parameters initializers can't
 +    // be used
-+    auto write_body = [this, &os, h](const std::string& parameters_source,
-+                                     const bool device = false) {
-       os << "using namespace std;\n"
-          << "using namespace tfel::math;\n"
-          << "using std::vector;\n";
-       writeMaterialLaws(os, this->bd.getMaterialLaws());
--      this->writeBehaviourParameterInitialisation(os, h, parameters_source);
+     auto write_body = [this, h](std::ostream& out,
+-                                const std::string& parameters_source) {
++                                const std::string& parameters_source,
++                                const bool device = false) {
+       out << "using namespace std;\n"
+           << "using namespace tfel::math;\n"
+           << "using std::vector;\n";
+       writeMaterialLaws(out, this->bd.getMaterialLaws());
+-      this->writeBehaviourParameterInitialisation(out, h, parameters_source);
 +      const auto& parameters = this->bd.getBehaviourData(h).getParameters();
 +      if ((device) && (parameters_source.empty()) &&
 +          (!areParametersTreatedAsStaticVariables(this->bd)) &&
 +          (!parameters.empty())) {
-+        os << "#ifdef TFEL_DEVICE_CODE\n";
-+        this->writeBehaviourParameterInitialisationToDefaultValues(os, h);
-+        os << "#else /* TFEL_DEVICE_CODE */\n";
-+        this->writeBehaviourParameterInitialisation(os, h, "");
-+        os << "#endif /* TFEL_DEVICE_CODE */\n";
++        out << "#ifdef TFEL_DEVICE_CODE\n";
++        this->writeBehaviourParameterInitialisationToDefaultValues(out, h);
++        out << "#else /* TFEL_DEVICE_CODE */\n";
++        this->writeBehaviourParameterInitialisation(out, h, "");
++        out << "#endif /* TFEL_DEVICE_CODE */\n";
 +      } else {
-+        this->writeBehaviourParameterInitialisation(os, h, parameters_source);
++        this->writeBehaviourParameterInitialisation(out, h,
++                                                    parameters_source);
 +      }
      };
      this->checkBehaviourFile(os);
@@ -157,12 +167,12 @@ index 4f6ba6fe3..c934abefe 100644
          os << "\n: " << init;
        }
        os << "\n{";
--      write_body("");
-+      write_body("", true);
+-      write_body(os, "");
++      write_body(os, "", true);
        os << "}\n\n";
      }
      os << "/*!\n"
-@@ -3505,77 +3524,89 @@ namespace mfront {
+@@ -3673,77 +3694,89 @@ namespace mfront {
      this->writeBehaviourParameterInitialisation(os, h, "");
    }  // end of writeBehaviourParameterInitialisation
  
@@ -311,7 +321,7 @@ index 4f6ba6fe3..c934abefe 100644
        }
      }
    }  // end of writeBehaviourParameterInitialisation
-@@ -3689,12 +3720,13 @@ namespace mfront {
+@@ -3857,12 +3890,13 @@ namespace mfront {
        write_wrapper(b);
        os << "struct " << factory << " final\n"
           << "{\n"
@@ -327,7 +337,7 @@ index 4f6ba6fe3..c934abefe 100644
           << "return " << wrapper << "{};\n"
           << "} // end of make\n"
           << "private:\n"
-@@ -5658,7 +5690,8 @@ namespace mfront {
+@@ -5819,7 +5853,8 @@ namespace mfront {
      os << "/*!\n"
         << "* \\brief Default constructor\n"
         << "*/\n"
@@ -338,10 +348,10 @@ index 4f6ba6fe3..c934abefe 100644
         << "/*!\n"
         << "* \\brief Copy constructor\n"
 diff --git a/mfront/src/DataIsotropicHardeningRule.cxx b/mfront/src/DataIsotropicHardeningRule.cxx
-index a1a2a2c30..044eff9a2 100644
+index 20daa4296..b9e6926c2 100644
 --- a/mfront/src/DataIsotropicHardeningRule.cxx
 +++ b/mfront/src/DataIsotropicHardeningRule.cxx
-@@ -119,7 +119,7 @@ namespace mfront::bbrick {
+@@ -125,7 +125,7 @@ namespace mfront::bbrick {
              .ordinates_name = "mfront_yield_surface_values",
              .ordinates_type = "stress"};
      const auto etype_value = this->etype ? "true" : "false";
@@ -350,7 +360,7 @@ index a1a2a2c30..044eff9a2 100644
               "(const strain mfront_arg_p) const{\n";
      if (this->values.size() == 1) {
        const auto& v = *(this->values.begin());
-@@ -138,7 +138,8 @@ namespace mfront::bbrick {
+@@ -144,7 +144,8 @@ namespace mfront::bbrick {
        m += "mfront_arg_p);\n";
      }
      m += "}\n";
@@ -360,7 +370,7 @@ index a1a2a2c30..044eff9a2 100644
           local_id + "(const strain mfront_arg_p) const {\n";
      if (this->values.size() == 1) {
        const auto& v = *(this->values.begin());
-@@ -177,7 +178,8 @@ namespace mfront::bbrick {
+@@ -183,7 +184,8 @@ namespace mfront::bbrick {
      const auto etype_value = this->etype ? "true" : "false";
      const auto m1 = "mfront_computeYieldRadius" + local_id;
      const auto m2 = "mfront_computeYieldRadiusAndDerivative" + local_id;
@@ -370,7 +380,7 @@ index a1a2a2c30..044eff9a2 100644
      if (this->values.size() == 1) {
        const auto& v = *(this->values.begin());
        std::ostringstream os;
-@@ -195,7 +197,7 @@ namespace mfront::bbrick {
+@@ -201,7 +203,7 @@ namespace mfront::bbrick {
        m += "return {};\n";
      }
      m += "} // end of " + m1 + "\n\n";
@@ -380,10 +390,10 @@ index a1a2a2c30..044eff9a2 100644
      if (this->values.size() == 1) {
        const auto& v = *(this->values.begin());
 diff --git a/mfront/src/GenericModelInterface.cxx b/mfront/src/GenericModelInterface.cxx
-index d1b394e3f..8b17b7237 100644
+index c5dbc51cb..d13468bf2 100644
 --- a/mfront/src/GenericModelInterface.cxx
 +++ b/mfront/src/GenericModelInterface.cxx
-@@ -77,192 +77,43 @@ namespace mfront {
+@@ -77,198 +77,43 @@ namespace mfront {
      }
    }  // end of writeScalarStandardTypedefs
  
@@ -466,6 +476,9 @@ index d1b394e3f..8b17b7237 100644
 -    os << "#ifdef __cplusplus\n"
 -       << "extern \"C\"{\n"
 -       << "#endif /* __cplusplus */\n\n";
+-
+-    GenericBehaviourInterface bi;
+-    bi.writeSetOutOfBoundsPolicyFunctionDeclaration(os, name);
 -
 -    if ((hasRealParameters(md)) &&
 -        (!areParametersTreatedAsStaticVariables(md))) {
@@ -555,6 +568,7 @@ index d1b394e3f..8b17b7237 100644
 -       << "#include <cmath>\n"
 -       << "#include <cstring>\n"
 -       << "#include <sstream>\n"
+-       << "#include <iostream>\n"
 -       << "#include \"TFEL/PhysicalConstants.hxx\"\n"
 -       << "#include \"TFEL/Config/TFELTypes.hxx\"\n"
 -       << "#include \"TFEL/Math/Array/View.hxx\"\n"
@@ -580,6 +594,8 @@ index d1b394e3f..8b17b7237 100644
 -    os << '\n';
 -    sg.generateSymbols(os, bi, bd, fd, name, uh);
 -    //
+-    bi.writeGetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
+-    //
 -    if (!md.sources.empty()) {
 -      os << md.sources << "\n\n";
 -    }
@@ -596,7 +612,7 @@ index d1b394e3f..8b17b7237 100644
      if ((hasRealParameters(md)) &&
          (!areParametersTreatedAsStaticVariables(md))) {
        os << "struct " << cn << "{\n";
-@@ -290,12 +141,24 @@ namespace mfront {
+@@ -296,12 +141,24 @@ namespace mfront {
      os << "struct " << md.className << "{\n\n";
      writeScalarStandardTypedefs(os, md);
      os << '\n';
@@ -622,7 +638,7 @@ index d1b394e3f..8b17b7237 100644
        auto first = true;
        for (const auto& mp : md.constantMaterialProperties) {
          os << (first ? "" : ",\n");
-@@ -305,23 +168,38 @@ namespace mfront {
+@@ -311,23 +168,35 @@ namespace mfront {
          first = false;
        }
        for (const auto& p : md.parameters) {
@@ -660,14 +676,28 @@ index d1b394e3f..8b17b7237 100644
        os << "using namespace std;\n"
           << "using namespace tfel::math;\n"
           << "using namespace tfel::material;\n";
-+      if (o.device) {
-+        // material laws callable in device code
-+        writeMaterialLaws(os, md.materialLaws);
-+      }
++      // material laws (their device implementations in device code)
+       writeMaterialLaws(os, md.materialLaws);
        if (useQuantities(md)) {
          os << "using PhysicalConstants [[maybe_unused]] = "
-            << "tfel::PhysicalConstants<NumericType, true>;\n";
-@@ -366,9 +244,13 @@ namespace mfront {
+@@ -336,8 +205,14 @@ namespace mfront {
+         os << "using PhysicalConstants [[maybe_unused]] = "
+            << "tfel::PhysicalConstants<NumericType, false>;\n";
+       }
+-      os << "[[maybe_unused]] const auto policy = ::" << name
+-         << "_getOutOfBoundsPolicy();\n";
++      if ((o.device) || (o.out_of_bounds_policy_function.empty())) {
++        const auto policy = getDefaultOutOfBoundsPolicyAsString(md);
++        os << "[[maybe_unused]] constexpr const auto policy = "
++           << "tfel::material::" << policy << ";\n";
++      } else {
++        os << "[[maybe_unused]] const auto policy = "
++           << o.out_of_bounds_policy_function << "();\n";
++      }
+       if (f.useTimeIncrement) {
+         os << "const auto dt = time{mfront_model_data.dt};\n";
+       }
+@@ -372,9 +247,13 @@ namespace mfront {
               << "]};\n";
          }
        }
@@ -684,20 +714,16 @@ index d1b394e3f..8b17b7237 100644
          if (!v.hasPhysicalBounds()) {
            return;
          }
-@@ -376,9 +258,10 @@ namespace mfront {
-           raise("error while treating physical bounds of variable '" + v.name +
-                 "' (only scalar variable are supported)");
+@@ -384,7 +263,7 @@ namespace mfront {
          }
--        writePhysicalBoundsChecks(os, v, n, "1u", false, false);
-+        writePhysicalBoundsChecks(os, v, n, "1u", false, false, on_failure);
-         if (vdepth == 1u) {
--          writePhysicalBoundsChecks(os, v, v.name + "_1", "1u", false, false);
-+          writePhysicalBoundsChecks(os, v, v.name + "_1", "1u", false, false,
-+                                    on_failure);
-         }
+         // the variable is checked under the name it is declared with
+         const auto vn = (vdepth == 1u) ? n + "_1" : n;
+-        writePhysicalBoundsChecks(os, v, vn, "1u", false, false);
++        writePhysicalBoundsChecks(os, v, vn, "1u", false, false, on_failure);
        };
        if (!areRuntimeChecksDisabled(md)) {
-@@ -398,9 +281,10 @@ namespace mfront {
+         for (const auto& mv : f.usedVariables) {
+@@ -403,9 +282,10 @@ namespace mfront {
          }
        }
        //
@@ -711,20 +737,16 @@ index d1b394e3f..8b17b7237 100644
          if (!v.hasBounds()) {
            return;
          }
-@@ -408,9 +292,10 @@ namespace mfront {
-           raise("error while treating bounds of variable '" + v.name +
-                 "' (only scalar variable are supported)");
+@@ -415,7 +295,7 @@ namespace mfront {
          }
--        writeBoundsChecks(os, v, n, "1u", "policy", false, false);
-+        writeBoundsChecks(os, v, n, "1u", "policy", false, false, on_failure);
-         if (vdepth == 1u) {
--          writeBoundsChecks(os, v, v.name + "_1", "1u", "policy", false, false);
-+          writeBoundsChecks(os, v, v.name + "_1", "1u", "policy", false, false,
-+                            on_failure);
-         }
+         // the variable is checked under the name it is declared with
+         const auto vn = (vdepth == 1u) ? n + "_1" : n;
+-        writeBoundsChecks(os, v, vn, "1u", "policy", false, false);
++        writeBoundsChecks(os, v, vn, "1u", "policy", false, false, on_failure);
        };
        if (!areRuntimeChecksDisabled(md)) {
-@@ -440,8 +325,28 @@ namespace mfront {
+         for (const auto& mv : f.usedVariables) {
+@@ -452,8 +332,28 @@ namespace mfront {
             << "]) = " << v.name << ";\n";
          static_cast<void>(vdepth);
        }
@@ -753,7 +775,7 @@ index d1b394e3f..8b17b7237 100644
      os << "private:\n";
      if (!md.members.empty()) {
        os << md.members << "\n\n";
-@@ -466,6 +371,9 @@ namespace mfront {
+@@ -478,6 +378,9 @@ namespace mfront {
          os << "const " << p.type << " " << p.name << ";\n";
          continue;
        }
@@ -763,7 +785,7 @@ index d1b394e3f..8b17b7237 100644
        if (p.type == "string") {
          os << "const std::string " << p.name << " = "
             << p.getAttribute<std::string>(VariableDescription::defaultValue);
-@@ -490,6 +398,175 @@ namespace mfront {
+@@ -502,6 +405,184 @@ namespace mfront {
           << v.value << "};\n";
      }
      os << "}; // end of struct " << md.className << "\n\n";
@@ -849,6 +871,9 @@ index d1b394e3f..8b17b7237 100644
 +       << "extern \"C\"{\n"
 +       << "#endif /* __cplusplus */\n\n";
 +
++    GenericBehaviourInterface bi;
++    bi.writeSetOutOfBoundsPolicyFunctionDeclaration(os, name);
++
 +    if ((hasRealParameters(md)) &&
 +        (!areParametersTreatedAsStaticVariables(md))) {
 +      os << "/*!\n"
@@ -905,6 +930,7 @@ index d1b394e3f..8b17b7237 100644
 +       << "#include <cmath>\n"
 +       << "#include <cstring>\n"
 +       << "#include <sstream>\n"
++       << "#include <iostream>\n"
 +       << "#include \"TFEL/PhysicalConstants.hxx\"\n"
 +       << "#include \"TFEL/Config/TFELTypes.hxx\"\n"
 +       << "#include \"TFEL/Math/Array/View.hxx\"\n"
@@ -930,16 +956,21 @@ index d1b394e3f..8b17b7237 100644
 +    os << '\n';
 +    sg.generateSymbols(os, bi, bd, fd, name, uh);
 +    //
++    bi.writeGetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
++    //
 +    if (!md.sources.empty()) {
 +      os << md.sources << "\n\n";
 +    }
 +    //
 +    os << "namespace mfront::gm{\n\n";
-+    writeGenericModelClass(os, fd, md, GenericModelClassOptions{});
++    auto model_class_options = GenericModelClassOptions{};
++    model_class_options.out_of_bounds_policy_function =
++        "::" + name + "_getOutOfBoundsPolicy";
++    writeGenericModelClass(os, fd, md, model_class_options);
      //
  
      os << "static int " << name
-@@ -510,8 +587,7 @@ namespace mfront {
+@@ -522,8 +603,7 @@ namespace mfront {
         << "}\n"
         << "return 1;\n"
         << "}\n\n";
@@ -947,10 +978,10 @@ index d1b394e3f..8b17b7237 100644
 -       << "} // end of namespace mfront::gm\n\n";
 +    os << "} // end of namespace mfront::gm\n\n";
      //
-     if ((hasRealParameters(md)) &&
-         (!areParametersTreatedAsStaticVariables(md))) {
+     bi.writeSetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
+     //
 diff --git a/mfront/src/StandardElastoViscoPlasticityBrick.cxx b/mfront/src/StandardElastoViscoPlasticityBrick.cxx
-index c622f0609..83ffae43e 100644
+index 79ed56b4f..4334293b3 100644
 --- a/mfront/src/StandardElastoViscoPlasticityBrick.cxx
 +++ b/mfront/src/StandardElastoViscoPlasticityBrick.cxx
 @@ -16,6 +16,7 @@
@@ -961,7 +992,7 @@ index c622f0609..83ffae43e 100644
  #include "MFront/ImplicitDSLBase.hxx"
  #include "MFront/AbstractNonLinearSystemSolver.hxx"
  #include "MFront/BehaviourBrick/BrickUtilities.hxx"
-@@ -960,11 +961,17 @@ namespace mfront {
+@@ -966,11 +967,17 @@ namespace mfront {
           << "} else {\n";
        generate_debug_message(false);
        // the staggered scheme has not converged

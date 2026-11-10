@@ -1,4 +1,4 @@
-From a545e02e5ab11499f2f509450543ee89a80b7c87 Mon Sep 17 00:00:00 2001
+From 1feb3e61a854cf8cf4a758f20983a95ece2697ef Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 01:49:09 +0200
 Subject: [PATCH] generic-parallel: OpenMP offloading at -O2, tests with clang

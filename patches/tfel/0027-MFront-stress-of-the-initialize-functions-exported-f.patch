@@ -1,4 +1,4 @@
-From 4df93f3c0556bca388402c976c9ec4cad6512f8b Mon Sep 17 00:00:00 2001
+From fa84581f27041d294ef7fbf5224b8919104259a3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 04:21:52 +0200
 Subject: [PATCH] MFront: stress of the initialize functions exported for all
@@ -29,10 +29,10 @@ second and first Piola-Kirchhoff stresses.
  create mode 100644 mfront/include/MFront/GenericBehaviour/StressMeasures.hxx
 
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index e16df8251..703c6d180 100644
+index b835c61f0..664808d67 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -253,6 +253,7 @@ install_mfront_header(MFront/GenericBehaviour Integrate.hxx)
+@@ -258,6 +258,7 @@ install_mfront_header(MFront/GenericBehaviour Integrate.hxx)
  install_mfront_header(MFront/GenericBehaviour StandardFiniteStrainBehaviourIntegrate.hxx)
  install_mfront_header(MFront/GenericBehaviour GreenLagrangeStrainIntegrate.hxx)
  install_mfront_header(MFront/GenericBehaviour LogarithmicStrainIntegrate.hxx)
@@ -41,7 +41,7 @@ index e16df8251..703c6d180 100644
  install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
  install_mfront_header(MFront/GenericBehaviour RotateTangentOperatorBlock.hxx)
 diff --git a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
-index 79f68a54a..ba21f8ba5 100644
+index 0d7a8e258..352128a4f 100644
 --- a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
 +++ b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
 @@ -23,6 +23,7 @@
@@ -86,7 +86,7 @@ index 79f68a54a..ba21f8ba5 100644
    }  // end of executeInitializeFunction
  
 diff --git a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
-index 4451721a2..eec9c8cf0 100644
+index 09b3de789..96e39eeb4 100644
 --- a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
 +++ b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
 @@ -24,6 +24,7 @@
@@ -97,7 +97,7 @@ index 4451721a2..eec9c8cf0 100644
  
  namespace mfront::gb::logarithmic_strain {
  
-@@ -241,13 +242,25 @@ namespace mfront::gb::logarithmic_strain {
+@@ -250,13 +251,25 @@ namespace mfront::gb::logarithmic_strain {
                                           F0, lgh0, o.stress_measure))) {
        return -1;
      }
@@ -125,7 +125,7 @@ index 4451721a2..eec9c8cf0 100644
    }  // end of executeInitializeFunction
  
 diff --git a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
-index 865f0c9ef..8ee0761c5 100644
+index 1c980fd58..d053dc2c3 100644
 --- a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
 +++ b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
 @@ -22,6 +22,7 @@
@@ -136,7 +136,7 @@ index 865f0c9ef..8ee0761c5 100644
  
  namespace mfront::gb::finite_strain {
  
-@@ -101,38 +102,6 @@ namespace mfront::gb::finite_strain {
+@@ -102,38 +103,6 @@ namespace mfront::gb::finite_strain {
        }
        return true;
      }  // end of convertToCauchyStress
@@ -175,7 +175,7 @@ index 865f0c9ef..8ee0761c5 100644
    }  // end of namespace internals
  
    /*!
-@@ -179,21 +148,31 @@ namespace mfront::gb::finite_strain {
+@@ -180,21 +149,31 @@ namespace mfront::gb::finite_strain {
            f, d, initialize_variables, p, args...);
      }
      // the behaviour works with the Cauchy stress: the initialize function is
@@ -213,7 +213,7 @@ index 865f0c9ef..8ee0761c5 100644
    }  // end of executeInitializeFunction
  
    /*!
-@@ -263,8 +242,8 @@ namespace mfront::gb::finite_strain {
+@@ -264,8 +243,8 @@ namespace mfront::gb::finite_strain {
      auto s0 = tfel::math::stensor<N, real>{};
      if ((!internals::getDeformationGradient<Behaviour>(
              F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
@@ -224,7 +224,7 @@ index 865f0c9ef..8ee0761c5 100644
        return -1;
      }
      auto s1 = s0;
-@@ -278,8 +257,8 @@ namespace mfront::gb::finite_strain {
+@@ -279,8 +258,8 @@ namespace mfront::gb::finite_strain {
      auto F1 = tfel::math::tensor<N, real>{};
      if ((!internals::getDeformationGradient<Behaviour>(
              F1, d, d.s1.gradients, d.s1.internal_state_variables)) ||
@@ -235,7 +235,7 @@ index 865f0c9ef..8ee0761c5 100644
        return -1;
      }
      return r;
-@@ -356,10 +335,10 @@ namespace mfront::gb::finite_strain {
+@@ -357,10 +336,10 @@ namespace mfront::gb::finite_strain {
              F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
          (!internals::getDeformationGradient<Behaviour>(
              F1, d, d.s1.gradients, d.s1.internal_state_variables)) ||

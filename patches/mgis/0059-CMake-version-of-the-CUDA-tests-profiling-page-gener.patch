@@ -1,4 +1,4 @@
-From 20a0afb64694d7c0c6b135c3f6114a244c9baa80 Mon Sep 17 00:00:00 2001
+From a4917f800b88906a1dd1191296a92ef88f1eab50 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:01:16 +0200
 Subject: [PATCH] CMake version of the CUDA tests, profiling page generated,
@@ -30,7 +30,7 @@ index 561e160..cd6f445 100644
    mgis_pandoc_generate_html_page(FEniCSBindings)
    mgis_pandoc_generate_html_page(mgis_fenics "--toc" "--toc-depth=3")
 diff --git a/docs/web/mgis-template.html b/docs/web/mgis-template.html
-index 5cc00c8..ef517b7 100644
+index 13f05c9..e3a318a 100644
 --- a/docs/web/mgis-template.html
 +++ b/docs/web/mgis-template.html
 @@ -145,6 +145,7 @@
@@ -42,10 +42,10 @@ index 5cc00c8..ef517b7 100644
  		<li><a href="profiling.html">Profiling</a></li>
  	      </ul>
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9ad3fc4..304faac 100644
+index 94b0ac0..18ae26c 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -254,6 +254,11 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+@@ -253,6 +253,11 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
      # backend. The test allocates the data in managed memory with the runtime
      # API of CUDA, from code compiled by the C++ compiler.
      if(enable-generic-parallel-cuda-tests)

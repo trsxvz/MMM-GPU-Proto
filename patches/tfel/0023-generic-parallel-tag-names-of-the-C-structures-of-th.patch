@@ -1,4 +1,4 @@
-From c1956fa428c3d8cab4403e8a8b71093a6af9bcdf Mon Sep 17 00:00:00 2001
+From 3559f4d1ad8736b4cddf3be1333e71e0e49794ac Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 02:26:18 +0200
 Subject: [PATCH] generic-parallel: tag names of the C structures of the batch

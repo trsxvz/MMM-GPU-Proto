@@ -1,4 +1,4 @@
-From df7af1b82d5bdc558220ce72f1f18620d2c862f4 Mon Sep 17 00:00:00 2001
+From df9235f0a8d8210c069325d01c1787c07dfa7737 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 05:40:45 +0200
 Subject: [PATCH] generic-parallel: error reporting without cost on success
@@ -160,10 +160,10 @@ index dc700220b..76b9c57ae 100644
  For instance, the `UO2_ShearModulus` function may report that one
  temperature passed on input was negative at one evaluation point. For
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index b98df790b..c9e842d6d 100644
+index 9f422c997..407682757 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
-@@ -133,6 +133,7 @@ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
+@@ -138,6 +138,7 @@ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
  install_mfront_header(MFront BehaviourRotationFunctions.hxx)
  install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
  install_mfront_header(MFront/GenericParallel DeviceStackSize.hxx)
