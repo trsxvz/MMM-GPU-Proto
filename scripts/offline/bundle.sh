@@ -12,9 +12,16 @@
 #     deploy.sh. The current commit of the prototype is packed: the changes
 #     which are not committed are not.
 #   scripts/offline/bundle.sh update WORK
-#     WORK/mmm-update.tar: the prototype (current commit) and deploy.sh
-#     only, to update a deployment (`tar -xf mmm-update.tar` in ROOT, then
-#     `deploy.sh setup`).
+#     WORK/mmm-update.tar: the prototype (current commit), MGIS at the base
+#     of its patches and deploy.sh, to update a deployment (`tar -xf
+#     mmm-update.tar` in ROOT, then `deploy.sh setup`).
+#   scripts/offline/bundle.sh modules WORK
+#     WORK/mmm-modules.tar: the prototype (current commit), MGIS at the base
+#     of its patches, the sources of MFEM (PROTO_MFEM_VERSION, checksum
+#     checked) and deploy.sh, for a machine whose libraries come from its
+#     modules, without spack (`tar -xf mmm-modules.tar` in ROOT, then
+#     `deploy.sh setup`, `deploy.sh mfem MACHINE` and `deploy.sh build
+#     MACHINE`).
 #   scripts/offline/bundle.sh mirror WORK MACHINE SPACK_LOCK
 #     WORK/mmm-mirror-MACHINE.tar: mirror of the sources of the packages of
 #     the spack environment of MACHINE (deps/spack/mmm-light) concretized
@@ -26,7 +33,7 @@ set -eu
 P=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$P/scripts/offline/versions.sh"
 usage() {
-  sed -n '6,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '6,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 1
 }
 # spack of the work directory, isolated from the configuration and the
@@ -56,10 +63,7 @@ base() {
     "repos:builtin:$W/spack-packages/repos/spack_repo/builtin"
   echo "bundle.sh: bootstrap mirror of spack"
   wspack bootstrap mirror --binary-packages "$W/bootstrap"
-  echo "bundle.sh: MGIS $PROTO_MGIS_BASE"
-  checkout "$PROTO_MGIS_URL" "$W/mgis" "$PROTO_MGIS_BASE"
-  git -C "$W/mgis" branch --force base "$PROTO_MGIS_BASE"
-  git -C "$W/mgis" bundle create --quiet "$W/stage/mgis.bundle" base
+  mgis
   prototype
   # spack and spack-packages without their history
   git -C "$W/spack" archive --prefix=spack/ HEAD > "$W/stage/spack.tar"
@@ -68,6 +72,14 @@ base() {
   tar -cf "$W/mmm-base.tar" -C "$W/stage" MANIFEST deploy.sh proto.bundle \
     mgis.bundle spack.tar spack-packages.tar -C "$W" bootstrap
   echo "bundle.sh: $W/mmm-base.tar ($(du -h "$W/mmm-base.tar" | cut -f1))"
+}
+# git bundle of MGIS at the base of the patches of the prototype, in
+# WORK/stage
+mgis() {
+  echo "bundle.sh: MGIS $PROTO_MGIS_BASE"
+  checkout "$PROTO_MGIS_URL" "$W/mgis" "$PROTO_MGIS_BASE"
+  git -C "$W/mgis" branch --force base "$PROTO_MGIS_BASE"
+  git -C "$W/mgis" bundle create --quiet "$W/stage/mgis.bundle" base
 }
 # git bundle of the current commit of the prototype, copy of deploy.sh and
 # manifest, in WORK/stage
@@ -90,9 +102,26 @@ created $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(hostname)
 EOF
 }
 update() {
+  mgis
   prototype
-  tar -cf "$W/mmm-update.tar" -C "$W/stage" MANIFEST deploy.sh proto.bundle
+  tar -cf "$W/mmm-update.tar" -C "$W/stage" MANIFEST deploy.sh proto.bundle \
+    mgis.bundle
   echo "bundle.sh: $W/mmm-update.tar ($(du -h "$W/mmm-update.tar" | cut -f1))"
+}
+modules() {
+  mgis
+  prototype
+  local mfem=mfem-$PROTO_MFEM_VERSION.tar.gz
+  if ! echo "$PROTO_MFEM_SHA256  $W/$mfem" | sha256sum -c --status - \
+    2> /dev/null; then
+    echo "bundle.sh: MFEM $PROTO_MFEM_VERSION"
+    curl -sSfL -o "$W/$mfem" "$PROTO_MFEM_URL"
+    echo "$PROTO_MFEM_SHA256  $W/$mfem" | sha256sum -c --quiet -
+  fi
+  cp "$W/$mfem" "$W/stage/$mfem"
+  tar -cf "$W/mmm-modules.tar" -C "$W/stage" MANIFEST deploy.sh \
+    proto.bundle mgis.bundle "$mfem"
+  echo "bundle.sh: $W/mmm-modules.tar ($(du -h "$W/mmm-modules.tar" | cut -f1))"
 }
 mirror() {
   local machine=$1 lock=$2
@@ -131,6 +160,10 @@ case "$command" in
   update)
     [ $# -eq 2 ] || usage
     update
+    ;;
+  modules)
+    [ $# -eq 2 ] || usage
+    modules
     ;;
   mirror)
     [ $# -eq 4 ] || usage

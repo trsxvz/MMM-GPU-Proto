@@ -30,15 +30,28 @@
 # The MPI library is the package PROTO_MPI_PACKAGE (openmpi by default) of
 # the spack environment, possibly an external package.
 #
+# A machine whose libraries come from its modules (no spack environment)
+# gives MFEM by PROTO_MFEM (installation of `deploy.sh mfem`), MPI by
+# PROTO_MPI (prefix of the MPI library) and, optionally, the MPI compilers by
+# PROTO_MPI_CC and PROTO_MPI_CXX (for instance the compiler wrappers of a
+# Cray machine, which also link the GPU support of MPI).
+#
 # The CUDA compilers (nvcc and its host compiler) are those of MFEM,
 # chosen by mfem-mgis (see cmake/modules/MFEMMGISDeviceCode.cmake): the
 # ones that an old build directory keeps in its cache are removed.
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
 source "$P/scripts/env.sh"
-MFEM=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" location -i mfem)
-MPI=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" \
-  location -i "${PROTO_MPI_PACKAGE:-openmpi}")
+if [ -n "${PROTO_MFEM:-}" ]; then
+  MFEM=$PROTO_MFEM
+  MPI=$PROTO_MPI
+else
+  MFEM=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" location -i mfem)
+  MPI=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" \
+    location -i "${PROTO_MPI_PACKAGE:-openmpi}")
+fi
+MPI_CC=${PROTO_MPI_CC:-$MPI/bin/mpicc}
+MPI_CXX=${PROTO_MPI_CXX:-$MPI/bin/mpicxx}
 AMGX_OPTIONS=()
 if [ "${PROTO_AMGX:-ON}" = ON ]; then
   # AmgX, used by mfem-mgis through its C interface: the one of the
@@ -72,7 +85,7 @@ build() {
   local b=$P/build/$name
   cmake -S "$source" -B "$b" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$PROTO_CC" -DCMAKE_CXX_COMPILER="$PROTO_CXX" \
-    -DMPI_C_COMPILER="$MPI/bin/mpicc" -DMPI_CXX_COMPILER="$MPI/bin/mpicxx" \
+    -DMPI_C_COMPILER="$MPI_CC" -DMPI_CXX_COMPILER="$MPI_CXX" \
     "${MPIEXEC_OPTIONS[@]}" \
     -UCMAKE_CUDA_COMPILER -UCMAKE_CUDA_HOST_COMPILER \
     "$@"

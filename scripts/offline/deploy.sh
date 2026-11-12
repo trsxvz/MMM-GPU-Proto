@@ -14,7 +14,9 @@
 #     clones (or updates to the packed commit) the prototype, recreates
 #     mgis/ (MGIS at its base and the patches of the prototype, branch
 #     gpu-proto) and configures spack to work without network (builtin
-#     repository of ROOT, bootstrap from ROOT/bootstrap).
+#     repository of ROOT, bootstrap from ROOT/bootstrap). After `tar -xf
+#     mmm-modules.tar` (machine whose libraries come from its modules),
+#     ROOT holds no spack: only the prototype and mgis/ are set up.
 #   deploy.sh concretize MACHINE
 #     concretizes the environment deps/spack/mmm-light for the machine
 #     profile MACHINE: the file spack.lock to give to `bundle.sh mirror`.
@@ -31,6 +33,12 @@
 #   deploy.sh restore MACHINE BUILDCACHE
 #     installs the environment from the binary cache of `install`, without
 #     compiling, with the spack.lock kept in it.
+#   deploy.sh mfem MACHINE
+#     machine whose libraries come from its modules (the profile defines
+#     PROTO_MFEM, installation directory of MFEM, and PROTO_MFEM_OPTIONS,
+#     options of `make config` of MFEM): builds and installs MFEM from the
+#     archive of mmm-modules.tar, in ROOT/mfem-src. A partial build resumes
+#     where it stopped, unless the options changed.
 #   deploy.sh build MACHINE [build-mfem-mgis.sh arguments]
 #     builds and tests TFEL, MGIS, then mfem-mgis, the examples,
 #     mm-opera-hpc and the cases (see the job build.slurm of the machine).
@@ -45,7 +53,7 @@ ROOT=${PROTO_DEPLOY:-$ROOT}
 PROTO=$ROOT/MMM-GPU-Proto
 export PROTO_DEPLOY=$ROOT
 usage() {
-  sed -n '11,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '11,44p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 1
 }
 # spack of ROOT, isolated from the configuration of the user: its
@@ -73,20 +81,26 @@ machine() {
   set +u
   source "$PROTO/scripts/env.sh"
   set -u
-  E=$PROTO_SPACK_ENVIRONMENT
+  E=${PROTO_SPACK_ENVIRONMENT:-}
 }
 # environment spack of the machine profile, with the caches of ROOT
 espack() {
   SPACK_USER_CACHE_PATH="$ROOT/user-cache" proto_spack -e "$E" "$@"
 }
 setup() {
-  local t
-  for t in spack spack-packages; do
-    if [ ! -d "$ROOT/$t" ]; then
-      echo "deploy.sh: extraction of $t"
-      tar -xf "$ROOT/$t.tar" -C "$ROOT"
-    fi
-  done
+  local t spack=yes
+  # without spack (mmm-modules.tar): the libraries come from the modules
+  if [ ! -d "$ROOT/spack" ] && [ ! -f "$ROOT/spack.tar" ]; then
+    spack=no
+  fi
+  if [ "$spack" = yes ]; then
+    for t in spack spack-packages; do
+      if [ ! -d "$ROOT/$t" ]; then
+        echo "deploy.sh: extraction of $t"
+        tar -xf "$ROOT/$t.tar" -C "$ROOT"
+      fi
+    done
+  fi
   if [ ! -d "$PROTO/.git" ]; then
     git -c init.defaultBranch=main -c advice.detachedHead=false \
       clone --quiet "$ROOT/proto.bundle" "$PROTO"
@@ -108,6 +122,11 @@ setup() {
   git -C "$PROTO/mgis" -c user.name=deploy -c user.email=deploy@localhost \
     am --quiet --keep-cr "$PROTO"/patches/mgis/*.patch
   echo "deploy.sh: mgis $(git -C "$PROTO/mgis" log -1 --format='%h %s')"
+  if [ "$spack" = no ]; then
+    echo "deploy.sh: no spack in $ROOT: the libraries come from the modules" \
+      "of the machine (deploy.sh mfem MACHINE, then deploy.sh build MACHINE)"
+    return
+  fi
   # configuration of spack, without network
   rspack config --scope site add \
     "repos:builtin:$ROOT/spack-packages/repos/spack_repo/builtin"
@@ -192,6 +211,31 @@ restore() {
   fi
   espack install --use-buildcache only
 }
+mfem() {
+  machine "$1"
+  if [ -z "${PROTO_MFEM:-}" ]; then
+    echo "deploy.sh: the machine '$1' takes MFEM from its spack environment" \
+      "(deploy.sh install)" >&2
+    exit 1
+  fi
+  source "$PROTO/scripts/offline/versions.sh"
+  local archive=$ROOT/mfem-$PROTO_MFEM_VERSION.tar.gz src=$ROOT/mfem-src
+  echo "$PROTO_MFEM_SHA256  $archive" | sha256sum -c --quiet -
+  # the options of `make config`; config/config.mk, on which all the
+  # objects depend, is only written again when they change
+  local options
+  options=$(printf '%s\n' "PREFIX=$PROTO_MFEM" "${PROTO_MFEM_OPTIONS[@]}")
+  if [ ! -f "$src/makefile" ] || [ "$(cat "$src/OPTIONS" 2> /dev/null)" != "$options" ]; then
+    rm -rf "$src"
+    mkdir -p "$src"
+    tar -xzf "$archive" -C "$src" --strip-components=1
+    (cd "$src" && make config PREFIX="$PROTO_MFEM" "${PROTO_MFEM_OPTIONS[@]}")
+    echo "$options" > "$src/OPTIONS"
+  fi
+  make -C "$src" -j "${PROTO_JOBS:-8}" lib
+  make -C "$src" install
+  echo "deploy.sh: MFEM $PROTO_MFEM_VERSION installed in $PROTO_MFEM"
+}
 build() {
   local m=$1
   shift
@@ -215,6 +259,10 @@ case "$command" in
   install)
     [ $# -ge 1 ] && [ $# -le 2 ] || usage
     install "$@"
+    ;;
+  mfem)
+    [ $# -eq 1 ] || usage
+    mfem "$1"
     ;;
   cache)
     [ $# -eq 2 ] || usage

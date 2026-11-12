@@ -50,10 +50,15 @@ case "${1:-default}" in
     exit 1
     ;;
 esac
+# CUDA compiler, on the machines with CUDA only
+CUDA_OPTIONS=()
+if [ -n "${PROTO_CUDA:-}" ]; then
+  CUDA_OPTIONS=(-DCMAKE_CUDA_COMPILER="$PROTO_CUDA/bin/nvcc"
+    -DCMAKE_CUDA_HOST_COMPILER="$PROTO_CXX")
+fi
 cmake -S "$P/mgis" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER="$PROTO_CC" -DCMAKE_CXX_COMPILER="$PROTO_CXX" \
-  -DCMAKE_CUDA_COMPILER="$PROTO_CUDA/bin/nvcc" \
-  -DCMAKE_CUDA_HOST_COMPILER="$PROTO_CXX" \
+  "${CUDA_OPTIONS[@]}" \
   -DCMAKE_PREFIX_PATH="$PROTO_TFEL_INSTALL" \
   -Denable-testing=ON -Denable-mgis-function=ON "${OPTIONS[@]}"
 cmake --build "$BUILD" -j"${PROTO_JOBS:-8}"

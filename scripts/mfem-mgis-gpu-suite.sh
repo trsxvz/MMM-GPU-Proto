@@ -1,6 +1,7 @@
 #!/bin/bash
-# Runs the test suite of mfem-mgis on the GPU (MFEM_MGIS_DEVICE=cuda), one
-# test at a time, since simultaneous tests share the GPU and fail. The
+# Runs the test suite of mfem-mgis on the GPU (MFEM_MGIS_DEVICE=cuda, or the
+# device of MFEM given by the machine profile in PROTO_GPU_DEVICE, for
+# instance hip), one test at a time, since simultaneous tests share the GPU and fail. The
 # stiffness matrices computed by kernels are added in a fixed order
 # (MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered), so that the results, and
 # the outcome of the tests, are the same at each run. hypre reserves one
@@ -12,8 +13,9 @@
 #   the kernels of the batch path;
 # - default: the computations selected by each test.
 #
-# The tests whose name selects a device (cuda, gpu, debug) are excluded:
-# they run with `ctest -R "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"`.
+# The tests whose name selects a device (cuda, hip, gpu, debug) are
+# excluded: they run with
+# `ctest -R "cuda|hip|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"`.
 # `DeviceForallTest-cpu` and `DeviceOptionTest-none`, which require the
 # absence of device, are expected to fail. `TwoLayerCube-1-MatrixFreeExecution`,
 # which checks that the option `--execution` gives no warning about the
@@ -26,7 +28,7 @@ mode=${1:-kernels}
 build=${2:-$P/build/mfem-mgis}
 source "$P/scripts/env.sh" > /dev/null
 unset OMP_PROC_BIND OMP_PLACES
-settings=(MFEM_MGIS_DEVICE=cuda
+settings=(MFEM_MGIS_DEVICE=${PROTO_GPU_DEVICE:-cuda}
   MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1
   MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered)
 case "$mode" in
@@ -44,4 +46,4 @@ case "$mode" in
 esac
 cd "$build" || exit 1
 env "${settings[@]}" ctest -j 1 \
-  -E "cuda|gpu|GPU|debug|^TwoLayerCube-1-MatrixFreeExecution$" --output-on-failure
+  -E "cuda|hip|gpu|GPU|debug|^TwoLayerCube-1-MatrixFreeExecution$" --output-on-failure
