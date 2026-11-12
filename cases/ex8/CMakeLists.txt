@@ -18,8 +18,9 @@ add_generic_parallel_mfront_libraries(ex8-behaviours CUDA ${_sources}
 # computations by kernels, with the behaviours of each backend, the
 # statistics of the fields being compared to the reference values of the
 # example
+# (with MUMPS, as the reference values: not if MFEM is built without it)
 proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX8_DIR}/rjh_plate")
-if(_usable)
+if(_usable AND (NOT MFEM_USE_MUMPS STREQUAL "NO"))
   set(_run mpirun -n 2 ./rjh_plate -m assemblage_hexa_coarse.msh
            -lsMc MUMPSSolver -no-pp
            -rf assemblage_hexa_coarse-statistics.ref)
