@@ -112,8 +112,10 @@ export CMAKE_PREFIX_PATH=$PROTO_TFEL_INSTALL:$PROTO_MFEM
 export PATH=$PROTO_MPI_LAUNCHERS:$PROTO_TFEL_INSTALL/bin:$PATH
 export LD_LIBRARY_PATH=$PROTO_TFEL_INSTALL/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export OMP_PROC_BIND=spread OMP_PLACES=threads
-# options of CMake of MGIS (build-mgis.sh): MGIS has no tests of HIP
-PROTO_MGIS_OPTIONS=()
+# options of CMake of MGIS (build-mgis.sh): MGIS has no tests of HIP; the
+# parallel algorithms of the standard library need TBB with libstdc++, which
+# the stack does not provide (they are not used on this machine)
+PROTO_MGIS_OPTIONS=(-Denable-parallel-stl-algorithms=OFF)
 # device of MFEM of the test suite on the GPU (scripts/mfem-mgis-gpu-suite.sh)
 export PROTO_GPU_DEVICE=hip
 # several GPUs of a node (recommendations of CINES): Slurm does not bind
