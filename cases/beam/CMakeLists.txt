@@ -89,7 +89,7 @@ if(PROTO_GPU_BEHAVIOURS)
     endif()
     add_test(NAME beam-gpu-${_name}
       COMMAND mpirun -n 2 ./beam -r 1 -n 2 -ls pcg-amg -bi Batch
-              --device cuda ${_options}
+              --device ${PROTO_GPU_DEVICE} ${_options}
               -l "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_name}/src/libGenericParallelBehaviour-${_suffix}.so"
               -en ${norm})
     set_tests_properties(beam-gpu-${_name} PROPERTIES ENVIRONMENT
@@ -99,10 +99,10 @@ if(PROTO_GPU_BEHAVIOURS)
 endif()
 foreach(_backend ${beam-behaviours_BACKENDS})
   set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
-  if(_backend STREQUAL "cuda")
+  if(_backend STREQUAL PROTO_GPU_BACKEND)
     add_test(NAME beam-gpu
       COMMAND mpirun -n 2 ./beam -r 1 -n 2 -ls pcg-amg -bi Batch
-              --device cuda -l "${_library}" -en ${norm})
+              --device ${PROTO_GPU_DEVICE} -l "${_library}" -en ${norm})
     # each process on the GPU reserves a memory pool of 4 GiB (Umpire): the
     # tests on the GPU are not run at the same time
     set_tests_properties(beam-gpu PROPERTIES ENVIRONMENT
@@ -117,7 +117,7 @@ foreach(_backend ${beam-behaviours_BACKENDS})
     # the atomic assembly (results/diagnostic-float-gpu-2026-10-14)
     add_test(NAME beam-gpu-r4
       COMMAND mpirun -n 1 ./beam -r 4 -n 10 -ls pcg-amg -lt 1e-4 -rt 1e-4
-              -bi Batch --device cuda -l "${_library}"
+              -bi Batch --device ${PROTO_GPU_DEVICE} -l "${_library}"
               -en 48.83704586 -nt 5e-5)
     set_tests_properties(beam-gpu-r4 PROPERTIES ENVIRONMENT
       "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered"

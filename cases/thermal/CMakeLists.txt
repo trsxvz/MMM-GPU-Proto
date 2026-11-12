@@ -72,10 +72,10 @@ add_generic_parallel_mfront_libraries(thermal-behaviours CUDA
   "${MFEM_MGIS_SOURCE_DIR}/tests/StationaryNonLinearHeatTransfer.mfront")
 foreach(_backend ${thermal-behaviours_BACKENDS})
   set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
-  if(_backend STREQUAL "cuda")
+  if(_backend STREQUAL PROTO_GPU_BACKEND)
     add_test(NAME thermal-gpu
       COMMAND mpirun -n 1 ./thermal -r 1 -n 2 -ls gmres-amg -bi Batch
-              --device cuda -l "${_library}" -en ${norm})
+              --device ${PROTO_GPU_DEVICE} -l "${_library}" -en ${norm})
     set_tests_properties(thermal-gpu PROPERTIES ENVIRONMENT
       "${kernels};MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
       RESOURCE_LOCK gpu)

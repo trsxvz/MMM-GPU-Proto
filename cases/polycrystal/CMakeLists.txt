@@ -88,7 +88,7 @@ if(Python3_Interpreter_FOUND AND _usable)
        (_suffix STREQUAL "kokkos"))
       # behaviour integrated on the GPU, all the computations by kernels
       add_test(NAME polycrystal-batch-${_backend}
-        COMMAND ${_run} --device cuda -l "${_library}"
+        COMMAND ${_run} --device ${PROTO_GPU_DEVICE} -l "${_library}"
                 --macroscopic-stress-output-file "${_output}"
         WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
       set(_environment "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")

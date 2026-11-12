@@ -32,8 +32,8 @@ if(_usable)
     # two OpenMP threads for the backends on the host
     set(_device)
     set(_threads 2)
-    if(_backend STREQUAL "cuda")
-      set(_device --device cuda)
+    if(_backend STREQUAL PROTO_GPU_BACKEND)
+      set(_device --device ${PROTO_GPU_DEVICE})
       set(_threads 1)
     endif()
     add_test(NAME ex5-batch-${_backend}

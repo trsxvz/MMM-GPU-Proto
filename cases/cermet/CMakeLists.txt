@@ -63,9 +63,9 @@ add_cermet_test(point-by-point "MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint"
 add_cermet_test(kernels "${_kernels}" -l "${_generic}")
 foreach(_backend ${cermet-behaviours_BACKENDS})
   set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
-  if(_backend STREQUAL "cuda")
+  if(_backend STREQUAL PROTO_GPU_BACKEND)
     # behaviours integrated on the GPU, all the computations by kernels
-    add_cermet_test(batch-${_backend} "${_kernels}" --device cuda
+    add_cermet_test(batch-${_backend} "${_kernels}" --device ${PROTO_GPU_DEVICE}
       -l "${_library}")
     set_tests_properties(cermet-batch-${_backend} PROPERTIES
       RESOURCE_LOCK gpu)

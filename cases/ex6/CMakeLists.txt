@@ -29,9 +29,9 @@ if(_usable)
     ENVIRONMENT "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}")
   foreach(_backend ${ex6-behaviours_BACKENDS})
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
-    if(_backend STREQUAL "cuda")
+    if(_backend STREQUAL PROTO_GPU_BACKEND)
       add_test(NAME ex6-batch-${_backend}
-        COMMAND ${_run} --device cuda -l "${_library}"
+        COMMAND ${_run} --device ${PROTO_GPU_DEVICE} -l "${_library}"
         WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX6_DIR}")
       set_tests_properties(ex6-batch-${_backend} PROPERTIES
         ENVIRONMENT "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}"

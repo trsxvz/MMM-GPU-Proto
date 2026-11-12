@@ -20,12 +20,24 @@ if(MFEM_MGIS_REAL_TYPE AND (NOT MFEM_MGIS_REAL_TYPE STREQUAL "double"))
   set(MFRONT_DSL_OPTIONS "--dsl-option=real_type:${MFEM_MGIS_REAL_TYPE}")
 endif()
 # the behaviours for the GPU are only generated if MFEM computes on a GPU
-# with CUDA (global property set by the configuration of mfem-mgis)
+# with CUDA or HIP (global properties set by the configuration of
+# mfem-mgis)
 get_property(_mfem_use_cuda GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_CUDA)
-if(_mfem_use_cuda STREQUAL "YES")
+get_property(_mfem_use_hip GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_HIP)
+if(_mfem_use_cuda STREQUAL "YES" OR _mfem_use_hip STREQUAL "YES")
   set(PROTO_GPU_BEHAVIOURS ON)
 else()
   set(PROTO_GPU_BEHAVIOURS OFF)
+endif()
+# backend of the generic-parallel interface of the behaviours on the GPU
+# (suffix of their libraries) and device of MFEM of the tests on the GPU:
+# cuda, or hip if MFEM is compiled with HIP (AMD GPU)
+if(_mfem_use_hip STREQUAL "YES")
+  set(PROTO_GPU_BACKEND hip)
+  set(PROTO_GPU_DEVICE hip)
+else()
+  set(PROTO_GPU_BACKEND cuda)
+  set(PROTO_GPU_DEVICE cuda)
 endif()
 # the behaviours are generated again when MFront changes: its executable
 # and its library, which holds the code generators (function of mfem-mgis,
@@ -195,7 +207,8 @@ endfunction()
 # Behaviours compiled by MFront with the generic-parallel interface (see
 # add_generic_parallel_mfront_library), on the host for each backend whose
 # configuration file is provided by TFEL (openmp, stlpar), and on the GPU
-# with the CUDA option if MFEM computes on a GPU and nvcc is found (cuda), in
+# with the CUDA option if MFEM computes on a GPU: with CUDA if nvcc is found
+# (cuda), with HIP if hipcc is found (hip, AMD GPU), in
 # <current binary dir>/generic-parallel-<backend>/src/libGenericParallel<name>-<backend>.so
 # (targets <target>-<backend>). The backends are returned in the variable
 # <target>_BACKENDS.
@@ -204,9 +217,16 @@ function(add_generic_parallel_mfront_libraries target)
   set(_configurations openmp:config-openmp-host-gcc.json
                       stlpar:config-stlpar-parunseq-gcc.json)
   if(_gp_CUDA AND PROTO_GPU_BEHAVIOURS)
-    find_program(_nvcc nvcc)
-    if(_nvcc)
-      list(APPEND _configurations cuda:config-cuda-nvcc.json)
+    if(_mfem_use_cuda STREQUAL "YES")
+      find_program(_nvcc nvcc)
+      if(_nvcc)
+        list(APPEND _configurations cuda:config-cuda-nvcc.json)
+      endif()
+    else()
+      find_program(_hipcc hipcc)
+      if(_hipcc)
+        list(APPEND _configurations hip:config-hip-hipcc.json)
+      endif()
     endif()
   endif()
   set(_backends)

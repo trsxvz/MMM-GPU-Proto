@@ -20,7 +20,11 @@
 # PROTO_CUDA_VISIBLE_DEVICES is set, the processes are started with this
 # CUDA_VISIBLE_DEVICES: srun sets CUDA_VISIBLE_DEVICES in each step from the
 # GPUs of the job, replacing the value of the environment (see
-# cases/measure-multi-gpu.sh).
+# cases/measure-multi-gpu.sh). If PROTO_GPU_PER_RANK names a variable (for
+# instance ROCR_VISIBLE_DEVICES on the AMD GPUs of Adastra, as recommended
+# by CINES with `srun --gpu-bind=none`), each process is started with this
+# variable set to its local rank on the node (SLURM_LOCALID): it sees only
+# the GPU of its rank.
 set -u
 np=1
 cpus=()
@@ -63,6 +67,10 @@ read -r -a extra <<< "${PROTO_SRUN_OPTIONS:-}"
 launcher=()
 if [ -n "${PROTO_CUDA_VISIBLE_DEVICES:-}" ]; then
   launcher=(env "CUDA_VISIBLE_DEVICES=$PROTO_CUDA_VISIBLE_DEVICES")
+fi
+if [ -n "${PROTO_GPU_PER_RANK:-}" ]; then
+  launcher+=(bash -c "export $PROTO_GPU_PER_RANK=\$SLURM_LOCALID; exec \"\$@\"" \
+    mpirun-srun)
 fi
 exec srun --overlap --mem=0 --ntasks="$np" "${cpus[@]}" "${extra[@]}" \
   "${launcher[@]}" "$@"

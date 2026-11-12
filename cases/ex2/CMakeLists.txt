@@ -46,8 +46,8 @@ if(_usable)
       set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
       set(_name ex2${_variant}-batch-${_backend})
       set(_device)
-      if(_backend STREQUAL "cuda")
-        set(_device --device cuda)
+      if(_backend STREQUAL PROTO_GPU_BACKEND)
+        set(_device --device ${PROTO_GPU_DEVICE})
       endif()
       add_test(NAME ${_name}
         COMMAND ${_command} ${_device} -l "${_library}"

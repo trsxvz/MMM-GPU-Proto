@@ -36,9 +36,9 @@ if(_usable)
       set(_name ex3-${_case}-batch-${_backend})
       add_test(NAME ${_name} COMMAND ${_run} -l "${_library}"
         WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX3_DIR}")
-      if(_backend STREQUAL "cuda")
+      if(_backend STREQUAL PROTO_GPU_BACKEND)
         set_tests_properties(${_name} PROPERTIES
-          ENVIRONMENT "OMP_NUM_THREADS=1;MFEM_MGIS_DEVICE=cuda;${_kernels}")
+          ENVIRONMENT "OMP_NUM_THREADS=1;MFEM_MGIS_DEVICE=${PROTO_GPU_DEVICE};${_kernels}")
       else()
         set_tests_properties(${_name} PROPERTIES
           ENVIRONMENT "OMP_NUM_THREADS=2;${_kernels}")

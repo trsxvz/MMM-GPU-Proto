@@ -11,6 +11,10 @@ variable `PROTO_MACHINE` selects the profile (`workstation` by default):
   environment `mmm-light`, installed without access to the internet
   (`docs/install.md`);
 - `jean-zay-a100`: Jean Zay, partition `gpu_p5` (A100), the same way.
+- `adastra-mi300`: Adastra (CINES), partition `mi300` (MI300A), without
+  spack: the libraries come from the software stack of CINES for this
+  partition (modules), only MFEM is built (`deploy.sh mfem`,
+  `docs/install.md`).
 
 ## Files of a profile
 
@@ -24,6 +28,14 @@ variable `PROTO_MACHINE` selects the profile (`workstation` by default):
   - `PROTO_TFEL_BUILD`, `PROTO_TFEL_INSTALL`: build and installation
     directories of TFEL;
   - `PROTO_MGIS_OPTIONS` (array): options of CMake of MGIS;
+  - a machine whose libraries come from its modules (no spack): `PROTO_MFEM`
+    (installation of MFEM, built by `deploy.sh mfem` with the options of
+    `make config` given by the array `PROTO_MFEM_OPTIONS`), `PROTO_MPI`
+    (prefix of MPI), optionally `PROTO_MPI_CC` and `PROTO_MPI_CXX` (MPI
+    compilers, for instance the Cray compiler wrappers), and empty
+    `PROTO_SPACK`, `PROTO_SPACK_ENVIRONMENT` and `PROTO_CUDA`;
+  - optionally `PROTO_GPU_DEVICE` (device of MFEM of the test suite on the
+    GPU, `cuda` by default, `hip` for an AMD GPU);
   - optionally `PROTO_AMGX` (`ON` by default; `OFF` builds mfem-mgis
     without AmgX), `PROTO_MPI_PACKAGE` (`openmpi` by default: the spack
     package of MPI), `PROTO_MPI_LAUNCHERS` (directory placed first in the

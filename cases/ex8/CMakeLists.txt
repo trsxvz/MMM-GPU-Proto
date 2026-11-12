@@ -28,9 +28,9 @@ if(_usable)
     set(_libraries
       -lU "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelU3SI2-${_backend}.so"
       -lA "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelALFENI-${_backend}.so")
-    if(_backend STREQUAL "cuda")
+    if(_backend STREQUAL PROTO_GPU_BACKEND)
       add_test(NAME ex8-batch-${_backend}
-        COMMAND ${_run} --device cuda ${_libraries}
+        COMMAND ${_run} --device ${PROTO_GPU_DEVICE} ${_libraries}
         WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX8_DIR}")
       set_tests_properties(ex8-batch-${_backend} PROPERTIES
         ENVIRONMENT "OMP_NUM_THREADS=1;${_kernels}"
