@@ -358,7 +358,11 @@ goes through `bundle.sh update` as for the other machines.
 - **HIP compiler**: the clang of ROCm takes by itself the C++ library of
   the most recent gcc it finds, that of `gcc-toolset-12` (no `<format>` of
   C++20): the profile gives it the gcc 14 of the modules
-  (`--gcc-install-dir`, through `HIPFLAGS` and `HIPCC_COMPILE_FLAGS_APPEND`).
+  (`--gcc-install-dir`, through `HIPCC_COMPILE_FLAGS_APPEND` and
+  `CMAKE_HIP_FLAGS`). The variable `HIPFLAGS` is not used: MFront reads it
+  instead of the flags of its `hip-hipcc` configuration (`-fPIC`). The
+  module of ROCm sets `HIP_COMPILER=clang`, which MFront also reads to
+  choose the compiler of this configuration: the profile unsets it.
 - **Several GPUs of a node**: as recommended by CINES, `srun
   --gpu-bind=none`, each process seeing only its MI300A
   (`ROCR_VISIBLE_DEVICES`, set by `scripts/mpirun-srun` to the GPU close to

@@ -30,6 +30,9 @@
 # The MPI library is the package PROTO_MPI_PACKAGE (openmpi by default) of
 # the spack environment, possibly an external package.
 #
+# The options of CMake of the machine profile (array PROTO_CMAKE_OPTIONS, for
+# instance the flags of the HIP compiler) are given to every build.
+#
 # A machine whose libraries come from its modules (no spack environment)
 # gives MFEM by PROTO_MFEM (installation of `deploy.sh mfem`), MPI by
 # PROTO_MPI (prefix of the MPI library) and, optionally, the MPI compilers by
@@ -91,7 +94,7 @@ build() {
   cmake -S "$source" -B "$b" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$PROTO_CC" -DCMAKE_CXX_COMPILER="$PROTO_CXX" \
     -DMPI_C_COMPILER="$MPI_CC" -DMPI_CXX_COMPILER="$MPI_CXX" \
-    "${MPIEXEC_OPTIONS[@]}" \
+    "${MPIEXEC_OPTIONS[@]}" "${PROTO_CMAKE_OPTIONS[@]}" \
     -UCMAKE_CUDA_COMPILER -UCMAKE_CUDA_HOST_COMPILER -U "HYPRE_*" \
     "$@"
   cmake --build "$b" -j "$JOBS"

@@ -34,6 +34,8 @@ variable `PROTO_MACHINE` selects the profile (`workstation` by default):
     (prefix of MPI), optionally `PROTO_MPI_CC` and `PROTO_MPI_CXX` (MPI
     compilers, for instance the Cray compiler wrappers), and empty
     `PROTO_SPACK`, `PROTO_SPACK_ENVIRONMENT` and `PROTO_CUDA`;
+  - optionally `PROTO_CMAKE_OPTIONS` (array of options of CMake given to
+    the builds of `build-mfem-mgis.sh`, for instance `CMAKE_HIP_FLAGS`);
   - optionally `PROTO_GPU_DEVICE` (device of MFEM of the test suite on the
     GPU, `cuda` by default, `hip` for an AMD GPU);
   - optionally `PROTO_AMGX` (`ON` by default; `OFF` builds mfem-mgis
