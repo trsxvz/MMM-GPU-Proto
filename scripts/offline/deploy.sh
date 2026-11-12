@@ -233,6 +233,7 @@ hypre() {
   fi
   cmake -S "$src/src" -B "$ROOT/build-hypre" -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX="$PROTO_HYPRE" \
+    -DCMAKE_INSTALL_LIBDIR=lib \
     "${PROTO_HYPRE_OPTIONS[@]}"
   cmake --build "$ROOT/build-hypre" -j "${PROTO_JOBS:-8}"
   cmake --install "$ROOT/build-hypre"
