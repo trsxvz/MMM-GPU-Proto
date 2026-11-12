@@ -23,8 +23,10 @@
 # cases/measure-multi-gpu.sh). If PROTO_GPU_PER_RANK names a variable (for
 # instance ROCR_VISIBLE_DEVICES on the AMD GPUs of Adastra, as recommended
 # by CINES with `srun --gpu-bind=none`), each process is started with this
-# variable set to its local rank on the node (SLURM_LOCALID): it sees only
-# the GPU of its rank.
+# variable set to the GPU of its local rank on the node (SLURM_LOCALID):
+# the element of this rank in the comma separated list
+# PROTO_GPU_RANK_ORDER if it is given, the local rank otherwise. Each
+# process then sees only its GPU.
 set -u
 np=1
 cpus=()
@@ -69,7 +71,8 @@ if [ -n "${PROTO_CUDA_VISIBLE_DEVICES:-}" ]; then
   launcher=(env "CUDA_VISIBLE_DEVICES=$PROTO_CUDA_VISIBLE_DEVICES")
 fi
 if [ -n "${PROTO_GPU_PER_RANK:-}" ]; then
-  launcher+=(bash -c "export $PROTO_GPU_PER_RANK=\$SLURM_LOCALID; exec \"\$@\"" \
+  launcher+=(bash -c "o=(\${PROTO_GPU_RANK_ORDER//,/ });
+export $PROTO_GPU_PER_RANK=\${o[\$SLURM_LOCALID]:-\$SLURM_LOCALID}; exec \"\$@\"" \
     mpirun-srun)
 fi
 exec srun --overlap --mem=0 --ntasks="$np" "${cpus[@]}" "${extra[@]}" \

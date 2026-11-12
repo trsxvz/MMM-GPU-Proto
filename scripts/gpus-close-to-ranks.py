@@ -10,7 +10,12 @@ usage: scripts/gpus-close-to-ranks.py processes cores-per-process
 The rank r runs on the cores r * c to (r + 1) * c - 1, as srun places the
 processes of `--cpus-per-task=c`. The NUMA nodes and sockets of the cores
 are read with `lscpu -p=CPU,NODE,SOCKET`, the NUMA node of each GPU in
-`nvidia-smi topo -m`. Prints nothing if the topology is unknown.
+`nvidia-smi topo -m` (NVIDIA GPUs) or `rocm-smi --showtoponuma` (AMD
+GPUs). Prints nothing if the topology is unknown.
+
+With a variable giving each process only its GPU (PROTO_GPU_PER_RANK of
+scripts/mpirun-srun, for instance ROCR_VISIBLE_DEVICES), the r-th element of
+the list is the GPU of the rank r.
 """
 import re
 import subprocess
@@ -48,6 +53,16 @@ def main():
                 break
         else:
             return
+    # AMD GPUs: lines `GPU[i] : (Topology) Numa Node: n`
+    if not gpu_node:
+        nodes = {}
+        for line in run(["rocm-smi", "--showtoponuma"]).splitlines():
+            m = re.match(r"^GPU\[(\d+)\]\s*:\s*\(Topology\) Numa Node:\s*(\d+)",
+                         line)
+            if m:
+                nodes[int(m.group(1))] = int(m.group(2))
+        if sorted(nodes) == list(range(len(nodes))):
+            gpu_node = [nodes[g] for g in range(len(nodes))]
     if not gpu_node or not node_of:
         return
     # socket of a NUMA node

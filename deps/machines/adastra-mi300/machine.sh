@@ -7,8 +7,10 @@
 # 14 (PrgEnv-gnu), cray-mpich 9.0.1 (Slingshot network, GPU support through
 # the GTL library), ROCm 6.4.3, cray-libsci (BLAS, LAPACK, ScaLAPACK), and
 # the libraries of the stack built for this partition: hypre 3.1.0 (HIP,
-# rocSPARSE, Umpire, OpenMP), METIS 5.1.0, SuiteSparse 7.8.3 and MUMPS 5.9.1
-# (64 bit integers, supported by MFEM). Only MFEM is built by the prototype
+# rocSPARSE, Umpire, OpenMP), METIS 5.1.0 and SuiteSparse 7.8.3. The MUMPS
+# of the stack (5.9.1) uses 64 bit integers, which MFEM 4.10 refuses ("Full
+# 64-bit MUMPS is not yet supported"): MFEM is built without MUMPS (the
+# direct solvers of SuiteSparse remain). Only MFEM is built by the prototype
 # (`deploy.sh mfem`, options PROTO_MFEM_OPTIONS below), with HIP for the
 # MI300A (gfx942), without spack (docs/install.md).
 #
@@ -18,12 +20,12 @@
 module purge > /dev/null 2>&1
 module load GCC-APU-6.0.0 > /dev/null 2>&1 &&
   module load hypre/3.1.0-omp-rocm-mpi-gpu metis/5.1.0 suite-sparse/7.8.3 \
-    mumps/5.9.1-int64-omp-mpi cmake/3.27.9 > /dev/null 2>&1 || {
+    cmake/3.27.9 > /dev/null 2>&1 || {
   echo "adastra-mi300: the modules of the machine can't be loaded" >&2
   return 1
 }
 # the modules of the stack give the prefixes of their libraries
-for _v in HYPRE_ROOT METIS_ROOT SUITE_SPARSE_ROOT MUMPS_ROOT MPICH_DIR \
+for _v in HYPRE_ROOT METIS_ROOT SUITE_SPARSE_ROOT MPICH_DIR \
   ROCM_PATH CRAY_LIBSCI_PREFIX_DIR; do
   if [ -z "${!_v:-}" ]; then
     echo "adastra-mi300: $_v is not defined by the modules" >&2
@@ -90,7 +92,7 @@ export HIPCC_COMPILE_FLAGS_APPEND="--offload-arch=$PROTO_HIP_ARCH $HIPFLAGS"
 _sslibs="-lklu -lbtf -lumfpack -lcholmod -lcolamd -lamd -lcamd -lccolamd"
 _sslibs="$_sslibs -lsuitesparseconfig"
 PROTO_MFEM_OPTIONS=(MFEM_USE_MPI=YES MFEM_USE_HIP=YES
-  MFEM_USE_METIS_5=YES MFEM_USE_SUITESPARSE=YES MFEM_USE_MUMPS=YES
+  MFEM_USE_METIS_5=YES MFEM_USE_SUITESPARSE=YES MFEM_USE_MUMPS=NO
   MFEM_USE_LAPACK=YES MFEM_USE_ZLIB=YES MFEM_SHARED=YES MFEM_STATIC=NO
   HIP_CXX="$ROCM_PATH/bin/hipcc" HIP_DIR="$ROCM_PATH" HIP_ARCH="$PROTO_HIP_ARCH"
   MPICXX=CC MPI_DIR="$MPICH_DIR"
@@ -103,9 +105,6 @@ PROTO_MFEM_OPTIONS=(MFEM_USE_MPI=YES MFEM_USE_HIP=YES
   SUITESPARSE_DIR="$SUITE_SPARSE_ROOT"
   SUITESPARSE_OPT="-I$SUITE_SPARSE_ROOT/include -I$SUITE_SPARSE_ROOT/include/suitesparse"
   SUITESPARSE_LIB="-L$SUITE_SPARSE_ROOT/lib64 -Wl,-rpath,$SUITE_SPARSE_ROOT/lib64 $_sslibs"
-  MUMPS_DIR="$MUMPS_ROOT"
-  MUMPS_OPT="-I$MUMPS_ROOT/include"
-  MUMPS_LIB="-L$MUMPS_ROOT/lib -Wl,-rpath,$MUMPS_ROOT/lib -ldmumps -lmumps_common -lpord"
   LAPACK_LIB="-L$CRAY_LIBSCI_PREFIX_DIR/lib -Wl,-rpath,$CRAY_LIBSCI_PREFIX_DIR/lib -lsci_gnu")
 unset _sslibs
 unset SPACK_ENV SPACK_ENV_VIEW
@@ -117,3 +116,13 @@ export OMP_PROC_BIND=spread OMP_PLACES=threads
 PROTO_MGIS_OPTIONS=()
 # device of MFEM of the test suite on the GPU (scripts/mfem-mgis-gpu-suite.sh)
 export PROTO_GPU_DEVICE=hip
+# several GPUs of a node (recommendations of CINES): Slurm does not bind
+# the GPUs (--gpu-bind=none), each process sees only its MI300A
+# (ROCR_VISIBLE_DEVICES set to the GPU of its rank by scripts/mpirun-srun),
+# the exchanges between the GPUs of a node go through IPC; the GPU support
+# of cray-mpich is enabled for the computations with --gpu-aware-mpi only
+# (cases/measure-multi-gpu.sh)
+export PROTO_SRUN_OPTIONS="--gpu-bind=none"
+export PROTO_GPU_PER_RANK=ROCR_VISIBLE_DEVICES
+export MPICH_GPU_IPC_ENABLED=1
+export PROTO_GPU_AWARE_MPI_ENVIRONMENT="MPICH_GPU_SUPPORT_ENABLED=1"

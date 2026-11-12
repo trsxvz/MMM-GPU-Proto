@@ -61,9 +61,14 @@ source "$P/scripts/env.sh" > /dev/null
 # processor, and `spread` over the hardware threads only uses half of the
 # cores. The placement is left to OpenMPI.
 unset OMP_PROC_BIND OMP_PLACES
-# MPI of the spack environment of the machine (scripts/env.sh)
-MPI=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" \
-  location -i "${PROTO_MPI_PACKAGE:-openmpi}")
+# MPI of the machine profile (PROTO_MPI, machines without spack) or of its
+# spack environment (scripts/env.sh)
+if [ -n "${PROTO_MPI:-}" ]; then
+  MPI=$PROTO_MPI
+else
+  MPI=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" \
+    location -i "${PROTO_MPI_PACKAGE:-openmpi}")
+fi
 # mpirun of the machine profile first, if any (PROTO_MPI_LAUNCHERS)
 export PATH=${PROTO_MPI_LAUNCHERS:+$PROTO_MPI_LAUNCHERS:}$MPI/bin:$PATH
 case_name=${1:-beam}

@@ -22,7 +22,14 @@
 #   `--gpu-bind=closest`, which hides the GPUs of the other socket, the
 #   GPU-aware MPI of Open MPI with PSM2 fails (cuIpcOpenMemHandle); and srun
 #   refuses `--cpu-bind=map_ldom` in a step which does not use the whole node
-#   (Jean Zay, 26-27/10/2026);
+#   (Jean Zay, 26-27/10/2026). On a machine whose profile gives each
+#   process only its GPU (PROTO_GPU_PER_RANK of scripts/mpirun-srun, for
+#   instance ROCR_VISIBLE_DEVICES on the MI300A of Adastra), the same order
+#   gives the GPU of each rank (PROTO_GPU_RANK_ORDER), and the variables of
+#   PROTO_GPU_AWARE_MPI_ENVIRONMENT (for instance
+#   MPICH_GPU_SUPPORT_ENABLED=1 for cray-mpich) are set for the computations
+#   with --gpu-aware-mpi. The backend of the behaviours and the device of
+#   MFEM are those of PROTO_GPU_DEVICE (cuda by default, hip on AMD GPUs);
 # - on 24, 48 and 96 processes on the CPU.
 # The beam is refined `refinement` times (5 by default: 840,000 unknowns; 6:
 # about 6.5 million). The polycrystal (5 grains, single crystal behaviour of
@@ -50,7 +57,8 @@ batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
-cuda=$gp/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+gpu=${PROTO_GPU_DEVICE:-cuda}
+gpu_library=$gp/generic-parallel-$gpu/src/libGenericParallelBehaviour-$gpu.so
 linear_solver=pcg-amg
 linear_tolerance=1e-4
 base="-nls fixed-point -fpm newton-k0 -k0 -pk0 -alst EisenstatWalker1 -alsti 0.1"
@@ -63,7 +71,7 @@ if [ "$case_name" = polycrystal ]; then
   reference=polycrystal-r$refinement-gpu-np1
 fi
 echo "refinement: $refinement" | tee -a "$out/summary.txt"
-device=cuda
+device=$gpu
 cpu_list=(${cpu_processes:-24 48 96})
 cores=${cpu_list[-1]}
 for np in ${gpu_processes:-1 2 4}; do
@@ -71,20 +79,25 @@ for np in ${gpu_processes:-1 2 4}; do
   # GPU of the rank r close to its cores (cores r * threads and above)
   order=$(python3 -I "$P/scripts/gpus-close-to-ranks.py" "$np" "$threads")
   if [ -n "$order" ]; then
-    export PROTO_CUDA_VISIBLE_DEVICES=$order
+    if [ -n "${PROTO_GPU_PER_RANK:-}" ]; then
+      export PROTO_GPU_RANK_ORDER=$order
+    else
+      export PROTO_CUDA_VISIBLE_DEVICES=$order
+    fi
   fi
   echo "$np processes: $threads cores each, CUDA_VISIBLE_DEVICES=${order:-unchanged}" |
     tee -a "$out/summary.txt"
   options="$base $amg"
-  run "$case_name-r$refinement-gpu-np$np" "$threads" "$np" "$cuda" "$batch" \
-    "${kernels[@]}"
+  run "$case_name-r$refinement-gpu-np$np" "$threads" "$np" "$gpu_library" \
+    "$batch" "${kernels[@]}"
   if [ "$np" != 1 ]; then
     options="$base $amg --gpu-aware-mpi"
+    read -r -a gpu_aware <<< "${PROTO_GPU_AWARE_MPI_ENVIRONMENT:-}"
     run "$case_name-r$refinement-gpu-np$np-gpu-aware-mpi" "$threads" "$np" \
-      "$cuda" "$batch" "${kernels[@]}"
+      "$gpu_library" "$batch" "${kernels[@]}" "${gpu_aware[@]}"
   fi
 done
-unset PROTO_CUDA_VISIBLE_DEVICES
+unset PROTO_CUDA_VISIBLE_DEVICES PROTO_GPU_RANK_ORDER
 device=""
 for np in ${cpu_processes:-24 48 96}; do
   options="$base $amg"
