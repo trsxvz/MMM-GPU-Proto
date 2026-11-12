@@ -1,0 +1,54 @@
+From cb2471ecc0c7bca06555399215ca2d36bf51d4a0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 12 Nov 2026 19:55:50 +0100
+Subject: [PATCH] LibrariesManager: libraries never unloaded (RTLD_NODELETE,
+ pinned on Windows)
+
+The destructor of the manager, called at the exit of the program, closed
+the libraries of behaviours. A library of the openmp backend of the
+generic-parallel interface then unloaded libgomp, when no other library of
+the program used it, while the threads of its pool were still waiting
+actively on its barrier: they executed code which was no longer mapped,
+and the program crashed at its exit (segmentation fault in
+gomp_barrier_wait_end, called by gomp_thread_start). Seen on Adastra with
+three tests of mfem-mgis. The libraries are opened with RTLD_NODELETE and,
+on Windows, pinned with GetModuleHandleEx (GET_MODULE_HANDLE_EX_FLAG_PIN):
+they and their dependencies stay loaded until the end of the process.
+Upstream: thelfer/MFrontGenericInterfaceSupport#455 and #456.
+---
+ src/LibrariesManager.cxx | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
+index 64656c5..2a1f15e 100644
+--- a/src/LibrariesManager.cxx
++++ b/src/LibrariesManager.cxx
+@@ -107,10 +107,24 @@ namespace mgis {
+   }  // end of getRotationFunctionSuffix
+ 
+   static LibrariesManager::libhandler load_library(const std::string &l) {
++    // never unloaded, nor their dependencies: unloading them at the exit of
++    // the program may unload a runtime whose threads are still running (for
++    // instance the pool of threads of an OpenMP runtime), which then crash
+ #if (defined _WIN32 || defined _WIN64) && (!defined __CYGWIN__)
+-    return ::LoadLibrary(TEXT(l.c_str()));
++    const auto h = ::LoadLibrary(TEXT(l.c_str()));
++    if (h != nullptr) {
++      const auto flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
++                         GET_MODULE_HANDLE_EX_FLAG_PIN;
++      auto pinned = HMODULE{};
++      ::GetModuleHandleEx(flags, reinterpret_cast<LPCTSTR>(h), &pinned);
++    }
++    return h;
+ #else
++#ifdef RTLD_NODELETE
++    return ::dlopen(l.c_str(), RTLD_NOW | RTLD_NODELETE);
++#else  /* RTLD_NODELETE */
+     return ::dlopen(l.c_str(), RTLD_NOW);
++#endif /* RTLD_NODELETE */
+ #endif /* (defined _WIN32 || defined _WIN64) && (!defined __CYGWIN__) */
+   }    // end of load_library
+ 
+-- 
+2.34.1
+
