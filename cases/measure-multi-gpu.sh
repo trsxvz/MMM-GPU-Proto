@@ -85,7 +85,7 @@ for np in ${gpu_processes:-1 2 4}; do
       export PROTO_CUDA_VISIBLE_DEVICES=$order
     fi
   fi
-  echo "$np processes: $threads cores each, CUDA_VISIBLE_DEVICES=${order:-unchanged}" |
+  echo "$np processes: $threads cores each, GPUs ${order:-unchanged}" |
     tee -a "$out/summary.txt"
   options="$base $amg"
   run "$case_name-r$refinement-gpu-np$np" "$threads" "$np" "$gpu_library" \
@@ -97,7 +97,8 @@ for np in ${gpu_processes:-1 2 4}; do
       "$gpu_library" "$batch" "${kernels[@]}" "${gpu_aware[@]}"
   fi
 done
-unset PROTO_CUDA_VISIBLE_DEVICES PROTO_GPU_RANK_ORDER
+# the processes on the CPU use no GPU
+unset PROTO_CUDA_VISIBLE_DEVICES PROTO_GPU_RANK_ORDER PROTO_GPU_PER_RANK
 device=""
 for np in ${cpu_processes:-24 48 96}; do
   options="$base $amg"

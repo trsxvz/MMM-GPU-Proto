@@ -25,8 +25,11 @@
 # by CINES with `srun --gpu-bind=none`), each process is started with this
 # variable set to the GPU of its local rank on the node (SLURM_LOCALID):
 # the element of this rank in the comma separated list
-# PROTO_GPU_RANK_ORDER if it is given, the local rank otherwise. Each
-# process then sees only its GPU.
+# PROTO_GPU_RANK_ORDER if it is given, the local rank otherwise, modulo
+# the number of GPUs (of the list, or SLURM_GPUS_ON_NODE) when there are
+# more processes than GPUs on the node: a process given a GPU which does not
+# exist sees none, and cray-mpich, with MPICH_GPU_SUPPORT_ENABLED=1, then
+# hangs in MPI_Init. Each process then sees only its GPU.
 set -u
 np=1
 cpus=()
@@ -71,9 +74,11 @@ if [ -n "${PROTO_CUDA_VISIBLE_DEVICES:-}" ]; then
   launcher=(env "CUDA_VISIBLE_DEVICES=$PROTO_CUDA_VISIBLE_DEVICES")
 fi
 if [ -n "${PROTO_GPU_PER_RANK:-}" ]; then
-  launcher+=(bash -c "o=(\${PROTO_GPU_RANK_ORDER//,/ });
-export $PROTO_GPU_PER_RANK=\${o[\$SLURM_LOCALID]:-\$SLURM_LOCALID}; exec \"\$@\"" \
-    mpirun-srun)
+  launcher+=(bash -c "o=(\${PROTO_GPU_RANK_ORDER//,/ }); n=\${#o[@]}
+g=\${SLURM_GPUS_ON_NODE:-0}; g=\${g##*:}
+if [ \$n -gt 0 ]; then export $PROTO_GPU_PER_RANK=\${o[\$((SLURM_LOCALID % n))]}
+elif [ \$g -gt 0 ] 2>/dev/null; then export $PROTO_GPU_PER_RANK=\$((SLURM_LOCALID % g)); fi
+exec \"\$@\"" mpirun-srun)
 fi
 exec srun --overlap --mem=0 --ntasks="$np" "${cpus[@]}" "${extra[@]}" \
   "${launcher[@]}" "$@"
