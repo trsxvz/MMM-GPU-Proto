@@ -17,11 +17,12 @@
 #     mmm-update.tar` in ROOT, then `deploy.sh setup`).
 #   scripts/offline/bundle.sh modules WORK
 #     WORK/mmm-modules.tar: the prototype (current commit), MGIS at the base
-#     of its patches, the sources of MFEM (PROTO_MFEM_VERSION, checksum
-#     checked) and deploy.sh, for a machine whose libraries come from its
-#     modules, without spack (`tar -xf mmm-modules.tar` in ROOT, then
-#     `deploy.sh setup`, `deploy.sh mfem MACHINE` and `deploy.sh build
-#     MACHINE`).
+#     of its patches, the sources of hypre and MFEM (PROTO_HYPRE_VERSION,
+#     PROTO_MFEM_VERSION, checksums checked) and deploy.sh, for a machine
+#     whose libraries come from its modules, without spack (`tar -xf
+#     mmm-modules.tar` in ROOT, then `deploy.sh setup`, `deploy.sh hypre
+#     MACHINE` if the profile builds hypre, `deploy.sh mfem MACHINE` and
+#     `deploy.sh build MACHINE`).
 #   scripts/offline/bundle.sh mirror WORK MACHINE SPACK_LOCK
 #     WORK/mmm-mirror-MACHINE.tar: mirror of the sources of the packages of
 #     the spack environment of MACHINE (deps/spack/mmm-light) concretized
@@ -33,7 +34,7 @@ set -eu
 P=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$P/scripts/offline/versions.sh"
 usage() {
-  sed -n '6,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '6,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 1
 }
 # spack of the work directory, isolated from the configuration and the
@@ -108,19 +109,25 @@ update() {
     mgis.bundle
   echo "bundle.sh: $W/mmm-update.tar ($(du -h "$W/mmm-update.tar" | cut -f1))"
 }
+# download (once) of an archive, whose checksum is checked, in WORK/stage
+# usage: archive name url sha256
+archive() {
+  local name=$1 url=$2 sha=$3
+  if ! echo "$sha  $W/$name" | sha256sum -c --status - 2> /dev/null; then
+    echo "bundle.sh: $name"
+    curl -sSfL -o "$W/$name" "$url"
+    echo "$sha  $W/$name" | sha256sum -c --quiet -
+  fi
+  cp "$W/$name" "$W/stage/$name"
+}
 modules() {
   mgis
   prototype
-  local mfem=mfem-$PROTO_MFEM_VERSION.tar.gz
-  if ! echo "$PROTO_MFEM_SHA256  $W/$mfem" | sha256sum -c --status - \
-    2> /dev/null; then
-    echo "bundle.sh: MFEM $PROTO_MFEM_VERSION"
-    curl -sSfL -o "$W/$mfem" "$PROTO_MFEM_URL"
-    echo "$PROTO_MFEM_SHA256  $W/$mfem" | sha256sum -c --quiet -
-  fi
-  cp "$W/$mfem" "$W/stage/$mfem"
+  local hypre=hypre-$PROTO_HYPRE_VERSION.tar.gz mfem=mfem-$PROTO_MFEM_VERSION.tar.gz
+  archive "$hypre" "$PROTO_HYPRE_URL" "$PROTO_HYPRE_SHA256"
+  archive "$mfem" "$PROTO_MFEM_URL" "$PROTO_MFEM_SHA256"
   tar -cf "$W/mmm-modules.tar" -C "$W/stage" MANIFEST deploy.sh \
-    proto.bundle mgis.bundle "$mfem"
+    proto.bundle mgis.bundle "$hypre" "$mfem"
   echo "bundle.sh: $W/mmm-modules.tar ($(du -h "$W/mmm-modules.tar" | cut -f1))"
 }
 mirror() {

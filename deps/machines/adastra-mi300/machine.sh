@@ -6,26 +6,34 @@
 # partition (module GCC-APU-6.0.0), tuned for the machine by its team: gcc
 # 14 (PrgEnv-gnu), cray-mpich 9.0.1 (Slingshot network, GPU support through
 # the GTL library), ROCm 6.4.3, cray-libsci (BLAS, LAPACK, ScaLAPACK), and
-# the libraries of the stack built for this partition: hypre 3.1.0 (HIP,
-# rocSPARSE, Umpire, OpenMP), METIS 5.1.0 and SuiteSparse 7.8.3. The MUMPS
-# of the stack (5.9.1) uses 64 bit integers, which MFEM 4.10 refuses ("Full
-# 64-bit MUMPS is not yet supported"): MFEM is built without MUMPS (the
-# direct solvers of SuiteSparse remain). Only MFEM is built by the prototype
-# (`deploy.sh mfem`, options PROTO_MFEM_OPTIONS below), with HIP for the
-# MI300A (gfx942), without spack (docs/install.md).
+# the libraries of the stack built for this partition: METIS 5.1.0,
+# SuiteSparse 7.8.3 and Umpire 2026.07.1 (HIP, gfx942).
+#
+# Built by the prototype, without spack (docs/install.md), with these
+# libraries and for the MI300A (gfx942):
+# - hypre 3.2.0 (`deploy.sh hypre`, options PROTO_HYPRE_OPTIONS below): the
+#   hypre of the stack (3.1.0, with OpenMP) fails three tests of mfem-mgis
+#   which pass with hypre 3.2 (the multigrid reduction MGR with its default
+#   settings diverges on the GPU, FSAI diverges with the threads of OpenMP,
+#   and the pool of memory of hypre on the GPU has no accessor before 3.2).
+#   It is built as on the other machines of the prototype: HIP, Umpire,
+#   global indices of 64 bits (mixedint), without OpenMP;
+# - MFEM 4.10 (`deploy.sh mfem`, options PROTO_MFEM_OPTIONS below), without
+#   MUMPS: the MUMPS of the stack (5.9.1) uses 64 bit integers, which MFEM
+#   4.10 refuses ("Full 64-bit MUMPS is not yet supported"); the direct
+#   solvers of SuiteSparse remain.
 #
 # The prototype is deployed by scripts/offline/deploy.sh in a directory
 # PROTO_DEPLOY (by default the parent directory of the prototype), from the
 # archive of `bundle.sh modules`.
 module purge > /dev/null 2>&1
 module load GCC-APU-6.0.0 > /dev/null 2>&1 &&
-  module load hypre/3.1.0-omp-rocm-mpi-gpu metis/5.1.0 suite-sparse/7.8.3 \
-    cmake/3.27.9 > /dev/null 2>&1 || {
+  module load metis/5.1.0 suite-sparse/7.8.3 cmake/3.27.9 > /dev/null 2>&1 || {
   echo "adastra-mi300: the modules of the machine can't be loaded" >&2
   return 1
 }
 # the modules of the stack give the prefixes of their libraries
-for _v in HYPRE_ROOT METIS_ROOT SUITE_SPARSE_ROOT MPICH_DIR \
+for _v in METIS_ROOT SUITE_SPARSE_ROOT MPICH_DIR \
   ROCM_PATH CRAY_LIBSCI_PREFIX_DIR; do
   if [ -z "${!_v:-}" ]; then
     echo "adastra-mi300: $_v is not defined by the modules" >&2
@@ -34,26 +42,28 @@ for _v in HYPRE_ROOT METIS_ROOT SUITE_SPARSE_ROOT MPICH_DIR \
   fi
 done
 unset _v
-# the headers of hypre include those of Umpire and camp, which have no
-# module: their installations in the stack are the dependencies recorded by
-# spack in the specification of hypre (<name>-<version>-<compiler>-<hash>
-# next to hypre)
-_tpl=$(python3 -I - "$HYPRE_ROOT" << 'EOF'
+# Umpire for the MI300A and its camp, which have no module: installations of
+# the stack (<name>-<version>-<compiler>-<hash>, next to METIS), the Umpire
+# built with ROCm for gfx942 and the camp recorded in its specification
+_tpl=$(python3 -I - "$(dirname "$METIS_ROOT")" << 'EOF'
 import glob, json, os, sys
-root = sys.argv[1]
-with open(os.path.join(root, ".spack", "spec.json")) as f:
-    nodes = json.load(f)["spec"]["nodes"]
-for name in ("umpire", "camp"):
-    n = next(n for n in nodes if n["name"] == name)
-    d = glob.glob(os.path.join(os.path.dirname(root),
-                               f"{name}-{n['version']}-*-{n['hash'][:4]}"))
-    print(d[0] if len(d) == 1 else "")
+stack = sys.argv[1]
+for umpire in sorted(glob.glob(os.path.join(stack, "umpire-*"))):
+    with open(os.path.join(umpire, ".spack", "spec.json")) as f:
+        nodes = json.load(f)["spec"]["nodes"]
+    u = nodes[0]["parameters"]
+    if u.get("rocm") and "gfx942" in u.get("amdgpu_target", []):
+        camp = next(d for d in nodes[0]["dependencies"] if d["name"] == "camp")
+        c = glob.glob(os.path.join(stack, f"camp-*-{camp['hash'][:4]}"))
+        print(umpire)
+        print(c[0] if len(c) == 1 else "")
+        break
 EOF
 )
 PROTO_UMPIRE=$(echo "$_tpl" | sed -n 1p) PROTO_CAMP=$(echo "$_tpl" | sed -n 2p)
 unset _tpl
 if [ ! -d "$PROTO_UMPIRE/include" ] || [ ! -d "$PROTO_CAMP/include" ]; then
-  echo "adastra-mi300: Umpire or camp of hypre not found" >&2
+  echo "adastra-mi300: Umpire for gfx942 or its camp not found" >&2
   return 1
 fi
 export PROTO_DEPLOY=${PROTO_DEPLOY:-$(dirname "$P")}
@@ -65,8 +75,10 @@ export PROTO_CC=gcc PROTO_CXX=g++ PROTO_FC=gfortran
 # environment, which link the GPU support of MPI (GTL library, module
 # craype-accel-amd-gfx942) needed by --gpu-aware-mpi
 export PROTO_MPI=$MPICH_DIR PROTO_MPI_CC=cc PROTO_MPI_CXX=CC
-# no spack environment: MFEM is built by `deploy.sh mfem`
+# no spack environment: hypre and MFEM are built by `deploy.sh hypre` and
+# `deploy.sh mfem`
 export PROTO_SPACK= PROTO_SPACK_ENVIRONMENT= PROTO_SPACK_VIEW=
+export PROTO_HYPRE=$PROTO_DEPLOY/install/hypre
 export PROTO_MFEM=$PROTO_DEPLOY/install/mfem
 export PROTO_CUDA=
 export PROTO_TFEL_BUILD=$P/build/tfel PROTO_TFEL_INSTALL=$P/install/tfel
@@ -86,6 +98,17 @@ unset _gcc
 # hipcc compiles the libraries of behaviours generated by MFront for the
 # MI300A, also on the login nodes, which have no GPU
 export HIPCC_COMPILE_FLAGS_APPEND="--offload-arch=$PROTO_HIP_ARCH $HIPFLAGS"
+# options of CMake of hypre (deploy.sh hypre): MPI of the Cray wrappers, HIP
+# for gfx942 (the HIP compiler is given the headers of MPI and the gcc 14 of
+# HIPFLAGS), rocSPARSE, rocRAND and rocBLAS of ROCm, Umpire of the stack,
+# global indices of 64 bits
+PROTO_HYPRE_OPTIONS=(-DCMAKE_C_COMPILER=cc -DCMAKE_CXX_COMPILER=CC
+  -DHYPRE_ENABLE_MPI=ON -DHYPRE_ENABLE_HIP=ON -DHYPRE_ENABLE_MIXEDINT=ON
+  -DHYPRE_ENABLE_UMPIRE=ON -DHYPRE_ENABLE_OPENMP=OFF
+  -DCMAKE_HIP_COMPILER="$ROCM_PATH/llvm/bin/clang++"
+  -DCMAKE_HIP_ARCHITECTURES="$PROTO_HIP_ARCH"
+  -DCMAKE_HIP_FLAGS="$HIPFLAGS -isystem $MPICH_DIR/include"
+  -DCMAKE_PREFIX_PATH="$PROTO_UMPIRE;$PROTO_CAMP;$ROCM_PATH")
 # options of `make config` of MFEM (deploy.sh mfem): MPI, HIP for gfx942,
 # the libraries of the stack; the MPI library of the Cray wrappers, with its
 # GPU support (GTL)
@@ -97,9 +120,9 @@ PROTO_MFEM_OPTIONS=(MFEM_USE_MPI=YES MFEM_USE_HIP=YES
   HIP_CXX="$ROCM_PATH/bin/hipcc" HIP_DIR="$ROCM_PATH" HIP_ARCH="$PROTO_HIP_ARCH"
   MPICXX=CC MPI_DIR="$MPICH_DIR"
   MPI_LIB="-L$MPICH_DIR/lib -Wl,-rpath,$MPICH_DIR/lib -lmpi $PE_MPICH_GTL_DIR_amd_gfx942 -Wl,-rpath,${PE_MPICH_GTL_DIR_amd_gfx942#-L} $PE_MPICH_GTL_LIBS_amd_gfx942"
-  HYPRE_DIR="$HYPRE_ROOT"
-  HYPRE_OPT="-I$HYPRE_ROOT/include -I$PROTO_UMPIRE/include -I$PROTO_CAMP/include"
-  HYPRE_LIB="-L$HYPRE_ROOT/lib -Wl,-rpath,$HYPRE_ROOT/lib -lHYPRE"
+  HYPRE_DIR="$PROTO_HYPRE"
+  HYPRE_OPT="-I$PROTO_HYPRE/include -I$PROTO_UMPIRE/include -I$PROTO_CAMP/include"
+  HYPRE_LIB="-L$PROTO_HYPRE/lib -Wl,-rpath,$PROTO_HYPRE/lib -lHYPRE"
   METIS_DIR="$METIS_ROOT"
   METIS_LIB="-L$METIS_ROOT/lib -Wl,-rpath,$METIS_ROOT/lib -lmetis"
   SUITESPARSE_DIR="$SUITE_SPARSE_ROOT"
@@ -108,7 +131,7 @@ PROTO_MFEM_OPTIONS=(MFEM_USE_MPI=YES MFEM_USE_HIP=YES
   LAPACK_LIB="-L$CRAY_LIBSCI_PREFIX_DIR/lib -Wl,-rpath,$CRAY_LIBSCI_PREFIX_DIR/lib -lsci_gnu")
 unset _sslibs
 unset SPACK_ENV SPACK_ENV_VIEW
-export CMAKE_PREFIX_PATH=$PROTO_TFEL_INSTALL:$PROTO_MFEM
+export CMAKE_PREFIX_PATH=$PROTO_TFEL_INSTALL:$PROTO_MFEM:$PROTO_HYPRE
 export PATH=$PROTO_MPI_LAUNCHERS:$PROTO_TFEL_INSTALL/bin:$PATH
 export LD_LIBRARY_PATH=$PROTO_TFEL_INSTALL/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export OMP_PROC_BIND=spread OMP_PLACES=threads

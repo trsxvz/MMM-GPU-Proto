@@ -304,14 +304,16 @@ Same organisation as `jean-zay-h100`, with the modules of `arch/a100`:
 On a machine whose team provides a software stack tuned for it (compilers,
 MPI, GPU toolkit, BLAS, and often hypre, METIS, SuiteSparse, MUMPS), the
 prototype takes the libraries of these modules instead of building its own:
-an MPI library or a hypre configured by the team of the machine for its
-network and its GPUs is usually the best choice. Only MFEM is built, from
-its release archive, without spack:
+an MPI library configured by the team of the machine for its network and
+its GPUs is usually the best choice. MFEM is built from its release
+archive, without spack, and hypre too when the stack has no hypre of the
+version of the prototype (3.2):
 
 | Step | Machine | Command | Result |
 |---|---|---|---|
-| 1 | connected | `scripts/offline/bundle.sh modules WORK` | `mmm-modules.tar` (about 220 MB): prototype, MGIS, sources of MFEM, `deploy.sh` |
+| 1 | connected | `scripts/offline/bundle.sh modules WORK` | `mmm-modules.tar` (about 240 MB): prototype, MGIS, sources of hypre and MFEM, `deploy.sh` |
 | 2 | target | `tar -xf mmm-modules.tar`, `./deploy.sh setup` | prototype and MGIS (no spack) |
+| 3 | target | `deploy.sh hypre MACHINE` (if the profile defines `PROTO_HYPRE`) | hypre, with the options of CMake of the profile (`PROTO_HYPRE_OPTIONS`) |
 | 3 | target | `deploy.sh mfem MACHINE` | MFEM, with the options of `make config` of the profile (`PROTO_MFEM_OPTIONS`) |
 | 4 | target | `deploy.sh build MACHINE` | TFEL, MGIS, mfem-mgis, examples, mm-opera-hpc, cases |
 
@@ -332,10 +334,17 @@ goes through `bundle.sh update` as for the other machines.
   scripts of the connected machine use it without password.
 - **Software stack**: module `GCC-APU-6.0.0` of CINES (cpe 25.09,
   PrgEnv-gnu with gcc 14.2, cray-mpich 9.0.1, cray-libsci 25.09, ROCm
-  6.4.3, `craype-accel-amd-gfx942`), and its modules `hypre/3.1.0-omp-rocm-mpi-gpu`
-  (HIP, rocSPARSE, Umpire, OpenMP, 32 bit indices; its headers need those
-  of Umpire and camp, found from its specification), `metis/5.1.0`,
-  `suite-sparse/7.8.3` and `cmake/3.27.9`. The MUMPS of the stack
+  6.4.3, `craype-accel-amd-gfx942`), and its modules `metis/5.1.0`,
+  `suite-sparse/7.8.3` and `cmake/3.27.9`, and the Umpire of the stack
+  built for gfx942 (no module: found from its spack specification).
+- **hypre**: 3.2.0, built by `deploy.sh hypre` (HIP for `gfx942`, Umpire,
+  global indices of 64 bits, without OpenMP, MPI and ROCm of the stack).
+  The hypre of the stack (`hypre/3.1.0-omp-rocm-mpi-gpu`, OpenMP) fails
+  three tests of mfem-mgis which pass with hypre 3.2: MGR with its default
+  settings diverges on the GPU (`HypreMGRTestP-gpu`), FSAI diverges with the
+  threads of OpenMP (`HypreSolversTest`, `HypreSolversTestP`, which pass
+  with `OMP_NUM_THREADS=1`), and its pool of memory on the GPU has no
+  accessor before 3.2. The MUMPS of the stack
   (`mumps/5.9.1-int64-omp-mpi`) uses 64 bit integers, which MFEM 4.10
   refuses ("Full 64-bit MUMPS is not yet supported"): MFEM is built without
   MUMPS, the direct solvers of SuiteSparse remain.

@@ -33,6 +33,12 @@
 #   deploy.sh restore MACHINE BUILDCACHE
 #     installs the environment from the binary cache of `install`, without
 #     compiling, with the spack.lock kept in it.
+#   deploy.sh hypre MACHINE
+#     machine whose libraries come from its modules, when its stack has no
+#     hypre of the version of the prototype (the profile defines
+#     PROTO_HYPRE, installation directory of hypre, and PROTO_HYPRE_OPTIONS,
+#     options of CMake of hypre): builds and installs hypre from the archive
+#     of mmm-modules.tar, in ROOT/build-hypre.
 #   deploy.sh mfem MACHINE
 #     machine whose libraries come from its modules (the profile defines
 #     PROTO_MFEM, installation directory of MFEM, and PROTO_MFEM_OPTIONS,
@@ -53,7 +59,7 @@ ROOT=${PROTO_DEPLOY:-$ROOT}
 PROTO=$ROOT/MMM-GPU-Proto
 export PROTO_DEPLOY=$ROOT
 usage() {
-  sed -n '11,44p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '11,50p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 1
 }
 # spack of ROOT, isolated from the configuration of the user: its
@@ -211,6 +217,27 @@ restore() {
   fi
   espack install --use-buildcache only
 }
+hypre() {
+  machine "$1"
+  if [ -z "${PROTO_HYPRE:-}" ]; then
+    echo "deploy.sh: the machine '$1' does not build hypre" >&2
+    exit 1
+  fi
+  source "$PROTO/scripts/offline/versions.sh"
+  local archive=$ROOT/hypre-$PROTO_HYPRE_VERSION.tar.gz src=$ROOT/hypre-src
+  echo "$PROTO_HYPRE_SHA256  $archive" | sha256sum -c --quiet -
+  if [ ! -f "$src/src/CMakeLists.txt" ]; then
+    rm -rf "$src"
+    mkdir -p "$src"
+    tar -xzf "$archive" -C "$src" --strip-components=1
+  fi
+  cmake -S "$src/src" -B "$ROOT/build-hypre" -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX="$PROTO_HYPRE" \
+    "${PROTO_HYPRE_OPTIONS[@]}"
+  cmake --build "$ROOT/build-hypre" -j "${PROTO_JOBS:-8}"
+  cmake --install "$ROOT/build-hypre"
+  echo "deploy.sh: hypre $PROTO_HYPRE_VERSION installed in $PROTO_HYPRE"
+}
 mfem() {
   machine "$1"
   if [ -z "${PROTO_MFEM:-}" ]; then
@@ -259,6 +286,10 @@ case "$command" in
   install)
     [ $# -ge 1 ] && [ $# -le 2 ] || usage
     install "$@"
+    ;;
+  hypre)
+    [ $# -eq 1 ] || usage
+    hypre "$1"
     ;;
   mfem)
     [ $# -eq 1 ] || usage
