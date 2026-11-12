@@ -85,8 +85,11 @@ export PROTO_TFEL_BUILD=$P/build/tfel PROTO_TFEL_INSTALL=$P/install/tfel
 export PROTO_AMGX=OFF
 # parallel jobs of the builds: the cores of the job on the node
 export PROTO_JOBS=${PROTO_JOBS:-${SLURM_CPUS_ON_NODE:-8}}
-# HIP for the MI300A
+# HIP for the MI300A. The module of ROCm sets HIP_COMPILER=clang, which
+# MFront reads to choose the compiler of the libraries of behaviours of the
+# hip-hipcc configuration (instead of hipcc): `clang` is not in the PATH
 export HIP_PLATFORM=amd ROCM_PATH HIP_PATH=$ROCM_PATH
+unset HIP_COMPILER
 export PROTO_HIP_ARCH=gfx942
 # The clang of ROCm takes the C++ library of the most recent gcc it finds by
 # itself, here the one of gcc-toolset-12 (no <format> of C++20), and not the
