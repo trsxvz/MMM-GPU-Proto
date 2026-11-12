@@ -38,7 +38,12 @@
 #
 # The CUDA compilers (nvcc and its host compiler) are those of MFEM,
 # chosen by mfem-mgis (see cmake/modules/MFEMMGISDeviceCode.cmake): the
-# ones that an old build directory keeps in its cache are removed.
+# ones that an old build directory keeps in its cache are removed. The
+# entries of hypre (HYPRE_INCLUDE_DIR, HYPRE_VERSION...) are removed too:
+# they are found again from the hypre of MFEM. Kept after a change of
+# hypre, they gave the headers of the previous hypre (on Adastra, those of
+# hypre 3.1 with 32 bit indices with the libraries of hypre 3.2 with 64 bit
+# global indices: random crashes of the tests).
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
 source "$P/scripts/env.sh"
@@ -87,7 +92,7 @@ build() {
     -DCMAKE_C_COMPILER="$PROTO_CC" -DCMAKE_CXX_COMPILER="$PROTO_CXX" \
     -DMPI_C_COMPILER="$MPI_CC" -DMPI_CXX_COMPILER="$MPI_CXX" \
     "${MPIEXEC_OPTIONS[@]}" \
-    -UCMAKE_CUDA_COMPILER -UCMAKE_CUDA_HOST_COMPILER \
+    -UCMAKE_CUDA_COMPILER -UCMAKE_CUDA_HOST_COMPILER -U "HYPRE_*" \
     "$@"
   cmake --build "$b" -j "$JOBS"
   # the tests are built by `check`
