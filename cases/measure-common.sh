@@ -25,7 +25,9 @@
 # - beam: beam r4 of the prototype (cases/beam), von Mises with linear
 #   hardening;
 # - polycrystal: polycrystal of mm-opera-hpc (5 grains, single crystal
-#   behaviour of UO2, orthotropic, finite strain), 10 steps;
+#   behaviour of UO2, orthotropic, finite strain), `nsteps` steps (10 by
+#   default) of 1 s (or `duration` s in all); `case_options` gives other
+#   options, for instance another RVE: `-m <mesh> -f <orientations>`;
 # - thermal: stationary non linear heat transfer in the beam
 #   (cases/thermal), r5, 5 steps;
 # - ssna303: notched bar ssna303 in 3D (example ex4 of
@@ -199,8 +201,9 @@ command_of() {
         ${device:+--device $device} $options
       ;;
     polycrystal)
-      echo "${executable:-./uniaxial-polycrystal}" $post_processing --nstep 10 \
-        --duration 10 -l "$library" \
+      echo "${executable:-./uniaxial-polycrystal}" $post_processing \
+        --nstep "${nsteps:-10}" --duration "${duration:-${nsteps:-10}}" \
+        -l "$library" ${case_options:-} \
         --macroscopic-stress-output-file "$out/$name.res" \
         ${device:+--device $device} $options
       ;;
