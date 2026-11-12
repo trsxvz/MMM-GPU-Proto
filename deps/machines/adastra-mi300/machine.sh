@@ -26,6 +26,15 @@
 # The prototype is deployed by scripts/offline/deploy.sh in a directory
 # PROTO_DEPLOY (by default the parent directory of the prototype), from the
 # archive of `bundle.sh modules`.
+# command module and module paths of the login shells, absent from a job
+# submitted from a non interactive shell (ssh adastra sbatch ...)
+if [ -z "${MODULEPATH:-}" ] || ! type module > /dev/null 2>&1; then
+  # /etc/profile reads unset variables: fatal under `set -u` (jobs)
+  case $- in *u*) _nounset=1; set +u ;; *) _nounset= ;; esac
+  source /etc/profile > /dev/null 2>&1
+  [ -n "$_nounset" ] && set -u
+  unset _nounset
+fi
 module purge > /dev/null 2>&1
 module load GCC-APU-6.0.0 > /dev/null 2>&1 &&
   module load metis/5.1.0 suite-sparse/7.8.3 cmake/3.27.9 > /dev/null 2>&1 || {
