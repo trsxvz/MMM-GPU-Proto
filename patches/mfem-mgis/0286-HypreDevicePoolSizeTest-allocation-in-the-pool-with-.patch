@@ -1,0 +1,32 @@
+From be8f2c1819e7b2e3cf348ac6407fd613cb63333e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 12 Nov 2026 16:16:41 +0100
+Subject: [PATCH] HypreDevicePoolSizeTest: allocation in the pool with hypre
+ 3.2 only
+
+hypre_HandleUmpireDevicePool, which gives the pool of memory of hypre on
+the GPU, appeared in hypre 3.2: with hypre 3.1 (software stack of the
+MI300A partition of Adastra), the test only checks the requested size of
+the pool.
+---
+ tests/HypreDevicePoolSizeTest.cxx | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/tests/HypreDevicePoolSizeTest.cxx b/tests/HypreDevicePoolSizeTest.cxx
+index 259dc2afcf..971cb24553 100644
+--- a/tests/HypreDevicePoolSizeTest.cxx
++++ b/tests/HypreDevicePoolSizeTest.cxx
+@@ -20,7 +20,10 @@
+ #include "mfem/general/optparser.hpp"
+ #ifdef MFEM_USE_MPI
+ #include "_hypre_utilities.h"
++// the pool of hypre on the GPU (hypre_HandleUmpireDevicePool) is
++// available since hypre 3.2
+ #if defined(HYPRE_USING_UMPIRE_DEVICE) && \
++    (HYPRE_RELEASE_NUMBER >= 30200) && \
+     __has_include("umpire/interface/c_fortran/umpire.h")
+ #include "umpire/interface/c_fortran/umpire.h"
+ #define MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE_TEST_ALLOCATION
+-- 
+2.34.1
+

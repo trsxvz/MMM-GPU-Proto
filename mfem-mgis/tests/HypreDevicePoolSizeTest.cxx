@@ -20,7 +20,10 @@
 #include "mfem/general/optparser.hpp"
 #ifdef MFEM_USE_MPI
 #include "_hypre_utilities.h"
+// the pool of hypre on the GPU (hypre_HandleUmpireDevicePool) is
+// available since hypre 3.2
 #if defined(HYPRE_USING_UMPIRE_DEVICE) && \
+    (HYPRE_RELEASE_NUMBER >= 30200) && \
     __has_include("umpire/interface/c_fortran/umpire.h")
 #include "umpire/interface/c_fortran/umpire.h"
 #define MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE_TEST_ALLOCATION

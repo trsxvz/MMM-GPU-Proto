@@ -1,0 +1,195 @@
+From fda2de27026055fae06b3d8c9482a5e9116f69ce Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 12 Nov 2026 16:16:04 +0100
+Subject: [PATCH] Functions: [[nodiscard]] before MGIS_HOST_DEVICE
+
+With HIP, MGIS_HOST_DEVICE expands to __host__ __device__, which are
+attributes of GNU style: the clang of ROCm 6.4 (clang 19) refuses a C++
+attribute list after them ("an attribute list cannot appear here"), as
+in the call operators of the unary and binary operations and in
+MGIS/Function/TFEL/Mechanics.hxx, included by the sources of mfem-mgis
+compiled as HIP code. nvcc accepts both orders. The attribute is placed
+first, as in the other declarations of MGIS.
+---
+ include/MGIS/Function/BinaryOperation.hxx | 18 +++++++++---------
+ include/MGIS/Function/TFEL/Mechanics.hxx  |  6 +++---
+ include/MGIS/Function/UnaryOperation.hxx  | 12 ++++++------
+ 3 files changed, 18 insertions(+), 18 deletions(-)
+
+diff --git a/include/MGIS/Function/BinaryOperation.hxx b/include/MGIS/Function/BinaryOperation.hxx
+index ac06d05..6e9124a 100644
+--- a/include/MGIS/Function/BinaryOperation.hxx
++++ b/include/MGIS/Function/BinaryOperation.hxx
+@@ -59,7 +59,7 @@ namespace mgis::function {
+        * \return number of components of the values returned by the binary
+        * operation, which is known at compile time
+        */
+-      MGIS_HOST_DEVICE [[nodiscard]] static constexpr size_type
++      [[nodiscard]] MGIS_HOST_DEVICE static constexpr size_type
+       getNumberOfComponents() MGIS_NOEXCEPT {
+         using result_type =
+             std::invoke_result_t<CallableType,
+@@ -170,7 +170,7 @@ namespace mgis::function {
+      * \note this function is called by the call operators inherited from
+      * `BinaryOperationEvaluatorBase`
+      */
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto apply(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto apply(
+         const evaluator_result<FirstEvaluatorType>&,
+         const evaluator_result<SecondEvaluatorType>&) const;
+ 
+@@ -193,7 +193,7 @@ namespace mgis::function {
+   template <typename CallableType,
+             EvaluatorConcept FirstEvaluatorType,
+             EvaluatorConcept SecondEvaluatorType>
+-  MGIS_HOST_DEVICE [[nodiscard]] constexpr mgis::size_type
++  [[nodiscard]] MGIS_HOST_DEVICE constexpr mgis::size_type
+   getNumberOfComponents(const BinaryOperationModifier<CallableType,
+                                                       FirstEvaluatorType,
+                                                       SecondEvaluatorType>&);
+@@ -305,7 +305,7 @@ namespace mgis::function {
+   template <typename CallableType,
+             EvaluatorConcept FirstEvaluatorType,
+             EvaluatorConcept SecondEvaluatorType>
+-  MGIS_HOST_DEVICE [[nodiscard]] constexpr mgis::size_type
++  [[nodiscard]] MGIS_HOST_DEVICE constexpr mgis::size_type
+   getNumberOfComponents(const BinaryOperationModifier2<CallableType,
+                                                        FirstEvaluatorType,
+                                                        SecondEvaluatorType>&);
+@@ -626,7 +626,7 @@ namespace mgis::function::internals {
+      * known at compile time
+      */
+     template <typename FirstOperandType, typename SecondOperandType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const FirstOperandType& a, const SecondOperandType& b) const
+         -> tfel::math::BinaryOperationResult<FirstOperandType,
+                                              SecondOperandType,
+@@ -694,7 +694,7 @@ namespace mgis::function::internals {
+      * known at compile time
+      */
+     template <typename FirstOperandType, typename SecondOperandType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const FirstOperandType& a, const SecondOperandType& b) const
+         -> tfel::math::BinaryOperationResult<FirstOperandType,
+                                              SecondOperandType,
+@@ -727,7 +727,7 @@ namespace mgis::function::internals {
+      * known at compile time
+      */
+     template <typename FirstOperandType, typename SecondOperandType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const FirstOperandType& a, const SecondOperandType& b) const
+         -> tfel::math::BinaryOperationResult<FirstOperandType,
+                                              SecondOperandType,
+@@ -761,7 +761,7 @@ namespace mgis::function::internals {
+      * known at compile time
+      */
+     template <typename FirstOperandType, typename SecondOperandType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const FirstOperandType& a, const SecondOperandType& b) const
+         -> tfel::math::BinaryOperationResult<
+             tfel::math::BinaryOperationResult<FirstOperandType,
+@@ -798,7 +798,7 @@ namespace mgis::function::internals {
+      * known at compile time
+      */
+     template <typename FirstOperandType, typename SecondOperandType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const FirstOperandType& a, const SecondOperandType& b) const
+         -> tfel::math::BinaryOperationResult<FirstOperandType,
+                                              SecondOperandType,
+diff --git a/include/MGIS/Function/TFEL/Mechanics.hxx b/include/MGIS/Function/TFEL/Mechanics.hxx
+index aca1b15..c6159fb 100644
+--- a/include/MGIS/Function/TFEL/Mechanics.hxx
++++ b/include/MGIS/Function/TFEL/Mechanics.hxx
+@@ -41,7 +41,7 @@ namespace mgis::function::internals {
+      * \param[in] s: symmetric tensor considered
+      * \return `trace(s) / 3`
+      */
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const tfel::math::StensorConcept auto& s) const MGIS_NOEXCEPT {
+       return tfel::math::trace(s) / 3;
+     }
+@@ -57,7 +57,7 @@ namespace mgis::function::internals {
+      * \param[in] s: symmetric tensor interpreted as a stress
+      * \return the von Mises stress, computed by `tfel::math::sigmaeq`
+      */
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const tfel::math::StensorConcept auto& s) const MGIS_NOEXCEPT {
+       return tfel::math::sigmaeq(s);
+     }
+@@ -82,7 +82,7 @@ namespace mgis::function::internals {
+      */
+     template <tfel::math::TensorConcept FirstPiolaKirchhoffStressType,
+               tfel::math::TensorConcept DeformationGradientType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const FirstPiolaKirchhoffStressType& pk1,
+         const DeformationGradientType& F) const MGIS_NOEXCEPT
+       requires(tfel::math::getSpaceDimension<FirstPiolaKirchhoffStressType>() ==
+diff --git a/include/MGIS/Function/UnaryOperation.hxx b/include/MGIS/Function/UnaryOperation.hxx
+index 5b9caeb..830e85c 100644
+--- a/include/MGIS/Function/UnaryOperation.hxx
++++ b/include/MGIS/Function/UnaryOperation.hxx
+@@ -627,7 +627,7 @@ namespace mgis::function::internals {
+      * \return the absolute value of each component of the given value
+      */
+     template <typename ValueType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const ValueType& v) const {  //
+       return customization_points::AbsoluteValue<std::decay_t<ValueType>>::exe(
+           v);
+@@ -648,7 +648,7 @@ namespace mgis::function::internals {
+      * \return the largest component of the given value
+      */
+     template <typename ValueType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const ValueType& v) const {  //
+       return customization_points::MaximumComponent<
+           std::decay_t<ValueType>>::exe(v);
+@@ -669,7 +669,7 @@ namespace mgis::function::internals {
+      * \return the smallest component of the given value
+      */
+     template <typename ValueType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const ValueType& v) const {  //
+       return customization_points::MinimumComponent<
+           std::decay_t<ValueType>>::exe(v);
+@@ -693,7 +693,7 @@ namespace mgis::function::internals {
+      * at compile time
+      */
+     template <typename OperandType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const OperandType& a) const
+         -> tfel::math::UnaryOperationResult<OperandType,
+                                             tfel::math::OpNeg>  //
+@@ -728,7 +728,7 @@ namespace mgis::function::internals {
+      * at compile time
+      */
+     template <typename FirstOperandType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const FirstOperandType& a) const
+         -> tfel::math::BinaryOperationResult<FirstOperandType,
+                                              real,
+@@ -769,7 +769,7 @@ namespace mgis::function::internals {
+      * at compile time
+      */
+     template <typename FirstOperandType>
+-    MGIS_HOST_DEVICE [[nodiscard]] constexpr auto operator()(
++    [[nodiscard]] MGIS_HOST_DEVICE constexpr auto operator()(
+         const FirstOperandType& a) const
+         -> tfel::math::BinaryOperationResult<FirstOperandType,
+                                              real,
+-- 
+2.34.1
+
