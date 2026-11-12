@@ -359,14 +359,6 @@ goes through `bundle.sh update` as for the other machines.
   the most recent gcc it finds, that of `gcc-toolset-12` (no `<format>` of
   C++20): the profile gives it the gcc 14 of the modules
   (`--gcc-install-dir`, through `HIPFLAGS` and `HIPCC_COMPILE_FLAGS_APPEND`).
-- **OpenMP runtime**: the gcc 14 of the stack (`gcc-native/14`, the
-  gcc-toolset-14 of RHEL) uses the `libgomp` of the system, from gcc 11,
-  whose threads waiting actively on a barrier crash at random (segmentation
-  fault in `gomp_barrier_wait_end`): three tests of mfem-mgis using the
-  `openmp` backend of the behaviours crashed 2 times out of 3, never with
-  the `libgomp` of gcc 12.2 or 13.2, nor with passive waiting. The profile
-  puts the `libgomp` of the gcc 13.2 of CINES first in `LD_LIBRARY_PATH`
-  (directory `ROOT/runtime`).
 - **Several GPUs of a node**: as recommended by CINES, `srun
   --gpu-bind=none`, each process seeing only its MI300A
   (`ROCR_VISIBLE_DEVICES`, set by `scripts/mpirun-srun` to the GPU close to

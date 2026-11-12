@@ -136,27 +136,6 @@ unset SPACK_ENV SPACK_ENV_VIEW
 export CMAKE_PREFIX_PATH=$PROTO_TFEL_INSTALL:$PROTO_MFEM:$PROTO_HYPRE:$PROTO_UMPIRE
 export PATH=$PROTO_MPI_LAUNCHERS:$PROTO_TFEL_INSTALL/bin:$PATH
 export LD_LIBRARY_PATH=$PROTO_TFEL_INSTALL/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-# OpenMP runtime: the gcc 14 of the modules (gcc-toolset-14 of RHEL) uses the
-# libgomp of the system, the one of gcc 11, whose threads which wait actively
-# on the barrier of their pool crash at random (segmentation fault in
-# gomp_barrier_wait_end, called by gomp_thread_start): BatchIntegrationTest,
-# HeatTransferKernelsTest and MicromorphicKernelsTest of mfem-mgis, with the
-# libraries of behaviours of the openmp backend, crashed 2 times out of 3 on
-# a node of the partition mi300, and never with the libgomp of gcc 12.2 or
-# 13.2, nor with passive waiting (OMP_WAIT_POLICY=passive, GOMP_SPINCOUNT=0).
-# The libgomp of the gcc 13.2 of CINES (/opt/software/gcc/13.2.0) is put
-# first, alone, in a directory of the deployment: the libraries compiled by
-# gcc 14 only use symbols of libgomp also provided by gcc 11.
-_gomp=/opt/software/gcc/13.2.0/lib64/libgomp.so.1
-if [ ! -f "$_gomp" ]; then
-  echo "adastra-mi300: $_gomp not found" >&2
-  unset _gomp
-  return 1
-fi
-mkdir -p "$PROTO_DEPLOY/runtime"
-ln -sfn "$_gomp" "$PROTO_DEPLOY/runtime/libgomp.so.1"
-unset _gomp
-export LD_LIBRARY_PATH=$PROTO_DEPLOY/runtime:$LD_LIBRARY_PATH
 export OMP_PROC_BIND=spread OMP_PLACES=threads
 # options of CMake of MGIS (build-mgis.sh): MGIS has no tests of HIP; the
 # parallel algorithms of the standard library need TBB with libstdc++, which

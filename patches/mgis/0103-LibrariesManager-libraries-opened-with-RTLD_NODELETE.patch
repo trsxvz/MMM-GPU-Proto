@@ -1,0 +1,49 @@
+From 2bb9c1d9d5950578eccaf738a68f8441f0df2bd5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 12 Nov 2026 19:55:50 +0100
+Subject: [PATCH] LibrariesManager: libraries opened with RTLD_NODELETE
+
+The destructor of the manager, called at the exit of the program, closed
+the libraries of behaviours. A library of the openmp backend of the
+generic-parallel interface then unloaded libgomp, when no other library of
+the program used it, while the threads of its pool were still waiting
+actively on its barrier: they executed code which was no longer mapped,
+and the program crashed at its exit (segmentation fault in
+gomp_barrier_wait_end, called by gomp_thread_start; with a program whose
+output is redirected to a file, the last lines written are also lost).
+Seen on Adastra (MI300A partition) with BatchIntegrationTest,
+HeatTransferKernelsTest and MicromorphicKernelsTest of mfem-mgis, where no
+other library loads libgomp at the start of the program; LD_DEBUG=files
+shows libgomp unloaded by the destructor. The libraries are opened with
+RTLD_NODELETE, which keeps them and their dependencies loaded.
+---
+ src/LibrariesManager.cxx | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
+index 64656c5..2de462a 100644
+--- a/src/LibrariesManager.cxx
++++ b/src/LibrariesManager.cxx
+@@ -110,7 +110,19 @@ namespace mgis {
+ #if (defined _WIN32 || defined _WIN64) && (!defined __CYGWIN__)
+     return ::LoadLibrary(TEXT(l.c_str()));
+ #else
++    // The libraries are never unloaded (RTLD_NODELETE), nor their
++    // dependencies: the destructor of the manager, called at the exit of the
++    // program, would otherwise unload a library of behaviours whose runtime
++    // still has threads, such as the pool of threads of libgomp started by
++    // a library of the openmp backend of the generic-parallel interface,
++    // when no other library of the program uses this runtime. Its threads,
++    // waiting actively on the barrier of the pool, then execute code which
++    // is no longer mapped (segmentation fault at the exit of the program).
++#ifdef RTLD_NODELETE
++    return ::dlopen(l.c_str(), RTLD_NOW | RTLD_NODELETE);
++#else  /* RTLD_NODELETE */
+     return ::dlopen(l.c_str(), RTLD_NOW);
++#endif /* RTLD_NODELETE */
+ #endif /* (defined _WIN32 || defined _WIN64) && (!defined __CYGWIN__) */
+   }    // end of load_library
+ 
+-- 
+2.34.1
+
