@@ -354,7 +354,9 @@ goes through `bundle.sh update` as for the other machines.
   --gpu-bind=none`, each process seeing only its MI300A
   (`ROCR_VISIBLE_DEVICES`, set by `scripts/mpirun-srun` to the GPU close to
   the cores of its rank, read with `rocm-smi`), `MPICH_GPU_IPC_ENABLED=1`,
-  and `MPICH_GPU_SUPPORT_ENABLED=1` for `--gpu-aware-mpi`. Job
+  and `MPICH_GPU_SUPPORT_ENABLED=1` (always: without it, the arrays of the
+  GPU given to MPI by `--gpu-aware-mpi` are read as memory of the host, a
+  bus error). Job
   `jobs/measure-multi-gpu.slurm` (1, 2 and 4 GPUs, 24, 48 and 96 processes
   on the CPU).
 - **TFEL**: configurations `hip-hipcc` (AMD platform; the libraries

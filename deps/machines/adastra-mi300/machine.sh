@@ -121,10 +121,12 @@ export PROTO_GPU_DEVICE=hip
 # several GPUs of a node (recommendations of CINES): Slurm does not bind
 # the GPUs (--gpu-bind=none), each process sees only its MI300A
 # (ROCR_VISIBLE_DEVICES set to the GPU of its rank by scripts/mpirun-srun),
-# the exchanges between the GPUs of a node go through IPC; the GPU support
-# of cray-mpich is enabled for the computations with --gpu-aware-mpi only
-# (cases/measure-multi-gpu.sh)
+# the exchanges between the GPUs of a node go through IPC. The GPU support
+# of cray-mpich is always enabled: without it, a computation with
+# --gpu-aware-mpi gives arrays of the GPU that cray-mpich reads as memory
+# of the host (bus error of the test TwoLayerCube-0-HyprePCGP-gpu-aware-mpi);
+# all the MPI programs of the prototype link its GTL library (MFEM links
+# it, the others are compiled by the Cray compiler wrappers)
 export PROTO_SRUN_OPTIONS="--gpu-bind=none"
 export PROTO_GPU_PER_RANK=ROCR_VISIBLE_DEVICES
-export MPICH_GPU_IPC_ENABLED=1
-export PROTO_GPU_AWARE_MPI_ENVIRONMENT="MPICH_GPU_SUPPORT_ENABLED=1"
+export MPICH_GPU_IPC_ENABLED=1 MPICH_GPU_SUPPORT_ENABLED=1
