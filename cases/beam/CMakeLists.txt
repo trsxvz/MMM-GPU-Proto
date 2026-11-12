@@ -16,8 +16,12 @@ configure_file("${MFEM_MGIS_SOURCE_DIR}/tests/beam-tet.mesh"
 set(norm 3.264041277)
 add_test(NAME beam-pcg-amg
   COMMAND mpirun -n 2 ./beam -r 1 -n 2 -ls pcg-amg -en ${norm})
-add_test(NAME beam-mumps
-  COMMAND mpirun -n 2 ./beam -r 1 -n 2 -ls mumps -en ${norm})
+# MUMPS: if MFEM is built with it (not on Adastra, where the MUMPS of the
+# machine uses 64 bit integers, which MFEM refuses)
+if(NOT MFEM_USE_MUMPS STREQUAL "NO")
+  add_test(NAME beam-mumps
+    COMMAND mpirun -n 2 ./beam -r 1 -n 2 -ls mumps -en ${norm})
+endif()
 # sequential computations: with UMFPACK, which is not available with MFEM in
 # single precision (no SuiteSparse), or with the conjugate gradient of MFEM
 # and a Jacobi preconditioner. The comparison of the norm detects a wrong

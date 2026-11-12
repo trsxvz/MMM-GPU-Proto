@@ -8,8 +8,11 @@ configure_file("${MFEM_MGIS_SOURCE_DIR}/tests/beam-tet.mesh"
 # short tests: two steps on a coarse mesh; the linear solvers give the same
 # temperature
 set(norm 7227.044268)
-add_test(NAME thermal-mumps
-  COMMAND mpirun -n 2 ./thermal -r 1 -n 2 -ls mumps -en ${norm})
+# MUMPS: if MFEM is built with it
+if(NOT MFEM_USE_MUMPS STREQUAL "NO")
+  add_test(NAME thermal-mumps
+    COMMAND mpirun -n 2 ./thermal -r 1 -n 2 -ls mumps -en ${norm})
+endif()
 add_test(NAME thermal-gmres-amg
   COMMAND mpirun -n 2 ./thermal -r 1 -n 2 -ls gmres-amg -en ${norm})
 # sequential computations: with UMFPACK, which is not available with MFEM in
@@ -47,7 +50,7 @@ set(robin_norm 5502.767622)
 if(NOT MFEM_USE_SUITESPARSE STREQUAL "NO")
   add_test(NAME thermal-robin-umfpack
     COMMAND ./thermal -r 1 -n 2 -ls umfpack -no-p -hc 1 -en ${robin_norm})
-else()
+elseif(NOT MFEM_USE_MUMPS STREQUAL "NO")
   add_test(NAME thermal-robin-mumps
     COMMAND mpirun -n 2 ./thermal -r 1 -n 2 -ls mumps -hc 1
             -en ${robin_norm})
