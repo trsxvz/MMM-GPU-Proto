@@ -161,8 +161,8 @@ fi
 # defined before
 executable=${executable:-}
 # polycrystal: option of the post-processings (empty to run them: ParaView
-# export and averages of the stresses at each step)
-post_processing=--disable-post-processing
+# export and averages of the stresses at each step), read before if defined
+post_processing=${post_processing---disable-post-processing}
 # usage: command_of library name
 # prints the command of the case
 command_of() {
@@ -214,7 +214,9 @@ command_of() {
 launcher=()
 # usage: run name threads processes library [VARIABLE=value...]
 # The given environment variables select the options of mfem-mgis
-# (MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch, ...).
+# (MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch, ...). The variable `run_timeout`
+# gives the time limit of a computation in seconds (3600 by default), and
+# `run_directory` the directory where it runs (see below).
 run() {
   local name=$1 threads=$2 np=$3 library=$4
   shift 4
@@ -230,13 +232,19 @@ run() {
   fi
   local cmd
   read -r -a cmd <<< "$(command_of "$library" "$name")"
-  if ! (cd "$B" && [ -x "${cmd[0]}" ]); then
-    echo "   executable ${cmd[0]} missing from $B" | tee -a "$out/summary.txt"
+  # directory of the computation (`run_directory`, the build directory by
+  # default; another one requires an absolute `executable`), where the
+  # outputs of the post-processings are written
+  local directory=${run_directory:-$B}
+  mkdir -p "$directory"
+  if ! (cd "$directory" && [ -x "${cmd[0]}" ]); then
+    echo "   executable ${cmd[0]} missing from $directory" |
+      tee -a "$out/summary.txt"
     return 1
   fi
-  (cd "$B" && env OMP_NUM_THREADS="$threads" "${settings[@]}" \
-    timeout 3600 mpirun "${placement[@]}" -n "$np" "${launcher[@]}" \
-    "${cmd[@]}") \
+  (cd "$directory" && env OMP_NUM_THREADS="$threads" "${settings[@]}" \
+    timeout "${run_timeout:-3600}" mpirun "${placement[@]}" -n "$np" \
+    "${launcher[@]}" "${cmd[@]}") \
     < /dev/null > "$out/$name.txt" 2>&1
   echo "   status $?" | tee -a "$out/summary.txt"
   /usr/bin/grep -E "$summary" "$out/$name.txt" | tee -a "$out/summary.txt"
