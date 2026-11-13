@@ -6662,3 +6662,12 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   of 100, 68 s on 4 MI300A; axial stress equal within 4e-6 (first step)
   and 2e-5 (second step), both computations stopping within the
   tolerance of 1e4 Pa on the lateral stresses.
+- With the secant acceleration, polycrystal r3, 2 steps, 96 cores: 741 s
+  (instead of 1428 s; 9 resolutions instead of 27): 4 MI300A 10.9 times
+  faster than the 96 cores of the node, both with the acceleration.
+- First trial in P2 (polycrystal r1, order 2, 2 steps, secant
+  acceleration, job 5969271): 1,360,002 unknowns (as P1 r2), no failure,
+  96 cores 55.3 s, one MI300A 19.4 s, 4 MI300A 7.7 s. Axial stress at
+  2 s: P1 r2 71.83 MPa, P1 r3 (10.9 million unknowns) 70.89 MPa, P2 r1
+  70.63 MPa: with P1 the stress decreases with the refinement (too stiff
+  elements), P2 with 8 times fewer unknowns goes further than P1 r3.
