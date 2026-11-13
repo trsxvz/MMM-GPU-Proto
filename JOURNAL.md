@@ -6648,3 +6648,17 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   bytes of scratch, and the integration takes 15.9 s instead of 139 s
   (8.7 times faster; total 40 s instead of 164 s, same results within
   1e-7). TFEL patch 0139: this flag in the HIP flags of the AMD platform.
+- With the launch bounds (TFEL patch 0139, mfem-mgis patch 0287),
+  polycrystal r2, 10 steps (job 5968963): 96 cores 313 s, one MI300A
+  75.6 s (4.1 times faster; 320 s before), 4 MI300A with
+  `--gpu-aware-mpi` 31.3 s (10.0 times; 102 s before). Integration on
+  one GPU: 30 s instead of 275 s. On Jean Zay: one A100 131 s, 8 A100
+  46 s.
+- Polycrystal r3 (10.9 million unknowns), 2 steps of 1 s: 96 cores
+  1428 s, 4 MI300A with `--gpu-aware-mpi` 92 s (15.5 times faster), no
+  failure of the integration and no division of the steps (at most 1000
+  iterations of the behaviour). With `--macroscopic-secant-acceleration`:
+  9 resolutions of the fixed point instead of 27, 45 integrations instead
+  of 100, 68 s on 4 MI300A; axial stress equal within 4e-6 (first step)
+  and 2e-5 (second step), both computations stopping within the
+  tolerance of 1e4 Pa on the lateral stresses.
