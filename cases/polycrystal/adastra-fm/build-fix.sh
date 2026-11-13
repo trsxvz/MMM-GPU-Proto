@@ -4,13 +4,16 @@
 # the polycrystal of mm-opera-hpc with the macroscopic stress timed:
 # - A: timed polycrystal against the installed mfem-mgis of the prototype;
 # - B: timed polycrystal against the modified mfem-mgis.
+# FM_FIX: directory of the build (default <scratch>/fix), holding this
+# script and the modified files in patched/; FM_BUILD_VARIANTS: variants
+# built (default "A B").
 # The sources and the builds of the prototype on /lus/work are not modified.
 # To run on a node of the MI300A partition (fm-chain/fix-ab.slurm), as the
 # build of the prototype: CMake detects the architecture of the GPUs
 # (GPU_TARGETS gfx942) and -march=native is the one of the nodes.
 set -eu
 D=/lus/work/RES1/genden15/tchenaille/mmm
-F=/lus/scratch/RES1/genden15/tchenaille/fix
+F=${FM_FIX:-/lus/scratch/RES1/genden15/tchenaille/fix}
 export PROTO_DEPLOY=$D PROTO_MACHINE=adastra-mi300
 set +u
 source "$D/MMM-GPU-Proto/scripts/env.sh" > /dev/null 2>&1
@@ -40,7 +43,7 @@ if ! grep -q '^GPU_TARGETS:STRING=gfx942' "$F/build/mfem-mgis/CMakeCache.txt"; t
   echo "the architecture of the GPUs (gfx942) was not detected" >&2
   exit 1
 fi
-for v in A B; do
+for v in ${FM_BUILD_VARIANTS:-A B}; do
   if [ $v = A ]; then i=$P/install/mfem-mgis; else i=$F/install/mfem-mgis; fi
   if [ $v = B ]; then
     cmake --build "$F/build/mfem-mgis" -j "${JOBS:-24}"

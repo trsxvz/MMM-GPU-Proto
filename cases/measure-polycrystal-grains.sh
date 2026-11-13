@@ -28,7 +28,9 @@
 # - solver_label: suffix of the names of the computations (comparison of
 #   solvers in the same results directory);
 # - executable: executable of the polycrystal (default: the one of the build
-#   of mm-opera-hpc), for instance built against another mfem-mgis.
+#   of mm-opera-hpc), for instance built against another mfem-mgis;
+# - extra_options: options added to the ones of the polycrystal (for
+#   instance --single-material).
 # The GPU computation runs one process per GPU (cores_per_node /
 # gpus_per_node cores each) with GPU-aware MPI, the CPU computation one
 # process per core. The fixed point on the lateral stresses uses the
@@ -73,6 +75,7 @@ executable=${executable:-$B/uniaxial-polycrystal}
 case_options="-m $mesh -f $vectors --order $order -r $refinement"
 case_options="$case_options --macroscopic-secant-acceleration"
 case_options="$case_options --disable-paraview-export"
+case_options="$case_options${extra_options:+ $extra_options}"
 batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
