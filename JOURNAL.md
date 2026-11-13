@@ -6636,3 +6636,15 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   New option `--macroscopic-secant-acceleration` (Broyden method on the
   2x2 jacobian of the lateral stresses, initialized by the elastic one and
   kept from one step to the next).
+- Single crystal behaviour on the MI300A: its integration was 3.2 times
+  slower than on an A100 (polycrystal r2, 10 steps: 275 s against 86 s on
+  one GPU; 1 MI300A no faster than the 96 cores of the node, 315 s). Profile
+  by rocprofv3: the integrator kernel takes 133 s of the 138 s of the
+  integration (polycrystal r2, 2 steps). Its resources
+  (`-Rpass-analysis=kernel-resource-usage`): 103 VGPR, 64 AGPR, 9976 bytes
+  of scratch per thread, 3 waves per SIMD: compiled without launch bounds,
+  for blocks of up to 1024 threads, while MFront launches blocks of 64
+  threads. With `--gpu-max-threads-per-block=64`: 256 VGPR, 256 AGPR, 7688
+  bytes of scratch, and the integration takes 15.9 s instead of 139 s
+  (8.7 times faster; total 40 s instead of 164 s, same results within
+  1e-7). TFEL patch 0139: this flag in the HIP flags of the AMD platform.

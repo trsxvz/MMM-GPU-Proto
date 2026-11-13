@@ -614,8 +614,16 @@ if(TFEL_REQUIRES_HIP)
          "mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
    endif("hip-clang" IN_LIST generic-parallel-configurations)
  elseif(HIP_PLATFORM STREQUAL "amd")
-   # hipcc calls clang
-   set(TFEL_HIPCC_FLAGS "-fPIC")
+   # hipcc calls clang. The kernels of the generic-parallel interface are
+   # launched by blocks of 64 threads (number_of_threads_per_block of
+   # config-hip-hipcc.json). Without launch bounds, clang compiles them for
+   # blocks of up to 1024 threads, which limits the registers of each
+   # thread: the integrators of the behaviours with large states then spill
+   # most of them into the scratch memory (about 10 kB per thread for a
+   # single crystal behaviour with 24 slip systems, integrated 8.7 times
+   # slower on a MI300A). This bound must not be lower than the number of
+   # threads per block of the configuration.
+   set(TFEL_HIPCC_FLAGS "-fPIC --gpu-max-threads-per-block=64")
    if("hip-clang" IN_LIST generic-parallel-configurations)
      message(WARNING "the 'hip-clang' configuration only targets the NVIDIA "
              "platform: on the AMD platform, it installs no configuration "
