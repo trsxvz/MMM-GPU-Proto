@@ -11,7 +11,8 @@ the averages of the stresses per grain at each step in
 <directory>/avgStressPolycrystal. For two successive refinements k and k + 1:
 
 - macroscopic: largest relative difference of the axial stress Szz over
-  the steps;
+  the times common to both computations (the steps may be divided
+  differently);
 - per grain: root mean square over the grains of the difference of the
   average axial stress of the grain, relative to the macroscopic Szz, at
   the last step (and the largest one).
@@ -27,18 +28,20 @@ import sys
 
 
 def read_res(path):
-    """Axial stress (7th column) per step."""
-    szz = []
+    """Axial stress (7th column) per time (1st column): the steps may be
+    divided differently from a refinement to the other."""
+    szz = {}
     with open(path) as f:
         for line in f:
             fields = line.split()
             if len(fields) >= 7 and not line.startswith("#"):
-                szz.append(float(fields[6]))
+                szz[round(float(fields[0]), 9)] = float(fields[6])
     return szz
 
 
 def read_averages(path):
-    """Average axial stress (component 2) per grain at the last step."""
+    """Time and average axial stress (component 2) per grain at the last
+    step."""
     columns = {}
     last = None
     pattern = re.compile(r"# (\d+) column: (\d+) component .* material (\d+)")
@@ -52,8 +55,9 @@ def read_averages(path):
             elif line.strip() and not line.startswith("#"):
                 last = line.split()
     if last is None:
-        return {}
-    return {mi: float(last[c]) for mi, c in columns.items()}
+        return None, {}
+    return (round(float(last[0]), 9),
+            {mi: float(last[c]) for mi, c in columns.items()})
 
 
 def main():
@@ -70,23 +74,28 @@ def main():
         try:
             szz = read_res(d + ".res")
         except OSError:
-            szz = []
+            szz = {}
         try:
-            grains = read_averages(d + "/avgStressPolycrystal")
+            tg, grains = read_averages(d + "/avgStressPolycrystal")
         except OSError:
+            tg, grains = None, {}
+        end = max(szz) if szz else None
+        if tg != end:
             grains = {}
         levels.append((d, szz, grains))
-        print(f"{d}: {len(szz)} steps, {len(grains)} grains, "
-              f"Szz at the end {szz[-1] if szz else '-'}")
+        print(f"{d}: {len(szz)} times, end {end}, {len(grains)} grains, "
+              f"Szz at the end {szz[end] if szz else '-'}")
     retained = None
     for k in range(len(levels) - 1):
         (_, s0, g0), (_, s1, g1) = levels[k], levels[k + 1]
-        n = min(len(s0), len(s1))
-        if n == 0 or not g0 or set(g0) != set(g1) or len(s0) != len(s1):
+        times = sorted(set(s0) & set(s1))
+        if (not s0 or not s1 or max(s0) != max(s1) or not g0 or
+                set(g0) != set(g1)):
             print(f"refinements {k} and {k + 1}: incomplete computations")
             continue
-        macro = max(abs(a - b) / abs(b) for a, b in zip(s0, s1))
-        reference = abs(s1[-1])
+        # common times (the end of the loading is one of them)
+        macro = max(abs(s0[t] - s1[t]) / abs(s1[t]) for t in times)
+        reference = abs(s1[max(s1)])
         differences = [(g0[mi] - g1[mi]) / reference for mi in g1]
         rms = math.sqrt(sum(x * x for x in differences) / len(differences))
         largest = max(abs(x) for x in differences)
