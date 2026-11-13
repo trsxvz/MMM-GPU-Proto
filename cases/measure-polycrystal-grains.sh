@@ -26,7 +26,9 @@
 # - profiler: command placed before the executable (for instance
 #   `rocprofv3 --kernel-trace ... --`);
 # - solver_label: suffix of the names of the computations (comparison of
-#   solvers in the same results directory).
+#   solvers in the same results directory);
+# - executable: executable of the polycrystal (default: the one of the build
+#   of mm-opera-hpc), for instance built against another mfem-mgis.
 # The GPU computation runs one process per GPU (cores_per_node /
 # gpus_per_node cores each) with GPU-aware MPI, the CPU computation one
 # process per core. The fixed point on the lateral stresses uses the
@@ -40,7 +42,12 @@
 # failed resolutions, solver label, time of the mesh (s, Mesh::Constructor:
 # serial reading, partition, refinements), time of the loop over the steps
 # (s, NLEP::solve), energy (J) and duration (s) of the Slurm step of the
-# computation (the energy is read right after it, `-` outside Slurm).
+# computation (the energy is read right after it, `-` outside Slurm), time
+# of the macroscopic stresses after each resolution (s,
+# computeMacroscopicCauchyStress, `-` if the executable does not time it),
+# time of the post-processings (s, common::post_processing_step), and wall
+# clock time from the end of the first step to the end of the last one (s,
+# timestamps of <computation>.steps).
 set -u
 work_package=grains
 mesh=${mesh:?mesh (absolute path) required}
@@ -62,7 +69,7 @@ source "$(dirname "$0")/measure-common.sh" polycrystal "$@"
 # instance rocprofv3 and its options followed by --), empty by default
 read -r -a launcher <<< "${profiler:-}"
 summary="$summary|number of finite element unknowns"
-executable=$B/uniaxial-polycrystal
+executable=${executable:-$B/uniaxial-polycrystal}
 case_options="-m $mesh -f $vectors --order $order -r $refinement"
 case_options="$case_options --macroscopic-secant-acceleration"
 case_options="$case_options --disable-paraview-export"
@@ -119,7 +126,8 @@ stop_watch() {
 # usage: record name mode processes
 record() {
   local name=$1 mode=$2 np=$3 status unknowns time szz steps resolutions
-  local newton failures mesh_time loop_time energy elapsed
+  local newton failures mesh_time loop_time energy elapsed cauchy_time
+  local pp_time wall
   status=missing
   if [ -f "$out/$name.txt" ]; then
     status=$(sed -n 's/^   status //p' "$out/summary.txt" | tail -1)
@@ -142,6 +150,10 @@ record() {
   }
   mesh_time=$(section 'Mesh::Constructor')
   loop_time=$(section 'NLEP::solve')
+  cauchy_time=$(section 'computeMacroscopicCauchyStress')
+  pp_time=$(section 'common::post_processing_step')
+  wall=$(awk 'NR == 1 {t0 = $1} {t = $1} END {if (NR > 1) printf "%.1f", t - t0}' \
+    "$out/$name.steps" 2> /dev/null)
   # energy and duration of the last step of the job (this computation),
   # waiting for the accounting (a few seconds)
   energy=- elapsed=-
@@ -164,7 +176,8 @@ record() {
   echo "$label $mode $nodes $np ${status:-?} ${unknowns:--} ${time:--}" \
     "${szz:--} ${steps:-0} ${resolutions:-0} ${newton:-0} ${failures:-0}" \
     "${solver_label:-default} ${mesh_time:--} ${loop_time:--}" \
-    "${energy:--} ${elapsed:--}" | tee -a "$out/series.txt"
+    "${energy:--} ${elapsed:--} ${cauchy_time:--} ${pp_time:--} ${wall:--}" |
+    tee -a "$out/series.txt"
 }
 for mode in ${modes:-gpu cpu}; do
   if [ "$mode" = gpu ]; then
