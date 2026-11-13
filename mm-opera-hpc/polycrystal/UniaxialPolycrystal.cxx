@@ -91,6 +91,12 @@ struct NumericalParameters {
   //! \brief initial adaptive tolerance, the default one if not given
   mfem_mgis::real adaptive_linear_solver_initial_tolerance = -1;
   /*!
+   * \brief maximum adaptive tolerance, the default one (0.9) if not given:
+   * the tolerance of Eisenstat and Walker rises to it when the residual
+   * increases
+   */
+  mfem_mgis::real adaptive_linear_solver_maximum_tolerance = -1;
+  /*!
    * \brief linear solver of the elastic operator of `NewtonK0`:
    * `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX, which
    * requires mfem-mgis compiled with AmgX)
@@ -266,10 +272,13 @@ int main(int argc, char *argv[]) {
   auto non_linear_solver_options = mfem_mgis::Parameters{};
   const auto initial_tolerance_given =
       p.adaptive_linear_solver_initial_tolerance != -1;
+  const auto maximum_tolerance_given =
+      p.adaptive_linear_solver_maximum_tolerance != -1;
   if ((std::string_view{p.adaptive_linear_solver_tolerance} == "None") &&
-      (initial_tolerance_given)) {
+      (initial_tolerance_given || maximum_tolerance_given)) {
     mfem_mgis::Profiler::Utils::Message(
-        "error: an initial tolerance is given without adaptive tolerance");
+        "error: an initial or maximum tolerance is given without adaptive "
+        "tolerance");
     std::exit(EXIT_FAILURE);
   }
   // options of the linear solver of the problem
@@ -310,6 +319,11 @@ int main(int argc, char *argv[]) {
     if (initial_tolerance_given) {
       adaptive_options.insert(ctx, "InitialTolerance",
                               p.adaptive_linear_solver_initial_tolerance) |
+          or_die;
+    }
+    if (maximum_tolerance_given) {
+      adaptive_options.insert(ctx, "MaximumTolerance",
+                              p.adaptive_linear_solver_maximum_tolerance) |
           or_die;
     }
     non_linear_solver_options.insert(
@@ -456,6 +470,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
   args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
                  "--adaptive-linear-solver-initial-tolerance",
                  "initial adaptive tolerance, the default one if -1");
+  args.AddOption(&p.adaptive_linear_solver_maximum_tolerance, "",
+                 "--adaptive-linear-solver-maximum-tolerance",
+                 "maximum adaptive tolerance, the default one (0.9) if -1");
   args.AddOption(&p.elastic_operator_linear_solver, "",
                  "--elastic-operator-linear-solver",
                  "linear solver of the elastic operator of NewtonK0: "

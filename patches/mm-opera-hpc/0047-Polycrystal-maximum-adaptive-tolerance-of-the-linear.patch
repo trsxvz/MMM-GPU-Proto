@@ -1,0 +1,87 @@
+From 79b0577c6a70151cadd4566d8aea59a5e9414664 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 13 Nov 2026 23:28:19 +0100
+Subject: [PATCH] Polycrystal: maximum adaptive tolerance of the linear solver
+
+Option --adaptive-linear-solver-maximum-tolerance (MaximumTolerance of
+the adaptive tolerance of mfem-mgis, 0.9 by default). With the tolerance
+of Eisenstat and Walker, the failed resolutions of the polycrystal of
+6,400 grains on 64 MI300A all stop at the maximum number of iterations:
+the residual falls to about 3e-3 of the initial one, then each increase
+of the residual (after a failure of the integration of the behaviour at a
+few points) brings the tolerance back to 0.9, and the residual oscillates.
+---
+ polycrystal/README.md               |  1 +
+ polycrystal/UniaxialPolycrystal.cxx | 21 +++++++++++++++++++--
+ 2 files changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index b78a2c6..26f17e3 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -91,6 +91,7 @@ Usage: ./uniaxial-polycrystal --help
+ | `--non-linear-solver <string>`              | string | `Newton`                     | Non linear solver: `Newton` or `NewtonK0` (tangent systems solved by a conjugate gradient preconditioned by the elastic operator).            |
+ | `--adaptive-linear-solver-tolerance <string>` | string | `None`                       | Relative tolerance of the linear solver adapted to the decrease of the residual: `None`, `EisenstatWalker1` or `EisenstatWalker2`; requires an iterative linear solver. |
+ | `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if `-1`. Giving it without `--adaptive-linear-solver-tolerance` is an error.                      |
++| `--adaptive-linear-solver-maximum-tolerance <double>` | double | `-1` | Maximum adaptive tolerance, the default one (0.9) if `-1`: the tolerance of Eisenstat and Walker rises to it when the residual increases, for instance after a failure of the integration of the behaviour. Giving it without `--adaptive-linear-solver-tolerance` is an error. |
+ | `--elastic-operator-linear-solver <string>` | string | `HypreBoomerAMG`             | Linear solver of the elastic operator of `NewtonK0`: `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX, which requires mfem-mgis built with `-Denable-amgx=ON`). |
+ | `--amgx-parameters <string>`                | string |                              | Parameters of AmgX, as `name=value` separated by commas.                                                                                      |
+ | `--amgx-single-precision`, `--no-amgx-single-precision` | bool   | `false`                      | Computations of AmgX in single precision.                                                                                                     |
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index a946303..6be8e64 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -90,6 +90,12 @@ struct NumericalParameters {
+   const char *adaptive_linear_solver_tolerance = "None";
+   //! \brief initial adaptive tolerance, the default one if not given
+   mfem_mgis::real adaptive_linear_solver_initial_tolerance = -1;
++  /*!
++   * \brief maximum adaptive tolerance, the default one (0.9) if not given:
++   * the tolerance of Eisenstat and Walker rises to it when the residual
++   * increases
++   */
++  mfem_mgis::real adaptive_linear_solver_maximum_tolerance = -1;
+   /*!
+    * \brief linear solver of the elastic operator of `NewtonK0`:
+    * `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX, which
+@@ -266,10 +272,13 @@ int main(int argc, char *argv[]) {
+   auto non_linear_solver_options = mfem_mgis::Parameters{};
+   const auto initial_tolerance_given =
+       p.adaptive_linear_solver_initial_tolerance != -1;
++  const auto maximum_tolerance_given =
++      p.adaptive_linear_solver_maximum_tolerance != -1;
+   if ((std::string_view{p.adaptive_linear_solver_tolerance} == "None") &&
+-      (initial_tolerance_given)) {
++      (initial_tolerance_given || maximum_tolerance_given)) {
+     mfem_mgis::Profiler::Utils::Message(
+-        "error: an initial tolerance is given without adaptive tolerance");
++        "error: an initial or maximum tolerance is given without adaptive "
++        "tolerance");
+     std::exit(EXIT_FAILURE);
+   }
+   // options of the linear solver of the problem
+@@ -312,6 +321,11 @@ int main(int argc, char *argv[]) {
+                               p.adaptive_linear_solver_initial_tolerance) |
+           or_die;
+     }
++    if (maximum_tolerance_given) {
++      adaptive_options.insert(ctx, "MaximumTolerance",
++                              p.adaptive_linear_solver_maximum_tolerance) |
++          or_die;
++    }
+     non_linear_solver_options.insert(
+         ctx, "AdaptiveLinearSolverTolerance",
+         mfem_mgis::Parameters{
+@@ -456,6 +470,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+   args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
+                  "--adaptive-linear-solver-initial-tolerance",
+                  "initial adaptive tolerance, the default one if -1");
++  args.AddOption(&p.adaptive_linear_solver_maximum_tolerance, "",
++                 "--adaptive-linear-solver-maximum-tolerance",
++                 "maximum adaptive tolerance, the default one (0.9) if -1");
+   args.AddOption(&p.elastic_operator_linear_solver, "",
+                  "--elastic-operator-linear-solver",
+                  "linear solver of the elastic operator of NewtonK0: "
+-- 
+2.34.1
+
