@@ -39,6 +39,8 @@ namespace mm_opera_hpc {
       mfem_mgis::Context &ctx,
       mfem_mgis::PeriodicNonLinearEvolutionProblem &problem,
       const std::array<mfem_mgis::real, 3u> &H) {
+    // timed: the integrals are computed on the host, after each resolution
+    CatchTimeSection(ctx, "computeMacroscopicCauchyStress");
     auto or_die = ctx.getFatalFailureHandler();
     // integrals of the diagonal components of the First Piola-Kirchhoff stress
     auto pk1_integral = std::array<mfem_mgis::real, 3u>{};

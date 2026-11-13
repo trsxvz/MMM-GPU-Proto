@@ -1,0 +1,31 @@
+From c4674d53230cf2c3f5909c38dd2ebd06563bb83c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 13 Nov 2026 22:10:45 +0100
+Subject: [PATCH] Polycrystal: time of the macroscopic stresses after each
+ resolution
+
+The macroscopic stresses computed after each resolution (integrals of the
+stresses over the RVE) are timed (section computeMacroscopicCauchyStress):
+they were left out of the profiling, and took up to 30 % of the wall clock
+time on the GPUs before the weights of the points were cached in
+mfem-mgis.
+---
+ src/UniaxialMacroscopicStressPeriodicSimulation.cxx | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+index 2e5307b..2e97742 100644
+--- a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
++++ b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+@@ -39,6 +39,8 @@ namespace mm_opera_hpc {
+       mfem_mgis::Context &ctx,
+       mfem_mgis::PeriodicNonLinearEvolutionProblem &problem,
+       const std::array<mfem_mgis::real, 3u> &H) {
++    // timed: the integrals are computed on the host, after each resolution
++    CatchTimeSection(ctx, "computeMacroscopicCauchyStress");
+     auto or_die = ctx.getFatalFailureHandler();
+     // integrals of the diagonal components of the First Piola-Kirchhoff stress
+     auto pk1_integral = std::array<mfem_mgis::real, 3u>{};
+-- 
+2.34.1
+

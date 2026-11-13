@@ -302,6 +302,10 @@ namespace mfem_mgis {
    * integrators of a material must have the same thermodynamic forces.
    * \note in parallel, the returned value is only the contribution of the given
    * process
+   * \note the weights of the integration points are computed at the first
+   * call and kept by the problem (see `getIntegrationPointsWeights`): the
+   * following calls only sum the weighted values at the points, material by
+   * material, on the host
    */
   template <bool parallel>
   [[nodiscard]] std::optional<

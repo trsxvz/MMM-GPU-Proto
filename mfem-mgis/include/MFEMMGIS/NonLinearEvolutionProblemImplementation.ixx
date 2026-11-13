@@ -218,67 +218,72 @@ namespace mfem_mgis {
     }
     std::vector<mfem_mgis::real> volumes(stress_integrals.size(),
                                          mfem_mgis::real(0));
-    // thermodynamic forces in the global frame of the orthotropic
-    // behaviours, rotated at all the points at once, material by material
-    auto rotated_thermodynamic_forces = std::map<const Material*, mfem::Vector>{};
-    const auto& fes = p.getFiniteElementSpace();
-    for (mfem_mgis::size_type i = 0; i < fes.GetNE(); i++) {
-      auto& e = *(fes.GetFE(i));
-      auto& tr = *(fes.GetElementTransformation(i));
-      const auto obis =
-          getSelectedBehaviourIntegrators(ctx, p, tr.Attribute, selection);
+    // The points are summed material by material, with the weights of the
+    // points computed once (`getIntegrationPointsWeights`), in the order of
+    // the points, which is the order of the elements: the sums are the ones
+    // of a loop on the elements of each material.
+    // Thermodynamic forces in the global frame of the orthotropic behaviours,
+    // rotated at all the points at once
+    auto rotated_thermodynamic_forces = mfem::Vector{};
+    for (const auto& mi : mis) {
+      const auto obis = getSelectedBehaviourIntegrators(ctx, p, mi, selection);
       if (isInvalid(obis)) {
         return {};
       }
-      auto& s = stress_integrals[tr.Attribute];
-      auto& v = volumes[tr.Attribute];
+      auto& s = stress_integrals[mi];
+      auto& v = volumes[mi];
       for (auto b = obis->first; b != obis->second; ++b) {
-        const auto obi = p.getBehaviourIntegrator(ctx, tr.Attribute, b);
+        const auto obi = p.getBehaviourIntegrator(ctx, mi, b);
         if (isInvalid(obi)) {
           return {};
         }
-        const auto& ir = obi->getIntegrationRule(e, tr);
         const auto& om = obi->getMaterial(ctx);
         if (isInvalid(om)) {
           return {};
         }
+        const auto ow = p.getIntegrationPointsWeights(ctx, mi, b);
+        if (isInvalid(ow)) {
+          return {};
+        }
+        const auto& w = *ow;
         const auto& s1 = om->s1;
         const auto& qspace = om->getPartialQuadratureSpace();
         const auto thsize =
             static_cast<mfem_mgis::size_type>(s1.thermodynamic_forces_stride);
-        const auto eoffset = qspace.getOffset(tr.ElementNo);
+        const auto npoints = qspace.getNumberOfIntegrationPoints();
+        if (static_cast<mfem_mgis::size_type>(w.size()) != npoints) {
+          return ctx.registerErrorMessage(
+              "computeMeanThermodynamicForcesValues: inconsistent number of "
+              "weights of the integration points of material '" +
+              std::to_string(mi) + "'");
+        }
         // thermodynamic forces, read in the layout of the arrays of the
         // material, or point by point in the global frame for an orthotropic
         // behaviour
         auto thforces = mgis::behaviour::getThermodynamicForcesView(s1);
         if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
-          auto [pv, inserted] = rotated_thermodynamic_forces.try_emplace(&*om);
-          if (inserted) {
-            try {
-              om->computeThermodynamicForcesInGlobalFrame(pv->second);
-            } catch (std::exception& ex) {
-              return ctx.registerErrorMessage(ex.what());
-            } catch (...) {
-              return ctx.registerErrorMessage("unknown exception");
-            }
+          try {
+            om->computeThermodynamicForcesInGlobalFrame(
+                rotated_thermodynamic_forces);
+          } catch (std::exception& ex) {
+            return ctx.registerErrorMessage(ex.what());
+          } catch (...) {
+            return ctx.registerErrorMessage("unknown exception");
           }
-          const auto& values = pv->second;
           thforces = mgis::makePointByPointFieldView(
-              std::span<const real>(values.HostRead(),
-                                    static_cast<std::size_t>(values.Size())),
-              qspace.getNumberOfIntegrationPoints(), thsize, thsize);
+              std::span<const real>(
+                  rotated_thermodynamic_forces.HostRead(),
+                  static_cast<std::size_t>(rotated_thermodynamic_forces.Size())),
+              npoints, thsize, thsize);
         }
-        for (mfem_mgis::size_type j = 0; j < ir.GetNPoints(); j++) {
-          const auto o = eoffset + j;
-          const auto& ip = ir.IntPoint(j);
-          tr.SetIntPoint(&ip);
-          const auto w = obi->getIntegrationPointWeight(tr, ip);
+        for (mfem_mgis::size_type o = 0; o != npoints; ++o) {
+          const auto wo = w[static_cast<std::size_t>(o)];
           for (mfem_mgis::size_type k = 0; k != thsize; ++k) {
-            s[k] += w * thforces(o, k);
+            s[k] += wo * thforces(o, k);
           }
           // the volume is computed with the first selected behaviour integrator
           if (b == obis->first) {
-            v += w;
+            v += wo;
           }
         }
       }

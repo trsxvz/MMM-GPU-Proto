@@ -1,0 +1,289 @@
+From 711a639ce6d9cd3010a1e58dc4c8505689a49ab8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 13 Nov 2026 22:10:45 +0100
+Subject: [PATCH] Mean thermodynamic forces: weights of the integration points
+ cached
+
+computeMeanThermodynamicForcesValues computed, at each call and on the
+host, the element transformation of every integration point of the mesh.
+On a GPU process, which holds many elements (823,000 for a polycrystal of
+6,400 grains on 64 MI300A), this took 2 to 3 s per call: the polycrystal of
+mm-opera-hpc calls it after each resolution and at each post-processing,
+about 30 % of its wall clock time on the GPUs.
+
+The weights of the points of each behaviour integrator
+(getIntegrationPointWeight) are now computed at the first call and kept by
+the problem (NonLinearEvolutionProblemImplementationBase::
+getIntegrationPointsWeights; the mesh must not be modified afterwards).
+The mean values are then sums of the weighted values, material by material,
+in the order of the points of each material, which is the order of its
+elements: the sums are the same, in the same order (identical outputs of
+the polycrystal on the CPU).
+---
+ ...onLinearEvolutionProblemImplementation.hxx |  4 +
+ ...onLinearEvolutionProblemImplementation.ixx | 73 ++++++++++---------
+ ...nearEvolutionProblemImplementationBase.hxx | 27 +++++++
+ ...nearEvolutionProblemImplementationBase.cxx | 54 ++++++++++++++
+ 4 files changed, 124 insertions(+), 34 deletions(-)
+
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+index d2135a4654..c216634e50 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+@@ -302,6 +302,10 @@ namespace mfem_mgis {
+    * integrators of a material must have the same thermodynamic forces.
+    * \note in parallel, the returned value is only the contribution of the given
+    * process
++   * \note the weights of the integration points are computed at the first
++   * call and kept by the problem (see `getIntegrationPointsWeights`): the
++   * following calls only sum the weighted values at the points, material by
++   * material, on the host
+    */
+   template <bool parallel>
+   [[nodiscard]] std::optional<
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
+index 85438c08f4..df0330788e 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
+@@ -218,67 +218,72 @@ namespace mfem_mgis {
+     }
+     std::vector<mfem_mgis::real> volumes(stress_integrals.size(),
+                                          mfem_mgis::real(0));
+-    // thermodynamic forces in the global frame of the orthotropic
+-    // behaviours, rotated at all the points at once, material by material
+-    auto rotated_thermodynamic_forces = std::map<const Material*, mfem::Vector>{};
+-    const auto& fes = p.getFiniteElementSpace();
+-    for (mfem_mgis::size_type i = 0; i < fes.GetNE(); i++) {
+-      auto& e = *(fes.GetFE(i));
+-      auto& tr = *(fes.GetElementTransformation(i));
+-      const auto obis =
+-          getSelectedBehaviourIntegrators(ctx, p, tr.Attribute, selection);
++    // The points are summed material by material, with the weights of the
++    // points computed once (`getIntegrationPointsWeights`), in the order of
++    // the points, which is the order of the elements: the sums are the ones
++    // of a loop on the elements of each material.
++    // Thermodynamic forces in the global frame of the orthotropic behaviours,
++    // rotated at all the points at once
++    auto rotated_thermodynamic_forces = mfem::Vector{};
++    for (const auto& mi : mis) {
++      const auto obis = getSelectedBehaviourIntegrators(ctx, p, mi, selection);
+       if (isInvalid(obis)) {
+         return {};
+       }
+-      auto& s = stress_integrals[tr.Attribute];
+-      auto& v = volumes[tr.Attribute];
++      auto& s = stress_integrals[mi];
++      auto& v = volumes[mi];
+       for (auto b = obis->first; b != obis->second; ++b) {
+-        const auto obi = p.getBehaviourIntegrator(ctx, tr.Attribute, b);
++        const auto obi = p.getBehaviourIntegrator(ctx, mi, b);
+         if (isInvalid(obi)) {
+           return {};
+         }
+-        const auto& ir = obi->getIntegrationRule(e, tr);
+         const auto& om = obi->getMaterial(ctx);
+         if (isInvalid(om)) {
+           return {};
+         }
++        const auto ow = p.getIntegrationPointsWeights(ctx, mi, b);
++        if (isInvalid(ow)) {
++          return {};
++        }
++        const auto& w = *ow;
+         const auto& s1 = om->s1;
+         const auto& qspace = om->getPartialQuadratureSpace();
+         const auto thsize =
+             static_cast<mfem_mgis::size_type>(s1.thermodynamic_forces_stride);
+-        const auto eoffset = qspace.getOffset(tr.ElementNo);
++        const auto npoints = qspace.getNumberOfIntegrationPoints();
++        if (static_cast<mfem_mgis::size_type>(w.size()) != npoints) {
++          return ctx.registerErrorMessage(
++              "computeMeanThermodynamicForcesValues: inconsistent number of "
++              "weights of the integration points of material '" +
++              std::to_string(mi) + "'");
++        }
+         // thermodynamic forces, read in the layout of the arrays of the
+         // material, or point by point in the global frame for an orthotropic
+         // behaviour
+         auto thforces = mgis::behaviour::getThermodynamicForcesView(s1);
+         if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+-          auto [pv, inserted] = rotated_thermodynamic_forces.try_emplace(&*om);
+-          if (inserted) {
+-            try {
+-              om->computeThermodynamicForcesInGlobalFrame(pv->second);
+-            } catch (std::exception& ex) {
+-              return ctx.registerErrorMessage(ex.what());
+-            } catch (...) {
+-              return ctx.registerErrorMessage("unknown exception");
+-            }
++          try {
++            om->computeThermodynamicForcesInGlobalFrame(
++                rotated_thermodynamic_forces);
++          } catch (std::exception& ex) {
++            return ctx.registerErrorMessage(ex.what());
++          } catch (...) {
++            return ctx.registerErrorMessage("unknown exception");
+           }
+-          const auto& values = pv->second;
+           thforces = mgis::makePointByPointFieldView(
+-              std::span<const real>(values.HostRead(),
+-                                    static_cast<std::size_t>(values.Size())),
+-              qspace.getNumberOfIntegrationPoints(), thsize, thsize);
++              std::span<const real>(
++                  rotated_thermodynamic_forces.HostRead(),
++                  static_cast<std::size_t>(rotated_thermodynamic_forces.Size())),
++              npoints, thsize, thsize);
+         }
+-        for (mfem_mgis::size_type j = 0; j < ir.GetNPoints(); j++) {
+-          const auto o = eoffset + j;
+-          const auto& ip = ir.IntPoint(j);
+-          tr.SetIntPoint(&ip);
+-          const auto w = obi->getIntegrationPointWeight(tr, ip);
++        for (mfem_mgis::size_type o = 0; o != npoints; ++o) {
++          const auto wo = w[static_cast<std::size_t>(o)];
+           for (mfem_mgis::size_type k = 0; k != thsize; ++k) {
+-            s[k] += w * thforces(o, k);
++            s[k] += wo * thforces(o, k);
+           }
+           // the volume is computed with the first selected behaviour integrator
+           if (b == obis->first) {
+-            v += w;
++            v += wo;
+           }
+         }
+       }
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index f482dfe35f..800486e1e3 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -9,7 +9,9 @@
+ #ifndef LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATIONBASE_HXX
+ #define LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATIONBASE_HXX
+ 
++#include <map>
+ #include <memory>
++#include <utility>
+ #include <functional>
+ #include <vector>
+ #include "mfem/general/array.hpp"
+@@ -298,6 +300,25 @@ namespace mfem_mgis {
+         const size_type b) const noexcept override;
+     OptionalReference<AbstractBehaviourIntegrator> getBehaviourIntegrator(
+         Context& ctx, const Parameter& m, const size_type b) noexcept override;
++    /*!
++     * \return the weights of the integration points of a behaviour
++     * integrator of a material (`AbstractBehaviourIntegrator::
++     * getIntegrationPointWeight`), indexed as the points of its partial
++     * quadrature space
++     *
++     * The weights are computed on the host at the first call and kept: the
++     * mesh must not be modified afterwards. The mean values at the points
++     * (`computeMeanThermodynamicForcesValues`) use them, instead of computing
++     * the element transformations of all the points at each call.
++     *
++     * \param[in, out] ctx: execution context
++     * \param[in] m: material identifier
++     * \param[in] b: index of the behaviour integrator of the material
++     */
++    [[nodiscard]] OptionalReference<const std::vector<real>>
++    getIntegrationPointsWeights(Context& ctx,
++                                const size_type m,
++                                const size_type b) const noexcept;
+     std::optional<std::map<size_type, size_type>> addBehaviourIntegrator(
+         Context& ctx,
+         const std::string& n,
+@@ -526,6 +547,12 @@ namespace mfem_mgis {
+     std::unique_ptr<mfem::SparseMatrix> prediction_matrix;
+ 
+    private:
++    /*!
++     * \brief weights of the integration points by material identifier and
++     * index of the behaviour integrator (see `getIntegrationPointsWeights`)
++     */
++    mutable std::map<std::pair<size_type, size_type>, std::vector<real>>
++        integration_points_weights;
+     //! \brief tangent operator applied without assembly
+     mutable std::unique_ptr<MatrixFreeTangentOperator> tangent_operator;
+     //! \brief tangent operator with constrained essential degrees of freedom
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index dfe8f279b9..238ba16cb1 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -9,6 +9,7 @@
+ #include <algorithm>
+ #include <cstdlib>
+ #include <iostream>
++#include <string>
+ #include <string_view>
+ #include <utility>
+ #include "MGIS/Raise.hxx"
+@@ -19,6 +20,8 @@
+ #include "MFEMMGIS/AbstractBoundaryCondition.hxx"
+ #include "MFEMMGIS/AbstractDirichletBoundaryCondition.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+ #include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+@@ -504,6 +507,57 @@ namespace mfem_mgis {
+     return this->mgis_integrator->getBehaviourIntegrator(ctx, *om, b);
+   }  // end of getBehaviourIntegrator
+ 
++  OptionalReference<const std::vector<real>>
++  NonLinearEvolutionProblemImplementationBase::getIntegrationPointsWeights(
++      Context& ctx, const size_type m, const size_type b) const noexcept {
++    const auto key = std::make_pair(m, b);
++    if (const auto p = this->integration_points_weights.find(key);
++        p != this->integration_points_weights.end()) {
++      return &(p->second);
++    }
++    const auto obi = this->getBehaviourIntegrator(ctx, m, b);
++    if (isInvalid(obi)) {
++      return {};
++    }
++    const auto& qspace = obi->getPartialQuadratureSpace();
++    if (qspace.shallUseBoundaryElementsAPI()) {
++      return ctx.registerErrorMessage(
++          "getIntegrationPointsWeights: the behaviour integrators defined on "
++          "boundary elements are not supported");
++    }
++    const auto& fes = getFiniteElementSpace(this->fe_discretization);
++    const auto& elements = qspace.getElements();
++    const auto& offsets = qspace.getElementOffsets();
++    const auto* const ve = elements.HostRead();
++    const auto* const vo = offsets.HostRead();
++    auto w = std::vector<real>(
++        static_cast<std::size_t>(qspace.getNumberOfIntegrationPoints()),
++        real{0});
++    try {
++      for (int i = 0; i != elements.Size(); ++i) {
++        const auto& e = *(fes.GetFE(ve[i]));
++        auto& tr = *(fes.GetElementTransformation(ve[i]));
++        const auto& ir = obi->getIntegrationRule(e, tr);
++        if (vo[i] + ir.GetNPoints() != vo[i + 1]) {
++          return ctx.registerErrorMessage(
++              "getIntegrationPointsWeights: inconsistent number of "
++              "integration points of element " +
++              std::to_string(ve[i]));
++        }
++        for (int j = 0; j != ir.GetNPoints(); ++j) {
++          const auto& ip = ir.IntPoint(j);
++          tr.SetIntPoint(&ip);
++          w[static_cast<std::size_t>(vo[i] + j)] =
++              obi->getIntegrationPointWeight(tr, ip);
++        }
++      }
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
++    return &(this->integration_points_weights.emplace(key, std::move(w))
++                 .first->second);
++  }  // end of getIntegrationPointsWeights
++
+   void NonLinearEvolutionProblemImplementationBase::setTimeIncrement(
+       const real dt) {
+     if (this->mgis_integrator != nullptr) {
+-- 
+2.34.1
+

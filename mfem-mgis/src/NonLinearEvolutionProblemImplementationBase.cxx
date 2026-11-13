@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <utility>
 #include "MGIS/Raise.hxx"
@@ -19,6 +20,8 @@
 #include "MFEMMGIS/AbstractBoundaryCondition.hxx"
 #include "MFEMMGIS/AbstractDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
 #include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
@@ -503,6 +506,57 @@ namespace mfem_mgis {
     }
     return this->mgis_integrator->getBehaviourIntegrator(ctx, *om, b);
   }  // end of getBehaviourIntegrator
+
+  OptionalReference<const std::vector<real>>
+  NonLinearEvolutionProblemImplementationBase::getIntegrationPointsWeights(
+      Context& ctx, const size_type m, const size_type b) const noexcept {
+    const auto key = std::make_pair(m, b);
+    if (const auto p = this->integration_points_weights.find(key);
+        p != this->integration_points_weights.end()) {
+      return &(p->second);
+    }
+    const auto obi = this->getBehaviourIntegrator(ctx, m, b);
+    if (isInvalid(obi)) {
+      return {};
+    }
+    const auto& qspace = obi->getPartialQuadratureSpace();
+    if (qspace.shallUseBoundaryElementsAPI()) {
+      return ctx.registerErrorMessage(
+          "getIntegrationPointsWeights: the behaviour integrators defined on "
+          "boundary elements are not supported");
+    }
+    const auto& fes = getFiniteElementSpace(this->fe_discretization);
+    const auto& elements = qspace.getElements();
+    const auto& offsets = qspace.getElementOffsets();
+    const auto* const ve = elements.HostRead();
+    const auto* const vo = offsets.HostRead();
+    auto w = std::vector<real>(
+        static_cast<std::size_t>(qspace.getNumberOfIntegrationPoints()),
+        real{0});
+    try {
+      for (int i = 0; i != elements.Size(); ++i) {
+        const auto& e = *(fes.GetFE(ve[i]));
+        auto& tr = *(fes.GetElementTransformation(ve[i]));
+        const auto& ir = obi->getIntegrationRule(e, tr);
+        if (vo[i] + ir.GetNPoints() != vo[i + 1]) {
+          return ctx.registerErrorMessage(
+              "getIntegrationPointsWeights: inconsistent number of "
+              "integration points of element " +
+              std::to_string(ve[i]));
+        }
+        for (int j = 0; j != ir.GetNPoints(); ++j) {
+          const auto& ip = ir.IntPoint(j);
+          tr.SetIntPoint(&ip);
+          w[static_cast<std::size_t>(vo[i] + j)] =
+              obi->getIntegrationPointWeight(tr, ip);
+        }
+      }
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
+    return &(this->integration_points_weights.emplace(key, std::move(w))
+                 .first->second);
+  }  // end of getIntegrationPointsWeights
 
   void NonLinearEvolutionProblemImplementationBase::setTimeIncrement(
       const real dt) {

@@ -9,7 +9,9 @@
 #ifndef LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATIONBASE_HXX
 #define LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATIONBASE_HXX
 
+#include <map>
 #include <memory>
+#include <utility>
 #include <functional>
 #include <vector>
 #include "mfem/general/array.hpp"
@@ -298,6 +300,25 @@ namespace mfem_mgis {
         const size_type b) const noexcept override;
     OptionalReference<AbstractBehaviourIntegrator> getBehaviourIntegrator(
         Context& ctx, const Parameter& m, const size_type b) noexcept override;
+    /*!
+     * \return the weights of the integration points of a behaviour
+     * integrator of a material (`AbstractBehaviourIntegrator::
+     * getIntegrationPointWeight`), indexed as the points of its partial
+     * quadrature space
+     *
+     * The weights are computed on the host at the first call and kept: the
+     * mesh must not be modified afterwards. The mean values at the points
+     * (`computeMeanThermodynamicForcesValues`) use them, instead of computing
+     * the element transformations of all the points at each call.
+     *
+     * \param[in, out] ctx: execution context
+     * \param[in] m: material identifier
+     * \param[in] b: index of the behaviour integrator of the material
+     */
+    [[nodiscard]] OptionalReference<const std::vector<real>>
+    getIntegrationPointsWeights(Context& ctx,
+                                const size_type m,
+                                const size_type b) const noexcept;
     std::optional<std::map<size_type, size_type>> addBehaviourIntegrator(
         Context& ctx,
         const std::string& n,
@@ -526,6 +547,12 @@ namespace mfem_mgis {
     std::unique_ptr<mfem::SparseMatrix> prediction_matrix;
 
    private:
+    /*!
+     * \brief weights of the integration points by material identifier and
+     * index of the behaviour integrator (see `getIntegrationPointsWeights`)
+     */
+    mutable std::map<std::pair<size_type, size_type>, std::vector<real>>
+        integration_points_weights;
     //! \brief tangent operator applied without assembly
     mutable std::unique_ptr<MatrixFreeTangentOperator> tangent_operator;
     //! \brief tangent operator with constrained essential degrees of freedom
