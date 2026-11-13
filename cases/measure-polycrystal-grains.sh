@@ -16,7 +16,10 @@
 # - modes: `gpu` and/or `cpu` (default `gpu cpu`);
 # - nodes: nodes used (default SLURM_JOB_NUM_NODES, or 1);
 # - gpus_per_node, cores_per_node: default 4 and 96 (MI300A of Adastra);
-# - run_timeout: time limit of each computation in s (default 7200);
+# - run_timeout_gpu, run_timeout_cpu: time limits of the computations in s
+#   (default 2400 and 10800; run_timeout, if given, for both);
+# - cpu_environment: variables given to the CPU computation only (for
+#   instance MPICH_GPU_SUPPORT_ENABLED=0);
 # - solver_gpu, solver_cpu: options of the solvers of the polycrystal on the
 #   GPU and on the CPU (default: NewtonK0, Eisenstat-Walker 1 from 0.1, the
 #   best on both sides on Jean Zay, results/L5-polycrystal-2026-10-10-0502);
@@ -29,9 +32,13 @@
 # at each step (post-processings without ParaView export) in
 # <results>/<computation>/avgStressPolycrystal. A line per computation is
 # appended to <results>/series.txt: label, mode, nodes, processes, status,
-# unknowns, time of the steps (s), axial stress at the end (Pa), time steps
-# (with the divided ones), resolutions of the fixed point on the lateral
-# stresses, Newton iterations, failed resolutions, solver label.
+# unknowns, total time (s, section root of the profiling: setup included),
+# axial stress at the end (Pa), time steps (with the divided ones),
+# resolutions of the fixed point on the lateral stresses, Newton iterations,
+# failed resolutions, solver label, time of the mesh (s, Mesh::Constructor:
+# serial reading, partition, refinements), time of the loop over the steps
+# (s, NLEP::solve), energy (J) and duration (s) of the Slurm step of the
+# computation (the energy is read right after it, `-` outside Slurm).
 set -u
 work_package=grains
 mesh=${mesh:?mesh (absolute path) required}
@@ -44,7 +51,9 @@ duration=${duration:-$nsteps}
 nodes=${nodes:-${SLURM_JOB_NUM_NODES:-1}}
 gpus_per_node=${gpus_per_node:-4}
 cores_per_node=${cores_per_node:-96}
-run_timeout=${run_timeout:-7200}
+run_timeout_gpu=${run_timeout_gpu:-${run_timeout:-2400}}
+run_timeout_cpu=${run_timeout_cpu:-${run_timeout:-10800}}
+read -r -a cpu_environment <<< "${cpu_environment:-}"
 post_processing=""
 source "$(dirname "$0")/measure-common.sh" polycrystal "$@"
 summary="$summary|number of finite element unknowns"
@@ -72,7 +81,7 @@ suffix=${solver_label:+-$solver_label}
 # usage: record name mode processes
 record() {
   local name=$1 mode=$2 np=$3 status unknowns time szz steps resolutions
-  local newton failures
+  local newton failures mesh_time loop_time energy elapsed
   status=missing
   if [ -f "$out/$name.txt" ]; then
     status=$(sed -n 's/^   status //p' "$out/summary.txt" | tail -1)
@@ -87,9 +96,37 @@ record() {
   resolutions=$(grep -c '^Fixed Point iteration' "$out/$name.txt" 2> /dev/null)
   newton=$(grep -c '||r||/||r_0||' "$out/$name.txt" 2> /dev/null)
   failures=$(grep -c 'the resolution failed' "$out/$name.txt" 2> /dev/null)
+  # maximum over the processes of a first level section of the profiling
+  # (line ` | |--> name | calls | min | average | max | ...`)
+  section() {
+    awk -F'|' -v s="$1" '$2 == " " && $3 ~ ("^--> " s " *$") {
+      gsub(/ /, "", $7); print $7; exit}' "$out/$name.txt" 2> /dev/null
+  }
+  mesh_time=$(section 'Mesh::Constructor')
+  loop_time=$(section 'NLEP::solve')
+  # energy and duration of the last step of the job (this computation),
+  # waiting for the accounting (a few seconds)
+  energy=- elapsed=-
+  if [ -n "${SLURM_JOB_ID:-}" ]; then
+    local i line
+    for i in $(seq 12); do
+      line=$(sacct -j "$SLURM_JOB_ID" -P -n \
+        --format=JobID,ConsumedEnergyRaw,ElapsedRaw,State 2> /dev/null |
+        awk -F'|' '$1 ~ /\.[0-9]+$/' | sort -t. -k2 -n | tail -1)
+      case "$line" in
+        *'|COMPLETED'|*'|FAILED'|*'|CANCELLED'*|*'|TIMEOUT'|*'|OUT_OF_ME'*)
+          energy=$(cut -d'|' -f2 <<< "$line")
+          elapsed=$(cut -d'|' -f3 <<< "$line")
+          break
+          ;;
+      esac
+      sleep 5
+    done
+  fi
   echo "$label $mode $nodes $np ${status:-?} ${unknowns:--} ${time:--}" \
     "${szz:--} ${steps:-0} ${resolutions:-0} ${newton:-0} ${failures:-0}" \
-    "${solver_label:-default}" | tee -a "$out/series.txt"
+    "${solver_label:-default} ${mesh_time:--} ${loop_time:--}" \
+    "${energy:--} ${elapsed:--}" | tee -a "$out/series.txt"
 }
 for mode in ${modes:-gpu cpu}; do
   if [ "$mode" = gpu ]; then
@@ -97,13 +134,13 @@ for mode in ${modes:-gpu cpu}; do
     threads=$((cores_per_node / gpus_per_node))
     # order of the GPUs of a node (the launcher takes the local rank modulo
     # the length of the list)
-    order=$(python3 -I "$P/scripts/gpus-close-to-ranks.py" "$gpus_per_node" \
-      "$threads")
-    if [ -n "$order" ]; then
+    gpu_order=$(python3 -I "$P/scripts/gpus-close-to-ranks.py" \
+      "$gpus_per_node" "$threads")
+    if [ -n "$gpu_order" ]; then
       if [ -n "${PROTO_GPU_PER_RANK:-}" ]; then
-        export PROTO_GPU_RANK_ORDER=$order
+        export PROTO_GPU_RANK_ORDER=$gpu_order
       else
-        export PROTO_CUDA_VISIBLE_DEVICES=$order
+        export PROTO_CUDA_VISIBLE_DEVICES=$gpu_order
       fi
     fi
     device=$gpu
@@ -111,6 +148,7 @@ for mode in ${modes:-gpu cpu}; do
     read -r -a gpu_aware <<< "${PROTO_GPU_AWARE_MPI_ENVIRONMENT:-}"
     options="$solver_gpu --gpu-aware-mpi"
     run_directory=$out/$name
+    run_timeout=$run_timeout_gpu
     run "$name" "$threads" "$np" "$gpu_library" "$batch" "${kernels[@]}" \
       "${gpu_aware[@]}"
     unset PROTO_CUDA_VISIBLE_DEVICES PROTO_GPU_RANK_ORDER PROTO_GPU_PER_RANK
@@ -120,7 +158,9 @@ for mode in ${modes:-gpu cpu}; do
     name=$label-r$refinement-cpu-n$nodes$suffix
     options=$solver_cpu
     run_directory=$out/$name
-    run "$name" 1 "$np" "$generic" "$batch" "${kernels[@]}"
+    run_timeout=$run_timeout_cpu
+    run "$name" 1 "$np" "$generic" "$batch" "${kernels[@]}" \
+      "${cpu_environment[@]}"
   fi
   record "$name" "$mode" "$np"
 done
