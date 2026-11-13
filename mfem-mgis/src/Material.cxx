@@ -7,6 +7,7 @@
 
 #include <span>
 #include <limits>
+#include <tuple>
 #include <string>
 #include <cstddef>
 #include <utility>
@@ -156,6 +157,7 @@ namespace mfem_mgis {
       raise("Material::setRotationMatrix: unimplemented case yet");
     }
     this->r2D = r;
+    this->kept_rotation_matrices_computed = {false, false};
   }  // end of setRotationMatrix
 
   void Material::setRotationMatrix(const RotationMatrix3D &r) {
@@ -240,6 +242,7 @@ namespace mfem_mgis {
       raise("Material::setRotationMatrix: unimplemented case yet");
     }
     this->r3D = r;
+    this->kept_rotation_matrices_computed = {false, false};
   }  // end of setRotationMatrix
 
   /*!
@@ -303,6 +306,28 @@ namespace mfem_mgis {
     return mgis::makePointByPointFieldView(matrices, np, 9, 9);
   }  // end of computeRotationMatrices
 
+  std::pair<const mfem::Vector *, mgis::FieldView<const real>>
+  Material::getRotationMatrices(const bool t) const {
+    const auto i = t ? std::size_t{1} : std::size_t{0};
+    auto &r = this->kept_rotation_matrices[i];
+    if (!this->kept_rotation_matrices_computed[i]) {
+      std::ignore = this->computeRotationMatrices(r, t);
+      this->kept_rotation_matrices_computed[i] = true;
+    }
+    const auto np = static_cast<size_type>(this->n);
+    const auto size = static_cast<std::size_t>(r.Size());
+    if (size == 0) {
+      return {&r,
+              mgis::makePointByPointFieldView(std::span<const real>{}, 0, 9, 9)};
+    }
+    const auto matrices = std::span<const real>(r.HostRead(), size);
+    // one matrix: uniform rotation (or a single point)
+    if (size == 9) {
+      return {&r, mgis::makeUniformFieldView(matrices, np)};
+    }
+    return {&r, mgis::makePointByPointFieldView(matrices, np, 9, 9)};
+  }  // end of getRotationMatrices
+
   void Material::computeValuesInGlobalFrame(mfem::Vector& v,
                                             const StateArray a,
                                             const StateSelection s,
@@ -324,10 +349,9 @@ namespace mfem_mgis {
     if (size == 0) {
       return;
     }
-    auto r = mfem::Vector{};
     // the gradients are rotated by the transposed matrices, from the
     // material frame to the global frame
-    const auto hmatrices = this->computeRotationMatrices(r, gradients);
+    const auto [r, hmatrices] = this->getRotationMatrices(gradients);
     const auto hsource = gradients
                              ? mgis::behaviour::getGradientsView(sm)
                              : mgis::behaviour::getThermodynamicForcesView(sm);
@@ -346,7 +370,7 @@ namespace mfem_mgis {
                              : relocate(mgis::FieldView<const real>(hsource),
                                         this->read(a, s), array.Size());
     const auto matrices =
-        host ? hmatrices : relocate(hmatrices, r.Read(), r.Size());
+        host ? hmatrices : relocate(hmatrices, r->Read(), r->Size());
     auto *const values = host ? v.HostWrite() : v.Write();
     const auto d =
         mgis::makeFieldView(std::span<real>(values, size), ol, np, nc);

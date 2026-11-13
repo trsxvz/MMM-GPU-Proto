@@ -79,7 +79,7 @@ namespace mfem_mgis {
      * in the material frame before the integration (except for a
      * prediction), and the tangent operator blocks in the global frame
      * after it, by the rotation functions of MGIS processing all the points
-     * (see `Material::computeRotationMatrices`).
+     * (see `Material::getRotationMatrices`).
      * For an orthotropic behaviour without functions rotating the values of
      * one point (`generic-parallel` interface), the thermodynamic forces in
      * the global frame used by the computation of the inner forces are also
@@ -415,8 +415,6 @@ namespace mfem_mgis {
        * the time step
        */
       std::map<std::string, QPEvaluatorResult> pqfcts_esvs_ets;
-      //! \brief rotation matrices used by `integrateBatch`
-      mfem::Vector rotation_matrices;
       /*!
        * \brief copies on the device of the material properties, of the
        * external state variables and of the mass density, used by

@@ -8,6 +8,8 @@
 
 #include <memory>
 #include <string>
+#include <vector>
+#include <utility>
 #include <algorithm>
 #include <exception>
 #include <csignal>
@@ -29,6 +31,9 @@
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+#include "MFEMMGIS/PartialQuadratureFunction.hxx"
+#include "MFEMMGIS/RotationMatrix.hxx"
+#include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/MechanicalPostProcessings.hxx"
@@ -130,6 +135,25 @@ struct MaterialParameters : ElasticMaterialPropertiesParameters {
   const char *vect_file = "mesh/vectors_5crystals.txt";
   //! \brief give the displacement gradient to the behaviour
   bool displacement_gradient = false;
+  /*!
+   * \brief one material for all the grains, whose orientations are given
+   * point by point, instead of one material per grain: the behaviour is
+   * integrated by one batch over all the grains
+   */
+  bool single_material = false;
+};
+
+/*!
+ * \brief grains of the mesh when all the grains are one material (option
+ * --single-material)
+ */
+struct Grains {
+  //! \brief number of grains (attributes of the mesh)
+  int number = 0;
+  //! \brief grain of each element (former attribute, from 1)
+  std::vector<int> of_elements;
+  //! \brief grain of each integration point of the material (from 0)
+  std::vector<int> of_points;
 };
 
 struct LoadingParameters {
@@ -183,7 +207,8 @@ static void addPostProcessings(mfem_mgis::attributes::MayAbort,
                                mfem_mgis::Context &,
                                mfem_mgis::PeriodicNonLinearEvolutionProblem &,
                                const std::string &,
-                               const bool);
+                               const bool,
+                               const Grains &);
 static void addOptionalPostProcessings(
     mfem_mgis::attributes::MayAbort,
     mfem_mgis::Context &,
@@ -195,7 +220,14 @@ static void setupMaterials(
     mfem_mgis::Context &,
     mfem_mgis::PeriodicNonLinearEvolutionProblem &,
     mm_opera_hpc::MacroscropicElasticMaterialProperties &,
-    const TestParameters &);
+    const TestParameters &,
+    Grains &);
+static Grains mergeGrains(mfem_mgis::FiniteElementDiscretization &);
+static void addGrainsMeanStresses(mfem_mgis::attributes::MayAbort,
+                                  mfem_mgis::Context &,
+                                  mfem_mgis::PeriodicNonLinearEvolutionProblem &,
+                                  const Grains &,
+                                  const std::string &);
 static void setLinearSolver(mfem_mgis::attributes::MayAbort,
                             mfem_mgis::Context &,
                             mfem_mgis::PeriodicNonLinearEvolutionProblem &,
@@ -222,6 +254,12 @@ int main(int argc, char *argv[]) {
                                  {"UnknownsSize", mfem_mgis::size_type{3}},
                                  {"NumberOfUniformRefinements", p.refinement},
                                  {"Parallel", true}})|or_die;
+  // one material for all the grains: the elements are given the attribute 1
+  // before the creation of the problem, their grains are kept
+  auto grains = Grains{};
+  if (p.single_material) {
+    grains = mergeGrains(fed);
+  }
   auto problem_parameters = mfem_mgis::Parameters{};
   // options of the non linear solver: adaptive tolerance of its linear
   // solver, if required
@@ -319,13 +357,14 @@ int main(int argc, char *argv[]) {
 
   // set problem
   mm_opera_hpc::MacroscropicElasticMaterialProperties mp;
-  setupMaterials(mfem_mgis::may_abort, ctx, problem, mp, p);
+  setupMaterials(mfem_mgis::may_abort, ctx, problem, mp, p, grains);
   setLinearSolver(mfem_mgis::may_abort, ctx, problem, p);
   // add post processings
   mfem::ParaViewDataCollection *paraview_exporter = nullptr;
   if (p.post_processings) {
     addPostProcessings(mfem_mgis::may_abort, ctx, problem,
-                       "OutputFile-Uniaxial-polycrystal", p.paraview_export);
+                       "OutputFile-Uniaxial-polycrystal", p.paraview_export,
+                       grains);
     addOptionalPostProcessings(mfem_mgis::may_abort, ctx, problem, p,
                                paraview_exporter);
   }
@@ -448,6 +487,11 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "export the displacement to ParaView at each step (the "
                  "averages of the stresses per grain are still computed)",
                  false);
+  args.AddOption(&p.single_material, "", "--single-material", "",
+                 "--material-per-grain",
+                 "one material for all the grains, oriented point by point "
+                 "(one batch of integration over all the grains), instead of "
+                 "one material per grain");
   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
                  "choose the verbosity level");
   args.AddOption(&p.duration, "-d", "--duration",
@@ -498,7 +542,8 @@ static void setupMaterials(
     mfem_mgis::Context &ctx,
     mfem_mgis::PeriodicNonLinearEvolutionProblem &problem,
     mm_opera_hpc::MacroscropicElasticMaterialProperties &mp,
-    const TestParameters &p) {
+    const TestParameters &p,
+    Grains &grains) {
   using namespace mgis::behaviour;
   auto or_die = ctx.getFatalFailureHandler();
   using real = mfem_mgis::real;
@@ -568,9 +613,45 @@ static void setupMaterials(
 
   //
   const auto vectors = mm_opera_hpc::readVectorsFromFile(p.vect_file);
-  if (vectors.size() != 2 * nMat) {
+  const auto nGrains = p.single_material ? grains.number : nMat;
+  if (vectors.size() != 2 * static_cast<std::size_t>(nGrains)) {
     throw std::invalid_argument(
         "setupMaterials : incorrect number of vectors in vector file");
+  }
+  if (p.single_material) {
+    // orientations of the grains given point by point, and grain of each
+    // point
+    auto &mat = problem.getMaterial(ctx, 1, 0) | or_die;
+    if (mat.b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
+      return;
+    }
+    const auto &qspace = mat.getPartialQuadratureSpace();
+    auto a1 = std::make_shared<mfem_mgis::PartialQuadratureFunction>(qspace, 3);
+    auto a2 = std::make_shared<mfem_mgis::PartialQuadratureFunction>(qspace, 3);
+    auto v1 = a1->getValues();
+    auto v2 = a2->getValues();
+    const auto &elements = qspace.getElements();
+    const auto &offsets = qspace.getElementOffsets();
+    const auto *const pe = elements.HostRead();
+    const auto *const po = offsets.HostRead();
+    grains.of_points.assign(
+        static_cast<std::size_t>(qspace.getNumberOfIntegrationPoints()), 0);
+    for (int i = 0; i != elements.Size(); ++i) {
+      const auto g = grains.of_elements[static_cast<std::size_t>(pe[i])] - 1;
+      const auto &r1 = vectors[2 * static_cast<std::size_t>(g)];
+      const auto &r2 = vectors[2 * static_cast<std::size_t>(g) + 1];
+      for (auto o = static_cast<std::size_t>(po[i]);
+           o != static_cast<std::size_t>(po[i + 1]); ++o) {
+        grains.of_points[o] = g;
+        for (std::size_t k = 0; k != 3; ++k) {
+          v1[3 * o + k] = r1[k];
+          v2[3 * o + k] = r2[k];
+        }
+      }
+    }
+    mat.setRotationMatrix(mfem_mgis::RotationMatrix3D{
+        std::array<mfem_mgis::MaterialAxis3D, 2u>{a1, a2}});
+    return;
   }
 
   std::array<mfem_mgis::MaterialAxis3D, 2u> r;
@@ -793,14 +874,130 @@ static void addPostProcessings(mfem_mgis::attributes::MayAbort,
                                mfem_mgis::Context &ctx,
                                mfem_mgis::PeriodicNonLinearEvolutionProblem &p,
                                const std::string &msg,
-                               const bool paraview_export) {
+                               const bool paraview_export,
+                               const Grains &grains) {
   auto or_die = ctx.getFatalFailureHandler();
   if (paraview_export) {
     p.addPostProcessing(ctx, "ParaviewExportResults",
                         {{"OutputFileName", msg}}) |
         or_die;
   }
+  if (grains.number != 0) {
+    addGrainsMeanStresses(mfem_mgis::may_abort, ctx, p, grains,
+                          "avgStressPolycrystal");
+    return;
+  }
   p.addPostProcessing(ctx, "MeanThermodynamicForces",
                       {{"OutputFileName", "avgStressPolycrystal"}}) |
       or_die;
 }  // end timer add_postprocessing_and_outputs
+
+/*!
+ * \brief gives all the elements the attribute 1: one material for all the
+ * grains (option --single-material)
+ * \return the grains, the grain of each element being its former attribute
+ * \param[in, out] fed: finite element discretization, before the creation
+ * of the problem
+ */
+static Grains mergeGrains(mfem_mgis::FiniteElementDiscretization &fed) {
+  auto grains = Grains{};
+  // attributes of all the processes
+  grains.number = static_cast<int>(getMaterialsAttributes(fed).Max());
+  auto &mesh = fed.getMesh<true>();
+  grains.of_elements.resize(static_cast<std::size_t>(mesh.GetNE()));
+  for (int e = 0; e != mesh.GetNE(); ++e) {
+    grains.of_elements[static_cast<std::size_t>(e)] = mesh.GetAttribute(e);
+    mesh.SetAttribute(e, 1);
+  }
+  mesh.SetAttributes();
+  mfem_mgis::Profiler::Utils::Message("Nombre de grains : ", grains.number);
+  return grains;
+}  // end of mergeGrains
+
+/*!
+ * \brief averages of the stresses (in the global frame) of each grain when
+ * all the grains are one material, written at each step as by the
+ * post-processing MeanThermodynamicForces with one material per grain (same
+ * file, same sums in the order of the elements of each grain)
+ * \param[in, out] ctx: execution context
+ * \param[in, out] p: problem
+ * \param[in] grains: grains of the points of the material
+ * \param[in] f: output file
+ */
+static void addGrainsMeanStresses(mfem_mgis::attributes::MayAbort,
+                                  mfem_mgis::Context &ctx,
+                                  mfem_mgis::PeriodicNonLinearEvolutionProblem &p,
+                                  const Grains &grains,
+                                  const std::string &f) {
+  auto or_die = ctx.getFatalFailureHandler();
+  auto out = std::make_shared<std::ofstream>();
+  const auto &m = p.getMaterial(ctx, 1, 0) | or_die;
+  const auto nc =
+      static_cast<std::size_t>(m.s1.thermodynamic_forces_stride);
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+    out->open(f);
+    if (!(*out)) {
+      mfem_mgis::abort(("can't open output file '" + f + "'").c_str());
+    }
+    *out << "# first column: time\n";
+    auto c = std::size_t{2};
+    for (int g = 1; g <= grains.number; ++g) {
+      for (std::size_t k = 0; k != nc; ++k, ++c) {
+        *out << "# " << c << " column: " << k
+             << " component of the mean thermodynamic force for material "
+             << g << '\n';
+      }
+    }
+  }
+  p.getImplementation<true>().addPostProcessing(
+      ctx, [&ctx, &p, &grains, out, nc, or_die](const mfem_mgis::real t,
+                                                const mfem_mgis::real dt) {
+        auto &impl = p.getImplementation<true>();
+        const auto &mat = p.getMaterial(ctx, 1, 0) | or_die;
+        const auto &w = impl.getIntegrationPointsWeights(ctx, 1, 0) | or_die;
+        const auto ng = static_cast<std::size_t>(grains.number);
+        // integrals of the stresses and volume of each grain
+        auto sums = std::vector<mfem_mgis::real>(ng * (nc + 1), 0);
+        auto add = [&](const mgis::FieldView<const mfem_mgis::real> &values) {
+          for (std::size_t o = 0; o != w.size(); ++o) {
+            const auto g = static_cast<std::size_t>(grains.of_points[o]);
+            auto *const s = sums.data() + g * (nc + 1);
+            for (std::size_t k = 0; k != nc; ++k) {
+              s[k] += w[o] * values(static_cast<mfem_mgis::size_type>(o),
+                                    static_cast<mfem_mgis::size_type>(k));
+            }
+            s[nc] += w[o];
+          }
+        };
+        if (mat.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+          auto rotated = mfem::Vector{};
+          mat.computeThermodynamicForcesInGlobalFrame(rotated);
+          add(mgis::makePointByPointFieldView(
+              std::span<const mfem_mgis::real>(
+                  rotated.HostRead(), static_cast<std::size_t>(rotated.Size())),
+              static_cast<mfem_mgis::size_type>(w.size()),
+              static_cast<mfem_mgis::size_type>(nc),
+              static_cast<mfem_mgis::size_type>(nc)));
+        } else {
+          mat.synchronizeOnHostForReading(
+              mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES,
+              mfem_mgis::TimeStepStage::END_OF_TIME_STEP);
+          add(mgis::behaviour::getThermodynamicForcesView(mat.s1));
+        }
+        auto totals = std::vector<mfem_mgis::real>(sums.size(), 0);
+        MPI_Reduce(sums.data(), totals.data(), static_cast<int>(sums.size()),
+                   mfem_mgis::mpi_type<mfem_mgis::real>, MPI_SUM, 0,
+                   MPI_COMM_WORLD);
+        if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+          *out << t + dt;
+          for (std::size_t g = 0; g != ng; ++g) {
+            const auto *const s = totals.data() + g * (nc + 1);
+            for (std::size_t k = 0; k != nc; ++k) {
+              *out << " " << s[k] / s[nc];
+            }
+          }
+          *out << std::endl;
+        }
+      }) |
+      or_die;
+}  // end of addGrainsMeanStresses

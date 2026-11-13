@@ -1,0 +1,214 @@
+From 0e949cd44167ed1170f5b98316fcf14c841f9009 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 13 Nov 2026 23:14:32 +0100
+Subject: [PATCH] Rotation matrices kept by the materials
+
+The integrations by batches and the rotations of the values in the global
+frame computed the rotation matrices of an orthotropic material on the host
+at each call, and copied them to the device: one matrix per point for
+material axes given point by point (12 million points per GPU process for a
+polycrystal of 400 grains on 4 MI300A, as long as the integration itself),
+and one small copy per material and per integration for a uniform rotation.
+
+Material::getRotationMatrices keeps the matrices of computeRotationMatrices,
+computed at the first call following setRotationMatrix; the kept array is
+copied once to the device. The material axes given by partial quadrature
+functions must not be modified afterwards without calling
+setRotationMatrix again. Same values: identical outputs of the
+polycrystal of mm-opera-hpc on the CPU.
+---
+ include/MFEMMGIS/BehaviourIntegratorBase.hxx |  4 +--
+ include/MFEMMGIS/Material.hxx                | 32 ++++++++++++++++++++
+ src/BehaviourIntegratorBase.cxx              |  9 +++---
+ src/Material.cxx                             | 30 ++++++++++++++++--
+ 4 files changed, 64 insertions(+), 11 deletions(-)
+
+diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+index d33e65fb77..c6ab633ca0 100644
+--- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
++++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+@@ -79,7 +79,7 @@ namespace mfem_mgis {
+      * in the material frame before the integration (except for a
+      * prediction), and the tangent operator blocks in the global frame
+      * after it, by the rotation functions of MGIS processing all the points
+-     * (see `Material::computeRotationMatrices`).
++     * (see `Material::getRotationMatrices`).
+      * For an orthotropic behaviour without functions rotating the values of
+      * one point (`generic-parallel` interface), the thermodynamic forces in
+      * the global frame used by the computation of the inner forces are also
+@@ -415,8 +415,6 @@ namespace mfem_mgis {
+        * the time step
+        */
+       std::map<std::string, QPEvaluatorResult> pqfcts_esvs_ets;
+-      //! \brief rotation matrices used by `integrateBatch`
+-      mfem::Vector rotation_matrices;
+       /*!
+        * \brief copies on the device of the material properties, of the
+        * external state variables and of the mass density, used by
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index 8114417d1b..5de2318ab3 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -13,6 +13,7 @@
+ #include <vector>
+ #include <memory>
+ #include <optional>
++#include <utility>
+ #include <string_view>
+ 
+ #ifdef MGIS_FUNCTION_SUPPORT
+@@ -196,6 +197,26 @@ namespace mfem_mgis {
+      */
+     [[nodiscard]] mgis::FieldView<const real> computeRotationMatrices(
+         mfem::Vector& r, const bool t = false) const;
++    /*!
++     * \brief rotation matrices of `computeRotationMatrices`, computed at the
++     * first call following `setRotationMatrix` and kept
++     *
++     * The integrations by batches and the rotations of the values in the
++     * global frame use them: computing one matrix per point on the host at
++     * each integration would cost as much as the integration on a GPU for
++     * material axes given point by point. The material axes given by partial
++     * quadrature functions are read at the first call: they must not be
++     * modified afterwards without calling `setRotationMatrix` again. The
++     * kept array is copied on the device once, by its first `Read`.
++     *
++     * \return the kept array of the matrices (9 values per matrix, one matrix
++     * for a uniform rotation) and a view of the matrices of all the
++     * integration points on its copy on the host
++     * \param[in] t: if true, the transposed matrices (see
++     * `computeRotationMatrices`)
++     */
++    [[nodiscard]] std::pair<const mfem::Vector*, mgis::FieldView<const real>>
++    getRotationMatrices(const bool t = false) const;
+     /*!
+      * \brief computes the gradients of a state in the global frame at all
+      * the integration points (orthotropic behaviours), by one rotation of
+@@ -268,6 +289,17 @@ namespace mfem_mgis {
+     std::array<real, 9u> (*get_rotation_fct_ptr)(const RotationMatrix2D &,
+                                                  const RotationMatrix3D &,
+                                                  const size_type);
++    /*!
++     * \brief rotation matrices kept by `getRotationMatrices` (first: from the
++     * global frame to the material frame, second: transposed)
++     */
++    mutable std::array<mfem::Vector, 2u> kept_rotation_matrices;
++    /*!
++     * \brief if the kept rotation matrices are computed (reset by
++     * `setRotationMatrix`)
++     */
++    mutable std::array<bool, 2u> kept_rotation_matrices_computed = {false,
++                                                                    false};
+ 
+    private:
+     /*!
+diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
+index 5944edd144..900bd565e6 100644
+--- a/src/BehaviourIntegratorBase.cxx
++++ b/src/BehaviourIntegratorBase.cxx
+@@ -942,12 +942,11 @@ namespace mfem_mgis {
+       auto v = this->makeDeviceView(this->wks.device_inputs, tangent,
+                                     orthotropic && !prediction);
+       // rotation matrices, computed on the host and copied to the device
++      // once (see `Material::getRotationMatrices`)
+       auto matrices = mgis::FieldView<const real>{};
+       if (orthotropic) {
+-        // `computeRotationMatrices` resizes the array before its copy
+-        auto& rm = this->wks.rotation_matrices;
+-        const auto hmatrices = this->computeRotationMatrices(rm);
+-        matrices = relocate(hmatrices, rm.Read(), rm.Size());
++        const auto [rm, hmatrices] = this->getRotationMatrices();
++        matrices = relocate(hmatrices, rm->Read(), rm->Size());
+       }
+       if (orthotropic && !prediction) {
+         mgis::behaviour::rotateGradients(v.s1.gradients, this->b, matrices, l);
+@@ -1012,7 +1011,7 @@ namespace mfem_mgis {
+     try {
+       auto matrices = mgis::FieldView<const real>{};
+       if (orthotropic) {
+-        matrices = this->computeRotationMatrices(this->wks.rotation_matrices);
++        matrices = this->getRotationMatrices().second;
+       }
+       if (orthotropic && !prediction) {
+         const auto g = mgis::behaviour::getGradientsView(this->s1);
+diff --git a/src/Material.cxx b/src/Material.cxx
+index 37fa8d0a54..3af0827180 100644
+--- a/src/Material.cxx
++++ b/src/Material.cxx
+@@ -7,6 +7,7 @@
+ 
+ #include <span>
+ #include <limits>
++#include <tuple>
+ #include <string>
+ #include <cstddef>
+ #include <utility>
+@@ -156,6 +157,7 @@ namespace mfem_mgis {
+       raise("Material::setRotationMatrix: unimplemented case yet");
+     }
+     this->r2D = r;
++    this->kept_rotation_matrices_computed = {false, false};
+   }  // end of setRotationMatrix
+ 
+   void Material::setRotationMatrix(const RotationMatrix3D &r) {
+@@ -240,6 +242,7 @@ namespace mfem_mgis {
+       raise("Material::setRotationMatrix: unimplemented case yet");
+     }
+     this->r3D = r;
++    this->kept_rotation_matrices_computed = {false, false};
+   }  // end of setRotationMatrix
+ 
+   /*!
+@@ -303,6 +306,28 @@ namespace mfem_mgis {
+     return mgis::makePointByPointFieldView(matrices, np, 9, 9);
+   }  // end of computeRotationMatrices
+ 
++  std::pair<const mfem::Vector *, mgis::FieldView<const real>>
++  Material::getRotationMatrices(const bool t) const {
++    const auto i = t ? std::size_t{1} : std::size_t{0};
++    auto &r = this->kept_rotation_matrices[i];
++    if (!this->kept_rotation_matrices_computed[i]) {
++      std::ignore = this->computeRotationMatrices(r, t);
++      this->kept_rotation_matrices_computed[i] = true;
++    }
++    const auto np = static_cast<size_type>(this->n);
++    const auto size = static_cast<std::size_t>(r.Size());
++    if (size == 0) {
++      return {&r,
++              mgis::makePointByPointFieldView(std::span<const real>{}, 0, 9, 9)};
++    }
++    const auto matrices = std::span<const real>(r.HostRead(), size);
++    // one matrix: uniform rotation (or a single point)
++    if (size == 9) {
++      return {&r, mgis::makeUniformFieldView(matrices, np)};
++    }
++    return {&r, mgis::makePointByPointFieldView(matrices, np, 9, 9)};
++  }  // end of getRotationMatrices
++
+   void Material::computeValuesInGlobalFrame(mfem::Vector& v,
+                                             const StateArray a,
+                                             const StateSelection s,
+@@ -324,10 +349,9 @@ namespace mfem_mgis {
+     if (size == 0) {
+       return;
+     }
+-    auto r = mfem::Vector{};
+     // the gradients are rotated by the transposed matrices, from the
+     // material frame to the global frame
+-    const auto hmatrices = this->computeRotationMatrices(r, gradients);
++    const auto [r, hmatrices] = this->getRotationMatrices(gradients);
+     const auto hsource = gradients
+                              ? mgis::behaviour::getGradientsView(sm)
+                              : mgis::behaviour::getThermodynamicForcesView(sm);
+@@ -346,7 +370,7 @@ namespace mfem_mgis {
+                              : relocate(mgis::FieldView<const real>(hsource),
+                                         this->read(a, s), array.Size());
+     const auto matrices =
+-        host ? hmatrices : relocate(hmatrices, r.Read(), r.Size());
++        host ? hmatrices : relocate(hmatrices, r->Read(), r->Size());
+     auto *const values = host ? v.HostWrite() : v.Write();
+     const auto d =
+         mgis::makeFieldView(std::span<real>(values, size), ol, np, nc);
+-- 
+2.34.1
+

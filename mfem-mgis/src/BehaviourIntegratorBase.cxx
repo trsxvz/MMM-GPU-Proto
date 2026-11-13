@@ -942,12 +942,11 @@ namespace mfem_mgis {
       auto v = this->makeDeviceView(this->wks.device_inputs, tangent,
                                     orthotropic && !prediction);
       // rotation matrices, computed on the host and copied to the device
+      // once (see `Material::getRotationMatrices`)
       auto matrices = mgis::FieldView<const real>{};
       if (orthotropic) {
-        // `computeRotationMatrices` resizes the array before its copy
-        auto& rm = this->wks.rotation_matrices;
-        const auto hmatrices = this->computeRotationMatrices(rm);
-        matrices = relocate(hmatrices, rm.Read(), rm.Size());
+        const auto [rm, hmatrices] = this->getRotationMatrices();
+        matrices = relocate(hmatrices, rm->Read(), rm->Size());
       }
       if (orthotropic && !prediction) {
         mgis::behaviour::rotateGradients(v.s1.gradients, this->b, matrices, l);
@@ -1012,7 +1011,7 @@ namespace mfem_mgis {
     try {
       auto matrices = mgis::FieldView<const real>{};
       if (orthotropic) {
-        matrices = this->computeRotationMatrices(this->wks.rotation_matrices);
+        matrices = this->getRotationMatrices().second;
       }
       if (orthotropic && !prediction) {
         const auto g = mgis::behaviour::getGradientsView(this->s1);

@@ -13,6 +13,7 @@
 #include <vector>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <string_view>
 
 #ifdef MGIS_FUNCTION_SUPPORT
@@ -197,6 +198,26 @@ namespace mfem_mgis {
     [[nodiscard]] mgis::FieldView<const real> computeRotationMatrices(
         mfem::Vector& r, const bool t = false) const;
     /*!
+     * \brief rotation matrices of `computeRotationMatrices`, computed at the
+     * first call following `setRotationMatrix` and kept
+     *
+     * The integrations by batches and the rotations of the values in the
+     * global frame use them: computing one matrix per point on the host at
+     * each integration would cost as much as the integration on a GPU for
+     * material axes given point by point. The material axes given by partial
+     * quadrature functions are read at the first call: they must not be
+     * modified afterwards without calling `setRotationMatrix` again. The
+     * kept array is copied on the device once, by its first `Read`.
+     *
+     * \return the kept array of the matrices (9 values per matrix, one matrix
+     * for a uniform rotation) and a view of the matrices of all the
+     * integration points on its copy on the host
+     * \param[in] t: if true, the transposed matrices (see
+     * `computeRotationMatrices`)
+     */
+    [[nodiscard]] std::pair<const mfem::Vector*, mgis::FieldView<const real>>
+    getRotationMatrices(const bool t = false) const;
+    /*!
      * \brief computes the gradients of a state in the global frame at all
      * the integration points (orthotropic behaviours), by one rotation of
      * all the points (see `mgis::behaviour::rotateGradients`, which uses the
@@ -268,6 +289,17 @@ namespace mfem_mgis {
     std::array<real, 9u> (*get_rotation_fct_ptr)(const RotationMatrix2D &,
                                                  const RotationMatrix3D &,
                                                  const size_type);
+    /*!
+     * \brief rotation matrices kept by `getRotationMatrices` (first: from the
+     * global frame to the material frame, second: transposed)
+     */
+    mutable std::array<mfem::Vector, 2u> kept_rotation_matrices;
+    /*!
+     * \brief if the kept rotation matrices are computed (reset by
+     * `setRotationMatrix`)
+     */
+    mutable std::array<bool, 2u> kept_rotation_matrices_computed = {false,
+                                                                    false};
 
    private:
     /*!
