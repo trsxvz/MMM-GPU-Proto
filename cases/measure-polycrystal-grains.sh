@@ -78,6 +78,39 @@ suffix=${solver_label:+-$solver_label}
   echo "steps: $nsteps over $duration s, nodes: $nodes"
   echo "solvers${suffix}: GPU $solver_gpu; CPU $solver_cpu"
 } | tee -a "$out/summary.txt"
+# usage: watch_steps name
+# starts a watcher of the macroscopic stresses of the computation (one line
+# per accepted step, written by the process 0 at the end of the step), which
+# copies each new line to <results>/<name>.steps preceded by the time (s
+# since the epoch, read every second), to give the time of each step (steady
+# regime, computations stopped by their time limit); stop_watch name stops
+# it after a last reading
+watch_steps() {
+  local res=$out/$1.res steps=$out/$1.steps stop=$out/$1.stop
+  : > "$res"
+  : > "$steps"
+  rm -f "$stop"
+  (
+    n=0
+    while :; do
+      m=$(wc -l < "$res")
+      if [ "$m" -gt "$n" ]; then
+        t=$(date +%s.%N)
+        tail -n +$((n + 1)) "$res" | head -n $((m - n)) | sed "s/^/$t /" \
+          >> "$steps"
+        n=$m
+      fi
+      [ -f "$stop" ] && break
+      sleep 1
+    done
+  ) &
+  watcher=$!
+}
+stop_watch() {
+  touch "$out/$1.stop"
+  wait "$watcher" 2> /dev/null
+  rm -f "$out/$1.stop"
+}
 # usage: record name mode processes
 record() {
   local name=$1 mode=$2 np=$3 status unknowns time szz steps resolutions
@@ -149,8 +182,10 @@ for mode in ${modes:-gpu cpu}; do
     options="$solver_gpu --gpu-aware-mpi"
     run_directory=$out/$name
     run_timeout=$run_timeout_gpu
+    watch_steps "$name"
     run "$name" "$threads" "$np" "$gpu_library" "$batch" "${kernels[@]}" \
       "${gpu_aware[@]}"
+    stop_watch "$name"
     unset PROTO_CUDA_VISIBLE_DEVICES PROTO_GPU_RANK_ORDER PROTO_GPU_PER_RANK
     device=""
   else
@@ -159,8 +194,10 @@ for mode in ${modes:-gpu cpu}; do
     options=$solver_cpu
     run_directory=$out/$name
     run_timeout=$run_timeout_cpu
+    watch_steps "$name"
     run "$name" 1 "$np" "$generic" "$batch" "${kernels[@]}" \
       "${cpu_environment[@]}"
+    stop_watch "$name"
   fi
   record "$name" "$mode" "$np"
 done
