@@ -1,0 +1,40 @@
+From 4bc56089440d2f1036e1ff907cfad767264b6f4c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 13 Nov 2026 03:57:11 +0100
+Subject: [PATCH] Behaviours for the AMD GPUs: kernels bounded to blocks of 64
+ threads
+
+The kernels of the generic-parallel interface are launched by blocks of 64
+threads. Without launch bounds, clang compiled them for blocks of up to 1024
+threads: the integrator of the single crystal behaviour of the polycrystal
+of mm-opera-hpc used about 10 kB of scratch memory per thread and was
+integrated 8.7 times slower on a MI300A.
+---
+ cmake/modules/MFEMMGISBehaviours.cmake | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/cmake/modules/MFEMMGISBehaviours.cmake b/cmake/modules/MFEMMGISBehaviours.cmake
+index 5f2a7e64dd..a09093c6fe 100644
+--- a/cmake/modules/MFEMMGISBehaviours.cmake
++++ b/cmake/modules/MFEMMGISBehaviours.cmake
+@@ -115,8 +115,15 @@ function(mfem_mgis_add_behaviours_library target)
+     if((NOT _hip_archs) AND CMAKE_HIP_ARCHITECTURES)
+       set(_hip_archs ${CMAKE_HIP_ARCHITECTURES})
+     endif()
+-    # C++20, the standard of TFEL and of mfem-mgis
+-    set(_hip_flags "-fPIC -O2 -std=c++20")
++    # C++20, the standard of TFEL and of mfem-mgis. The kernels of the
++    # generic-parallel interface are launched by blocks of 64 threads
++    # (number_of_threads_per_block of config-hip-hipcc.json): without launch
++    # bounds, clang compiles them for blocks of up to 1024 threads, which
++    # limits the registers of each thread, and the integrators of the
++    # behaviours with large states spill into the scratch memory (the single
++    # crystal behaviour of the polycrystal of mm-opera-hpc was integrated 8.7
++    # times slower on a MI300A)
++    set(_hip_flags "-fPIC -O2 -std=c++20 --gpu-max-threads-per-block=64")
+     foreach(_arch IN LISTS _hip_archs)
+       string(APPEND _hip_flags " --offload-arch=${_arch}")
+     endforeach()
+-- 
+2.34.1
+

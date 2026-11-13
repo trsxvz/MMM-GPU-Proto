@@ -115,8 +115,15 @@ function(mfem_mgis_add_behaviours_library target)
     if((NOT _hip_archs) AND CMAKE_HIP_ARCHITECTURES)
       set(_hip_archs ${CMAKE_HIP_ARCHITECTURES})
     endif()
-    # C++20, the standard of TFEL and of mfem-mgis
-    set(_hip_flags "-fPIC -O2 -std=c++20")
+    # C++20, the standard of TFEL and of mfem-mgis. The kernels of the
+    # generic-parallel interface are launched by blocks of 64 threads
+    # (number_of_threads_per_block of config-hip-hipcc.json): without launch
+    # bounds, clang compiles them for blocks of up to 1024 threads, which
+    # limits the registers of each thread, and the integrators of the
+    # behaviours with large states spill into the scratch memory (the single
+    # crystal behaviour of the polycrystal of mm-opera-hpc was integrated 8.7
+    # times slower on a MI300A)
+    set(_hip_flags "-fPIC -O2 -std=c++20 --gpu-max-threads-per-block=64")
     foreach(_arch IN LISTS _hip_archs)
       string(APPEND _hip_flags " --offload-arch=${_arch}")
     endforeach()
