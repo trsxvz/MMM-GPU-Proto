@@ -16,7 +16,12 @@
 # - modes: `gpu` and/or `cpu` (default `gpu cpu`);
 # - nodes: nodes used (default SLURM_JOB_NUM_NODES, or 1);
 # - gpus_per_node, cores_per_node: default 4 and 96 (MI300A of Adastra);
-# - run_timeout: time limit of each computation in s (default 7200).
+# - run_timeout: time limit of each computation in s (default 7200);
+# - solver_gpu, solver_cpu: options of the solvers of the polycrystal on the
+#   GPU and on the CPU (default: NewtonK0, Eisenstat-Walker 1 from 0.1, the
+#   best on both sides on Jean Zay, results/L5-polycrystal-2026-10-10-0502);
+# - solver_label: suffix of the names of the computations (comparison of
+#   solvers in the same results directory).
 # The GPU computation runs one process per GPU (cores_per_node /
 # gpus_per_node cores each) with GPU-aware MPI, the CPU computation one
 # process per core. The fixed point on the lateral stresses uses the
@@ -24,7 +29,9 @@
 # at each step (post-processings without ParaView export) in
 # <results>/<computation>/avgStressPolycrystal. A line per computation is
 # appended to <results>/series.txt: label, mode, nodes, processes, status,
-# unknowns, time of the steps (s), axial stress at the end (Pa).
+# unknowns, time of the steps (s), axial stress at the end (Pa), time steps
+# (with the divided ones), resolutions of the fixed point on the lateral
+# stresses, Newton iterations, failed resolutions, solver label.
 set -u
 work_package=grains
 mesh=${mesh:?mesh (absolute path) required}
@@ -51,16 +58,21 @@ kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
 gpu=${PROTO_GPU_DEVICE:-cuda}
 gpu_library=$gp/generic-parallel-$gpu/src/libGenericParallelBehaviour-$gpu.so
-options="--non-linear-solver NewtonK0"
-options="$options --adaptive-linear-solver-tolerance EisenstatWalker1"
-options="$options --adaptive-linear-solver-initial-tolerance 0.1"
+default_solver="--non-linear-solver NewtonK0"
+default_solver="$default_solver --adaptive-linear-solver-tolerance EisenstatWalker1"
+default_solver="$default_solver --adaptive-linear-solver-initial-tolerance 0.1"
+solver_gpu=${solver_gpu:-$default_solver}
+solver_cpu=${solver_cpu:-$default_solver}
+suffix=${solver_label:+-$solver_label}
 {
   echo "mesh: $mesh, refinement $refinement, order $order"
   echo "steps: $nsteps over $duration s, nodes: $nodes"
+  echo "solvers${suffix}: GPU $solver_gpu; CPU $solver_cpu"
 } | tee -a "$out/summary.txt"
 # usage: record name mode processes
 record() {
-  local name=$1 mode=$2 np=$3 status unknowns time szz
+  local name=$1 mode=$2 np=$3 status unknowns time szz steps resolutions
+  local newton failures
   status=missing
   if [ -f "$out/$name.txt" ]; then
     status=$(sed -n 's/^   status //p' "$out/summary.txt" | tail -1)
@@ -71,8 +83,13 @@ record() {
     2> /dev/null | awk -F'|' 'NR > 2 {gsub(/ /, "", $2); sub(/\(.*/, "", $2);
       print $2; exit}')
   szz=$(awk 'NF >= 7 {s = $7} END {print s}' "$out/$name.res" 2> /dev/null)
-  echo "$label $mode $nodes $np ${status:-?} ${unknowns:--} ${time:--} ${szz:--}" |
-    tee -a "$out/series.txt"
+  steps=$(awk 'NF >= 7' "$out/$name.res" 2> /dev/null | wc -l)
+  resolutions=$(grep -c '^Fixed Point iteration' "$out/$name.txt" 2> /dev/null)
+  newton=$(grep -c '||r||/||r_0||' "$out/$name.txt" 2> /dev/null)
+  failures=$(grep -c 'the resolution failed' "$out/$name.txt" 2> /dev/null)
+  echo "$label $mode $nodes $np ${status:-?} ${unknowns:--} ${time:--}" \
+    "${szz:--} ${steps:-0} ${resolutions:-0} ${newton:-0} ${failures:-0}" \
+    "${solver_label:-default}" | tee -a "$out/series.txt"
 }
 for mode in ${modes:-gpu cpu}; do
   if [ "$mode" = gpu ]; then
@@ -90,19 +107,18 @@ for mode in ${modes:-gpu cpu}; do
       fi
     fi
     device=$gpu
-    name=$label-r$refinement-gpu-n$nodes
+    name=$label-r$refinement-gpu-n$nodes$suffix
     read -r -a gpu_aware <<< "${PROTO_GPU_AWARE_MPI_ENVIRONMENT:-}"
-    options_of_case=$options
-    options="$options --gpu-aware-mpi"
+    options="$solver_gpu --gpu-aware-mpi"
     run_directory=$out/$name
     run "$name" "$threads" "$np" "$gpu_library" "$batch" "${kernels[@]}" \
       "${gpu_aware[@]}"
-    options=$options_of_case
     unset PROTO_CUDA_VISIBLE_DEVICES PROTO_GPU_RANK_ORDER PROTO_GPU_PER_RANK
     device=""
   else
     np=$((nodes * cores_per_node))
-    name=$label-r$refinement-cpu-n$nodes
+    name=$label-r$refinement-cpu-n$nodes$suffix
+    options=$solver_cpu
     run_directory=$out/$name
     run "$name" 1 "$np" "$generic" "$batch" "${kernels[@]}"
   fi
