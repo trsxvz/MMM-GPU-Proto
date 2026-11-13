@@ -77,6 +77,59 @@ namespace mm_opera_hpc {
   }  // end of computeMacroscopicCauchyStress
 
   /*!
+   * \return the jacobian of the lateral stresses with respect to the lateral
+   * components of the displacement gradient (row major) in elasticity: the
+   * opposite of the inverse of the correction of the fixed point by the
+   * macroscopic elastic compliance
+   * \param[in] mp: macroscopic elastic material properties
+   */
+  [[nodiscard]] static std::array<mfem_mgis::real, 4u>
+  getElasticLateralJacobian(
+      const MacroscropicElasticMaterialProperties &mp) noexcept {
+    const auto a = (mp.nueff * mp.nueff - 1) / mp.Eeff;
+    const auto b = (mp.nueff * (mp.nueff + 1)) / mp.Eeff;
+    const auto det = a * a - b * b;
+    return {-a / det, b / det, b / det, -a / det};
+  }  // end of getElasticLateralJacobian
+  /*!
+   * \brief update of the estimate of the jacobian of the lateral stresses by
+   * the method of Broyden, from the variations of the lateral gradients and
+   * stresses between two resolutions. The estimate is reset to the elastic
+   * one if its determinant changes of sign or is more than ten times the
+   * elastic one, or less than a thousandth of it.
+   * \param[in,out] J: estimate of the jacobian
+   * \param[in] mp: macroscopic elastic material properties
+   * \param[in] p: lateral gradients and stresses of the previous resolution
+   * \param[in] H: diagonal components of the displacement gradient
+   * \param[in] S: diagonal components of the Cauchy stress
+   */
+  static void updateLateralJacobian(
+      std::array<mfem_mgis::real, 4u> &J,
+      const MacroscropicElasticMaterialProperties &mp,
+      const std::array<mfem_mgis::real, 4u> &p,
+      const std::array<mfem_mgis::real, 3u> &H,
+      const std::array<mfem_mgis::real, 3u> &S) noexcept {
+    const auto dh0 = H[0] - p[0];
+    const auto dh1 = H[1] - p[1];
+    const auto ds0 = S[0] - p[2];
+    const auto ds1 = S[1] - p[3];
+    const auto n2 = dh0 * dh0 + dh1 * dh1;
+    if (!(n2 > 0)) {
+      return;
+    }
+    const auto r0 = ds0 - (J[0] * dh0 + J[1] * dh1);
+    const auto r1 = ds1 - (J[2] * dh0 + J[3] * dh1);
+    auto Jn = std::array<mfem_mgis::real, 4u>{
+        J[0] + r0 * dh0 / n2, J[1] + r0 * dh1 / n2,  //
+        J[2] + r1 * dh0 / n2, J[3] + r1 * dh1 / n2};
+    const auto Je = getElasticLateralJacobian(mp);
+    const auto ratio =
+        (Jn[0] * Jn[3] - Jn[1] * Jn[2]) / (Je[0] * Je[3] - Je[1] * Je[2]);
+    J = ((ratio > mfem_mgis::real{1e-3}) && (ratio < mfem_mgis::real{10}))
+            ? Jn
+            : Je;
+  }  // end of updateLateralJacobian
+  /*!
    * \return the resolution of the fixed point on the lateral stresses: the
    * largest residual for which the correction of the lateral components of
    * the macroscopic gradients given to the behaviours may be rounded to
@@ -153,15 +206,39 @@ namespace mm_opera_hpc {
     // --- fixed point loop --- //
     bool converged = false;
     auto initial_residual = mfem_mgis::real{};
+    // lateral gradients and stresses of the previous resolution of this
+    // time step (secant acceleration)
+    auto previous_lateral_state =
+        std::optional<std::array<mfem_mgis::real, 4u>>{};
     while ((!converged) && (itFP < maxitFP)) {
       const auto &mp = np.macroscopic_elastic_material_properties;
       // -- compute correction -- //
       // -- note that S[0] and S[1] are updated at the end of this loop section,
       // default is 0 -- //
-      H[0] += ((mp.nueff * mp.nueff - 1) * S[0]) / mp.Eeff +
-              (mp.nueff * (mp.nueff + 1) * S[1]) / mp.Eeff;
-      H[1] += ((mp.nueff * mp.nueff - 1) * S[1]) / mp.Eeff +
-              (mp.nueff * (mp.nueff + 1) * S[0]) / mp.Eeff;
+      if (np.macroscopic_stress_secant_acceleration) {
+        auto &J = macroscopic_unknowns.lateral_jacobian;
+        if (!J.has_value()) {
+          J = getElasticLateralJacobian(mp);
+        }
+        // the stresses S are the ones of the gradients H only after a
+        // resolution, i.e. from the second iteration
+        if (itFP != 0) {
+          if (previous_lateral_state.has_value()) {
+            updateLateralJacobian(*J, mp, *previous_lateral_state, H, S);
+          }
+          previous_lateral_state = std::array<mfem_mgis::real, 4u>{
+              H[0], H[1], S[0], S[1]};
+        }
+        const auto &j = *J;
+        const auto det = j[0] * j[3] - j[1] * j[2];
+        H[0] -= (j[3] * S[0] - j[1] * S[1]) / det;
+        H[1] -= (j[0] * S[1] - j[2] * S[0]) / det;
+      } else {
+        H[0] += ((mp.nueff * mp.nueff - 1) * S[0]) / mp.Eeff +
+                (mp.nueff * (mp.nueff + 1) * S[1]) / mp.Eeff;
+        H[1] += ((mp.nueff * mp.nueff - 1) * S[1]) / mp.Eeff +
+                (mp.nueff * (mp.nueff + 1) * S[0]) / mp.Eeff;
+      }
       // -- note that MacroscopicGradientsEvolution takes into account of new
       // H[0] and H[1] -- //
       if (itFP == 0) {

@@ -6610,3 +6610,29 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   multigrid of AmgX (67.8 s against 69.0 s); 5 % with the aggregation
   multigrid of AmgX and its nodal blocks (17.1 s against 18.0 s). The
   unknowns stay ordered by nodes by default.
+
+### 2026-11-13, polycrystal on Adastra: failures of the integration, fixed point on the lateral stresses
+
+- Polycrystal refined 3 times (about 10 million unknowns) on one MI300A,
+  NewtonK0 and Eisenstat-Walker 1: at the second step the integration of
+  the behaviour fails at one point (47 failures in 25 minutes), the step of
+  1 s is divided and the first second is not reached in 25 minutes. Same
+  divisions as on Jean Zay (job 1608166, r3, 458 to 517 integrations).
+- Cause: the increment of the elastic strain is bounded by 1e-5 per
+  iteration of the Newton method of the behaviour, which, with the 100
+  iterations by default, bounds it by 1e-3 per time step. Diagnosis by two
+  variants of the behaviour (job 5967450, 2 steps of 1 s): at most 1000
+  iterations, no failure and no division (first step converged, Szz = 57.9
+  MPa); bound of 1e-4 per iteration, still 100 iterations, worse (step
+  divided down to 1/8 s): the bound protects the Newton method from the
+  exponential of the shear stress. The behaviour of mm-opera-hpc now sets
+  `@IterMax 1000`.
+- The fixed point on the lateral macroscopic stresses (Sxx = Syy = 0) of
+  mm-opera-hpc corrects the lateral gradients by the macroscopic elastic
+  compliance: exact in elasticity, but, once the material flows, the
+  residual is only divided by about 2 per iteration (465233, 238986,
+  122886, 63205 Pa...), each iteration being a resolution of the
+  microscopic equilibrium: about 11 resolutions for the first step of 1 s.
+  New option `--macroscopic-secant-acceleration` (Broyden method on the
+  2x2 jacobian of the lateral stresses, initialized by the elastic one and
+  kept from one step to the next).

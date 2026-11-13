@@ -1,0 +1,204 @@
+From 5b2c70a2d907f53bd12927b875c345f5a23baf17 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 13 Nov 2026 02:07:34 +0100
+Subject: [PATCH 43/43] Polycrystal: secant acceleration of the fixed point on
+ the lateral stresses
+
+Option --macroscopic-secant-acceleration: the lateral components of the
+macroscopic displacement gradient are corrected with an estimate of the
+jacobian of the lateral stresses, initialized by the macroscopic elastic
+stiffness and updated by the method of Broyden after each resolution,
+instead of the macroscopic elastic compliance, with which the residual is
+only divided by about 2 per iteration once the material flows.
+---
+ ...ialMacroscopicStressPeriodicSimulation.hxx | 17 ++++
+ polycrystal/UniaxialPolycrystal.cxx           | 15 +++-
+ ...ialMacroscopicStressPeriodicSimulation.cxx | 85 ++++++++++++++++++-
+ 3 files changed, 112 insertions(+), 5 deletions(-)
+
+diff --git a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+index 0dcfe92..75fe673 100644
+--- a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
++++ b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+@@ -93,6 +93,19 @@ namespace mm_opera_hpc {
+       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
+           mfem_mgis::real{1e4};
+       const size_t macroscopic_stress_maximum_number_of_iterations = 20;
++      /*!
++       * \brief secant acceleration of the fixed point on the lateral
++       * stresses. Without it, the lateral components of the macroscopic
++       * displacement gradient are corrected by the macroscopic elastic
++       * compliance: exact in elasticity, but, when the material flows, the
++       * residual is only divided by about two at each iteration, each
++       * iteration being a resolution of the microscopic equilibrium. With
++       * it, the correction uses an estimate of the jacobian of the lateral
++       * stresses with respect to the lateral gradients, initialized by the
++       * macroscopic elastic stiffness and updated by the method of Broyden
++       * after each resolution, and kept from one time step to the next.
++       */
++      const bool macroscopic_stress_secant_acceleration = false;
+     };
+     //! \brief an internal auxiliary data structure
+     struct MM_OPERA_HPC_EXPORT MacroscopicUnknowns {
+@@ -105,6 +118,10 @@ namespace mm_opera_hpc {
+       std::array<mfem_mgis::real, 3u> S = std::array<mfem_mgis::real, 3u>{};
+       // previous succesful time step
+       std::optional<mfem_mgis::real> previous_time_increment;
++      // estimate of the jacobian of the lateral stresses with respect to
++      // the lateral components of the displacement gradient (row major),
++      // used by the secant acceleration of the fixed point
++      std::optional<std::array<mfem_mgis::real, 4u>> lateral_jacobian;
+     };
+     /*!
+      * \brief constructor
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index bfde63a..8114bc9 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -60,6 +60,11 @@ struct MeshParameters {
+ struct NumericalParameters {
+   //! \brief polynomial order of the finite element used
+   int order = 1;
++  /*!
++   * \brief secant acceleration of the fixed point on the lateral macroscopic
++   * stresses (see UniaxialMacroscopicStressPeriodicSimulation)
++   */
++  bool macroscopic_secant_acceleration = false;
+   //! \brief name of the linear solver
+   const char *linear_solver = "HyprePCG";
+   //! \brief name of the preconditioner for the linear solver
+@@ -348,7 +353,9 @@ int main(int argc, char *argv[]) {
+   }
+   // setting the simulation and running it
+   const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
+-      NumericalParameters{.macroscopic_elastic_material_properties = mp};
++      NumericalParameters{.macroscopic_elastic_material_properties = mp,
++                          .macroscopic_stress_secant_acceleration =
++                              p.macroscopic_secant_acceleration};
+   mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(
+       problem, Hzz, np, p.post_processings, p.displacement_gradient);
+   const auto success = s.run(ctx, out, temporal_sequences);
+@@ -437,6 +444,12 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+                  "choose the duration");
+   args.AddOption(&p.nstep, "-n", "--nstep",
+                  "choose the number of steps");
++  args.AddOption(&p.macroscopic_secant_acceleration, "",
++                 "--macroscopic-secant-acceleration", "",
++                 "--no-macroscopic-secant-acceleration",
++                 "Secant acceleration (Broyden) of the fixed point on the "
++                 "lateral macroscopic stresses, whose correction otherwise "
++                 "uses the macroscopic elastic compliance.");
+   args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
+                  "-no-dg", "--no-displacement-gradient",
+                  "Give the displacement gradient instead of the deformation "
+diff --git a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+index 8c5c56a..2e5307b 100644
+--- a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
++++ b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+@@ -76,6 +76,59 @@ namespace mm_opera_hpc {
+     return {pk1[0] * F[0] / det, pk1[1] * F[1] / det, pk1[2] * F[2] / det};
+   }  // end of computeMacroscopicCauchyStress
+ 
++  /*!
++   * \return the jacobian of the lateral stresses with respect to the lateral
++   * components of the displacement gradient (row major) in elasticity: the
++   * opposite of the inverse of the correction of the fixed point by the
++   * macroscopic elastic compliance
++   * \param[in] mp: macroscopic elastic material properties
++   */
++  [[nodiscard]] static std::array<mfem_mgis::real, 4u>
++  getElasticLateralJacobian(
++      const MacroscropicElasticMaterialProperties &mp) noexcept {
++    const auto a = (mp.nueff * mp.nueff - 1) / mp.Eeff;
++    const auto b = (mp.nueff * (mp.nueff + 1)) / mp.Eeff;
++    const auto det = a * a - b * b;
++    return {-a / det, b / det, b / det, -a / det};
++  }  // end of getElasticLateralJacobian
++  /*!
++   * \brief update of the estimate of the jacobian of the lateral stresses by
++   * the method of Broyden, from the variations of the lateral gradients and
++   * stresses between two resolutions. The estimate is reset to the elastic
++   * one if its determinant changes of sign or is more than ten times the
++   * elastic one, or less than a thousandth of it.
++   * \param[in,out] J: estimate of the jacobian
++   * \param[in] mp: macroscopic elastic material properties
++   * \param[in] p: lateral gradients and stresses of the previous resolution
++   * \param[in] H: diagonal components of the displacement gradient
++   * \param[in] S: diagonal components of the Cauchy stress
++   */
++  static void updateLateralJacobian(
++      std::array<mfem_mgis::real, 4u> &J,
++      const MacroscropicElasticMaterialProperties &mp,
++      const std::array<mfem_mgis::real, 4u> &p,
++      const std::array<mfem_mgis::real, 3u> &H,
++      const std::array<mfem_mgis::real, 3u> &S) noexcept {
++    const auto dh0 = H[0] - p[0];
++    const auto dh1 = H[1] - p[1];
++    const auto ds0 = S[0] - p[2];
++    const auto ds1 = S[1] - p[3];
++    const auto n2 = dh0 * dh0 + dh1 * dh1;
++    if (!(n2 > 0)) {
++      return;
++    }
++    const auto r0 = ds0 - (J[0] * dh0 + J[1] * dh1);
++    const auto r1 = ds1 - (J[2] * dh0 + J[3] * dh1);
++    auto Jn = std::array<mfem_mgis::real, 4u>{
++        J[0] + r0 * dh0 / n2, J[1] + r0 * dh1 / n2,  //
++        J[2] + r1 * dh0 / n2, J[3] + r1 * dh1 / n2};
++    const auto Je = getElasticLateralJacobian(mp);
++    const auto ratio =
++        (Jn[0] * Jn[3] - Jn[1] * Jn[2]) / (Je[0] * Je[3] - Je[1] * Je[2]);
++    J = ((ratio > mfem_mgis::real{1e-3}) && (ratio < mfem_mgis::real{10}))
++            ? Jn
++            : Je;
++  }  // end of updateLateralJacobian
+   /*!
+    * \return the resolution of the fixed point on the lateral stresses: the
+    * largest residual for which the correction of the lateral components of
+@@ -153,15 +206,39 @@ namespace mm_opera_hpc {
+     // --- fixed point loop --- //
+     bool converged = false;
+     auto initial_residual = mfem_mgis::real{};
++    // lateral gradients and stresses of the previous resolution of this
++    // time step (secant acceleration)
++    auto previous_lateral_state =
++        std::optional<std::array<mfem_mgis::real, 4u>>{};
+     while ((!converged) && (itFP < maxitFP)) {
+       const auto &mp = np.macroscopic_elastic_material_properties;
+       // -- compute correction -- //
+       // -- note that S[0] and S[1] are updated at the end of this loop section,
+       // default is 0 -- //
+-      H[0] += ((mp.nueff * mp.nueff - 1) * S[0]) / mp.Eeff +
+-              (mp.nueff * (mp.nueff + 1) * S[1]) / mp.Eeff;
+-      H[1] += ((mp.nueff * mp.nueff - 1) * S[1]) / mp.Eeff +
+-              (mp.nueff * (mp.nueff + 1) * S[0]) / mp.Eeff;
++      if (np.macroscopic_stress_secant_acceleration) {
++        auto &J = macroscopic_unknowns.lateral_jacobian;
++        if (!J.has_value()) {
++          J = getElasticLateralJacobian(mp);
++        }
++        // the stresses S are the ones of the gradients H only after a
++        // resolution, i.e. from the second iteration
++        if (itFP != 0) {
++          if (previous_lateral_state.has_value()) {
++            updateLateralJacobian(*J, mp, *previous_lateral_state, H, S);
++          }
++          previous_lateral_state = std::array<mfem_mgis::real, 4u>{
++              H[0], H[1], S[0], S[1]};
++        }
++        const auto &j = *J;
++        const auto det = j[0] * j[3] - j[1] * j[2];
++        H[0] -= (j[3] * S[0] - j[1] * S[1]) / det;
++        H[1] -= (j[0] * S[1] - j[2] * S[0]) / det;
++      } else {
++        H[0] += ((mp.nueff * mp.nueff - 1) * S[0]) / mp.Eeff +
++                (mp.nueff * (mp.nueff + 1) * S[1]) / mp.Eeff;
++        H[1] += ((mp.nueff * mp.nueff - 1) * S[1]) / mp.Eeff +
++                (mp.nueff * (mp.nueff + 1) * S[0]) / mp.Eeff;
++      }
+       // -- note that MacroscopicGradientsEvolution takes into account of new
+       // H[0] and H[1] -- //
+       if (itFP == 0) {
+-- 
+2.34.1
+

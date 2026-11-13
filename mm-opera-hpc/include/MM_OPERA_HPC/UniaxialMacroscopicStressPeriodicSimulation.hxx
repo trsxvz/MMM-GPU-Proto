@@ -93,6 +93,19 @@ namespace mm_opera_hpc {
       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
           mfem_mgis::real{1e4};
       const size_t macroscopic_stress_maximum_number_of_iterations = 20;
+      /*!
+       * \brief secant acceleration of the fixed point on the lateral
+       * stresses. Without it, the lateral components of the macroscopic
+       * displacement gradient are corrected by the macroscopic elastic
+       * compliance: exact in elasticity, but, when the material flows, the
+       * residual is only divided by about two at each iteration, each
+       * iteration being a resolution of the microscopic equilibrium. With
+       * it, the correction uses an estimate of the jacobian of the lateral
+       * stresses with respect to the lateral gradients, initialized by the
+       * macroscopic elastic stiffness and updated by the method of Broyden
+       * after each resolution, and kept from one time step to the next.
+       */
+      const bool macroscopic_stress_secant_acceleration = false;
     };
     //! \brief an internal auxiliary data structure
     struct MM_OPERA_HPC_EXPORT MacroscopicUnknowns {
@@ -105,6 +118,10 @@ namespace mm_opera_hpc {
       std::array<mfem_mgis::real, 3u> S = std::array<mfem_mgis::real, 3u>{};
       // previous succesful time step
       std::optional<mfem_mgis::real> previous_time_increment;
+      // estimate of the jacobian of the lateral stresses with respect to
+      // the lateral components of the displacement gradient (row major),
+      // used by the secant acceleration of the fixed point
+      std::optional<std::array<mfem_mgis::real, 4u>> lateral_jacobian;
     };
     /*!
      * \brief constructor

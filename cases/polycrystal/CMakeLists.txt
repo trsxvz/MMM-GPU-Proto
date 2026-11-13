@@ -6,34 +6,8 @@
 # MFEM_MGIS_BEHAVIOUR_INTEGRATION.
 set(MM_OPERA_HPC_POLYCRYSTAL_DIR "${MM_OPERA_HPC_BINARY_DIR}/polycrystal"
   CACHE PATH "build directory of the polycrystal of mm-opera-hpc")
-# variants of the behaviour, for the diagnosis of the failures of its
-# integration on the refined meshes (selected by the option --behaviour of
-# the program): Mono_UO2_Cosh_Jaco3_It1000, at most 1000 iterations of the
-# Newton method instead of 100; Mono_UO2_Cosh_Jaco3_Inc1e4, increment of the
-# elastic strain bounded by 1e-4 per iteration instead of 1e-5
-set(_law ${MM_OPERA_HPC_SOURCE_DIR}/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront)
-file(READ "${_law}" _law_source)
-set(polycrystal_laws "${_law}")
-foreach(_variant It1000 Inc1e4)
-  string(REPLACE "@Behaviour Mono_UO2_Cosh_Jaco3;"
-    "@Behaviour Mono_UO2_Cosh_Jaco3_${_variant};" _source "${_law_source}")
-  string(REPLACE "Mono_UO2_Cosh_Jaco3SlidingSystems"
-    "Mono_UO2_Cosh_Jaco3_${_variant}SlidingSystems" _source "${_source}")
-  if(_variant STREQUAL It1000)
-    string(REPLACE "@Epsilon 1.e-11;" "@Epsilon 1.e-11;\n@IterMax 1000;"
-      _source "${_source}")
-  else()
-    string(REPLACE "setMaximumIncrementValuePerIteration(1e-5)"
-      "setMaximumIncrementValuePerIteration(1e-4)" _source "${_source}")
-  endif()
-  set(_file
-    "${CMAKE_CURRENT_BINARY_DIR}/variants/Mono_UO2_Cosh_Jaco3_${_variant}.mfront")
-  file(WRITE "${_file}.in" "${_source}")
-  configure_file("${_file}.in" "${_file}" COPYONLY)
-  list(APPEND polycrystal_laws "${_file}")
-endforeach()
 add_generic_parallel_mfront_libraries(polycrystal-behaviours CUDA
-  ${polycrystal_laws})
+  "${MM_OPERA_HPC_SOURCE_DIR}/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront")
 # backends and suffixes of their libraries, with the other backends for the
 # GPU which work in mfem-mgis without change of the program of mm-opera-hpc
 # (see cases/measure-backends-gpu.sh): cuda by clang, hip by clang and by
@@ -59,7 +33,7 @@ foreach(_gpu_backend ${_gpu_backends})
   list(GET _gb 1 _suffix)
   add_generic_parallel_mfront_library(polycrystal-behaviours ${_name}
     config-${_name}.json ${_suffix}
-    ${polycrystal_laws})
+    "${MM_OPERA_HPC_SOURCE_DIR}/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront")
   if(polycrystal-behaviours_${_name}_FOUND)
     list(APPEND _backends_suffixes ${_gpu_backend})
   endif()

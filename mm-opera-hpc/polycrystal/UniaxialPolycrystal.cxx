@@ -60,6 +60,11 @@ struct MeshParameters {
 struct NumericalParameters {
   //! \brief polynomial order of the finite element used
   int order = 1;
+  /*!
+   * \brief secant acceleration of the fixed point on the lateral macroscopic
+   * stresses (see UniaxialMacroscopicStressPeriodicSimulation)
+   */
+  bool macroscopic_secant_acceleration = false;
   //! \brief name of the linear solver
   const char *linear_solver = "HyprePCG";
   //! \brief name of the preconditioner for the linear solver
@@ -348,7 +353,9 @@ int main(int argc, char *argv[]) {
   }
   // setting the simulation and running it
   const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
-      NumericalParameters{.macroscopic_elastic_material_properties = mp};
+      NumericalParameters{.macroscopic_elastic_material_properties = mp,
+                          .macroscopic_stress_secant_acceleration =
+                              p.macroscopic_secant_acceleration};
   mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(
       problem, Hzz, np, p.post_processings, p.displacement_gradient);
   const auto success = s.run(ctx, out, temporal_sequences);
@@ -437,6 +444,12 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "choose the duration");
   args.AddOption(&p.nstep, "-n", "--nstep",
                  "choose the number of steps");
+  args.AddOption(&p.macroscopic_secant_acceleration, "",
+                 "--macroscopic-secant-acceleration", "",
+                 "--no-macroscopic-secant-acceleration",
+                 "Secant acceleration (Broyden) of the fixed point on the "
+                 "lateral macroscopic stresses, whose correction otherwise "
+                 "uses the macroscopic elastic compliance.");
   args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
                  "-no-dg", "--no-displacement-gradient",
                  "Give the displacement gradient instead of the deformation "

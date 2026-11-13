@@ -1,0 +1,35 @@
+From 53859be9b6e321c9d3dde8d7d831d9134e4cb9fa Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 13 Nov 2026 02:07:34 +0100
+Subject: [PATCH 42/43] Polycrystal: behaviour with at most 1000 iterations
+
+The increment of the elastic strain being bounded by 1e-5 per iteration of
+the Newton method, the 100 iterations by default bounded it by 1e-3 per
+time step: the integration failed at some points of the refined meshes
+(stress concentrations at the triple lines), and the time step was
+divided.
+---
+ polycrystal/law/Mono_UO2_CosH_Jaco3.mfront | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront b/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront
+index e8c720c..7bbb97d 100644
+--- a/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront
++++ b/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront
+@@ -13,6 +13,13 @@
+ @Algorithm NewtonRaphson;
+ @Theta 1.;
+ @Epsilon 1.e-11;
++// at most 1000 iterations instead of 100: the increment of the elastic
++// strain being bounded by 1e-5 per iteration (see below), 100 iterations
++// bound it by 1e-3 per time step, which some integration points of the
++// refined meshes exceed (stress concentrations at the triple lines): their
++// integration failed, and the time step was divided. Raising this bound
++// instead lets the Newton method diverge (exponential of the shear stress).
++@IterMax 1000;
+ 
+ // Systèmes de glissement de l'UO2
+ @CrystalStructure FCC;
+-- 
+2.34.1
+
