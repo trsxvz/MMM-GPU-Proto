@@ -25,8 +25,14 @@ set -u
 export PATH=${PROTO_MPI_LAUNCHERS:+$PROTO_MPI_LAUNCHERS:}$PATH
 tests="BehaviourIntegratorsSelectionTest MaterialArraysTest BatchIntegrationTest"
 cd "$F/build/mfem-mgis" || exit 1
+# the behaviours of the tests (BehaviourTest and the generic-parallel
+# behaviours of each backend) are built by the target check, not by the
+# executables of the tests
+behaviours="BehaviourTest $(cmake --build . --target help |
+  sed -n 's/^\.\.\. \(GenericParallelBehaviour-[a-z]*\)$/\1/p' | tr '\n' ' ')"
+log "behaviours of the tests: $behaviours"
 # shellcheck disable=SC2086
-if ! cmake --build . --target $tests -j 32 > "$out/build.log" 2>&1; then
+if ! cmake --build . --target $tests $behaviours -j 32 > "$out/build.log" 2>&1; then
   log "build of the tests failed (see $out/build.log)"
   exit 1
 fi
