@@ -30,7 +30,11 @@
 # - executable: executable of the polycrystal (default: the one of the build
 #   of mm-opera-hpc), for instance built against another mfem-mgis;
 # - extra_options: options added to the ones of the polycrystal (for
-#   instance --single-material).
+#   instance --single-material);
+# - behaviour_library_gpu, behaviour_library_cpu: libraries of the behaviour
+#   (generic-parallel interface on the GPU, generic interface on the CPU)
+#   instead of the ones of the builds, for instance variants of the law
+#   (polycrystal/law-variants/).
 # The GPU computation runs one process per GPU (cores_per_node /
 # gpus_per_node cores each) with GPU-aware MPI, the CPU computation one
 # process per core. The fixed point on the lateral stresses uses the
@@ -82,6 +86,8 @@ kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
 gpu=${PROTO_GPU_DEVICE:-cuda}
 gpu_library=$gp/generic-parallel-$gpu/src/libGenericParallelBehaviour-$gpu.so
+gpu_library=${behaviour_library_gpu:-$gpu_library}
+generic=${behaviour_library_cpu:-$generic}
 default_solver="--non-linear-solver NewtonK0"
 default_solver="$default_solver --adaptive-linear-solver-tolerance EisenstatWalker1"
 default_solver="$default_solver --adaptive-linear-solver-initial-tolerance 0.1"
