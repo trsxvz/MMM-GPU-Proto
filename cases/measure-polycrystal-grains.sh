@@ -23,6 +23,8 @@
 # - solver_gpu, solver_cpu: options of the solvers of the polycrystal on the
 #   GPU and on the CPU (default: NewtonK0, Eisenstat-Walker 1 from 0.1, the
 #   best on both sides on Jean Zay, results/L5-polycrystal-2026-10-10-0502);
+# - profiler: command placed before the executable (for instance
+#   `rocprofv3 --kernel-trace ... --`);
 # - solver_label: suffix of the names of the computations (comparison of
 #   solvers in the same results directory).
 # The GPU computation runs one process per GPU (cores_per_node /
@@ -56,6 +58,9 @@ run_timeout_cpu=${run_timeout_cpu:-${run_timeout:-10800}}
 read -r -a cpu_environment <<< "${cpu_environment:-}"
 post_processing=""
 source "$(dirname "$0")/measure-common.sh" polycrystal "$@"
+# command placed before the executable inside mpirun (`profiler`, for
+# instance rocprofv3 and its options followed by --), empty by default
+read -r -a launcher <<< "${profiler:-}"
 summary="$summary|number of finite element unknowns"
 executable=$B/uniaxial-polycrystal
 case_options="-m $mesh -f $vectors --order $order -r $refinement"
