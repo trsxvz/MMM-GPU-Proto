@@ -12,7 +12,10 @@
 #   failures: estimate moved towards the previous one, tolerance after a
 #   reduction).
 # Compared: <computation>.res, the averages per grain, and the lines of the
-# iterations of the logs.
+# iterations of the logs. FM_VARIANTS (default "A B") gives the executables
+# run, FM_REFERENCE_DIR the results directory of a previous job holding the
+# outputs of A when only B is run, FM_TIMEOUT_CPU the time limit of a
+# computation in s (default 2400).
 #SBATCH --job-name=fm-ls-identity
 #SBATCH --constraint=MI300
 #SBATCH --nodes=1
@@ -30,7 +33,7 @@ A=${FM_EXECUTABLE_A:-$W/fix3/bin/uniaxial-polycrystal-B}
 B=${FM_EXECUTABLE_B:?}
 log "start, A $A, B $B, scripts $P"
 export refinement=1 solver_label=best
-export run_timeout_gpu=2400 run_timeout_cpu=2400
+export run_timeout_gpu=2400 run_timeout_cpu=${FM_TIMEOUT_CPU:-2400}
 export vectors=$MESHES/v100/vectors_100crystals.txt
 k0="--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance"
 ew1="$k0 EisenstatWalker1 --adaptive-linear-solver-initial-tolerance 0.01"
@@ -44,14 +47,14 @@ lines() {
 run_case() {
   local a b v e
   export mesh=$2 nsteps=$3 solver_cpu=$4 solver_gpu=$4
-  for v in A B; do
+  for v in ${FM_VARIANTS:-A B}; do
     e=$A
     [ $v = B ] && e=$B
     executable=$e extra_options=--single-material label=$1-$v modes=cpu \
       "$P/cases/measure-polycrystal-grains.sh" "$out" > "$out/$1-$v.out" 2>&1
     log "$1 $v: $(tail -1 "$out/series.txt")"
   done
-  a=$out/$1-A-r1-cpu-n1-best
+  a=${FM_REFERENCE_DIR:-$out}/$1-A-r1-cpu-n1-best
   b=$out/$1-B-r1-cpu-n1-best
   if [ -s "$a.res" ] && cmp "$a.res" "$b.res" > "$out/diff-$1.txt" 2>&1 &&
     diff -rq "$a" "$b" >> "$out/diff-$1.txt" 2>&1 &&

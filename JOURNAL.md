@@ -6671,3 +6671,88 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   2 s: P1 r2 71.83 MPa, P1 r3 (10.9 million unknowns) 70.89 MPa, P2 r1
   70.63 MPa: with P1 the stress decreases with the refinement (too stiff
   elements), P2 with 8 times fewer unknowns goes further than P1 r3.
+
+### 2026-11-14, line search of the Newton solvers
+
+- Context: on the polycrystal of 6,400 grains (16 nodes of Adastra), 19
+  attempts out of 20 at the nominal time step of 1 s fail, most of them
+  without any failure of the behaviour: the Newton method has no
+  globalization, and the residual increases at the first iteration (ratio
+  of about 1.25 at 1 s). The reports of the night
+  (`MMM-GPU-Proto-reflexion-robustesse-divergence-2026-11-14.md`,
+  `MMM-GPU-Proto-conception-robustesse-newton-2026-11-14.md`, outside this
+  repository) propose a line search, a control of the time step with
+  memory and a prediction by extrapolation. This entry is the first
+  milestone: the line search.
+- mfem-mgis, patches 0290 and 0291: option `LineSearch` (`None` by default,
+  `Backtracking`) of the Newton solver and of the NewtonK0 method. The step
+  is halved, ten times at most, until
+  `||r(x - θ c)|| <= [1 - t θ (1 - η)] ||r(x)||` (inexact Newton
+  backtracking of Eisenstat and Walker, t = 1e-4, η the adapted tolerance
+  of the linear solve). An estimate at which the behaviour fails is a
+  refused trial; the resolution fails if no step is acceptable. With the
+  first choice of Eisenstat and Walker, the tolerance which follows a
+  reduced step uses the norm of the linear model at this step (one scalar
+  product per iteration). The current iterations are kept as they are
+  behind the test of the option.
+- mm-opera-hpc, patches 0048 and 0049: options
+  `--non-linear-solver-maximum-iterations` (20, the former constant) and
+  `--line-search` of the polycrystal.
+- Options disabled, same outputs bit for bit on the CPU (100 grains, 96
+  cores, one material for all the grains, job 5978684): NewtonK0 with the
+  first and the second choice of Eisenstat and Walker (3 steps), Newton
+  solver with the second choice (5 steps, 2 failed resolutions), and
+  NewtonK0 with the first choice on the raw mesh (5 s simulated, 21 failed
+  resolutions, 139 estimates moved after a failure of the behaviour, 3214
+  lines of iterations compared; job 5978982 for the second executable).
+- Tests: CI in double (258 tests of mfem-mgis, 12 of mm-opera-hpc) and in
+  float (254 and 12), all passed; on Adastra, 11 tests of the line search
+  and 84 other tests of the non linear solvers passed (jobs 5978719 and
+  5978819).
+- Polycrystal of 400 grains (13.2 million unknowns, one node, one material
+  for all the grains, 20 s simulated), 4 MI300A, NewtonK0 with the first
+  choice of Eisenstat and Walker from 0.01:
+
+  | Computation | Attempts accepted/failed | Newton corrections | Loop (s) | Slurm step (s) |
+  |---|---|---|---|---|
+  | steps of 1 s (job 5977596, 3 runs) | 22/2, 24/4, 23/3 | 360, 424, 377 | 235, 267, 244 | 278, 296, 272 |
+  | steps of 0.25 s (job 5978095, 2 runs) | 80/0, 80/0 | 365, 364 | 278, 277 | 340, 325 |
+  | steps of 1 s, line search (job 5978685, 2 runs) | 20/0, 20/0 | 210, 211 | 172, 170 | 217, 199 |
+  | steps of 0.25 s, line search (job 5978686, 2 runs) | 80/0, 80/0 | 371, 367 | 276, 270 | 339, 318 |
+
+  With the line search, the steps of 1 s all succeed, and the two runs
+  follow the same path (256 and 257 lines, loop times within 1.1 %): the
+  loop is 31 % shorter than without line search, and 38 % shorter than with
+  the steps of 0.25 s. The step is reduced at 11 to 12 % of the iterations,
+  almost always at the first iteration of a time step (θ = 0.5), and no
+  search fails. With the steps of 0.25 s, the line search changes nothing
+  (one reduced step out of 738 iterations).
+- Same case on the 96 cores of the node (NewtonK0, second choice of
+  Eisenstat and Walker from 0.1, job 5978687): 20 steps of 1 s accepted, no
+  failure, 350 corrections, loop 2210 s, Slurm step 2367 s; without line
+  search (job 5977596): 22 steps accepted and 2 failed, 421 corrections,
+  2307 s and 2369 s. The line search removes the failures but not the
+  iterations: after a reduced step, the second choice starts again from a
+  loose tolerance (0.5^1.618 = 0.33), where the first choice with the norm
+  of the linear model gives about 0.01. With the settings of the GPUs
+  (first choice from 0.01) and the line search (job 5978880): 20 steps
+  accepted, no failure, 250 corrections, loop 2120 s, Slurm step 2253 s,
+  the shortest of the three. The computations with the line search on the
+  cores and on the GPUs then make the same 20 time steps, and their axial
+  stresses differ by 1.5e-6 at most: 10.8 times faster on the 4 MI300A
+  than on the 96 cores in duration of the Slurm steps (8.4 without line
+  search, each side with its best settings and its own divided steps).
+- Larger sizes, with the same executable (jobs 5978733, 5978785 and
+  5978734): 6,400 grains on 64 MI300A, steps of 1 s with the line search:
+  20 steps, no failure, 343 and 348 lines of iterations, Slurm step 355 and
+  353 s (486 and 509 s with the steps of 0.25 s without line search; 1311
+  and 1033 s and 30 and 33 failures with the steps of 1 s without it);
+  1,600 grains on 16 MI300A: 269 and 250 s (384 and 363 s with the steps
+  of 0.25 s). On the cores with the second choice of Eisenstat and Walker
+  and the line search, failed attempts remain at these sizes (4 at 1,600
+  grains, job 5978787: 3418 s against 3210 s without line search); the
+  computations with the first choice are running.
+- Not done: the suite of mfem-mgis on a GPU with these patches; three
+  lines of 81 columns in the new files, to fix with the next patch.
+- `cases/polycrystal/adastra-fm/`: `ls-tests.slurm`, `ls-identity.slurm`
+  and `ls-stats.py` (attempts, reduced steps and refused trials of a log).

@@ -55,6 +55,10 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     Newton solver, raw mesh with integration failures).
   - Compares the `.res` files, the averages per grain and the lines of the
     iterations of the logs.
+  - `FM_VARIANTS=B` with `FM_REFERENCE_DIR` runs the second executable
+    alone and compares it to the outputs of a previous job (the raw mesh
+    takes 30 minutes per computation); `FM_TIMEOUT_CPU` is the time limit of
+    a computation.
 - **`ls-stats.py <log>...`: counters of a computation**: attempts of time
   steps by time increment, Newton corrections, iterations whose step was
   reduced by the line search, refused trials, failed searches.

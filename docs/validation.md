@@ -569,6 +569,33 @@ communicator of the previous operator, already destroyed: mfem-mgis gives
 the new operator before the call (mfem-mgis 52bfb818b0, reproducer
 `reproducers/hypre-parasails-operator`).
 
+The line search of the Newton solver and of NewtonK0 (option `LineSearch`,
+patches 0290 and 0291 of 14/11/2026) is validated by `LineSearchTest`
+(options, decrease criterion, refused trials and failures of the search on
+scalar equations), `AdaptiveLinearSolverToleranceTest` (norm of the linear
+model at a reduced step, compared to the one computed on vectors),
+`NewtonLineSearchTest` and `FixedPointSolverTest`. The last two use the test
+behaviour `SaturatingElasticity`: on a cube loaded close to the saturation
+then unloaded in one time step, the Newton iterations are the ones of a
+scalar equation; without line search they oscillate between two saturated
+states, with it they converge with the expected step lengths. On 14/11/2026:
+
+- on the CI (run 43545707075), the whole suite on the CPU, in double (258
+  tests on 258) and in float (254 on 254), and the tests of mm-opera-hpc (12
+  on 12 in both precisions);
+- on Adastra (separate build on a node of the MI300A partition,
+  `cases/polycrystal/adastra-fm/ls-tests.slurm`, jobs 5978719 and 5978819):
+  the 11 tests of the line search, and 84 other tests using the non linear
+  solvers.
+
+Options disabled, the iterations are unchanged: the polycrystal of 100 grains
+on 96 cores gives the same outputs bit for bit as the previous executable
+(`ls-identity.slurm`, jobs 5978684 and 5978982: macroscopic values, averages
+per grain and lines of the iterations of the logs), with NewtonK0 and each
+choice of Eisenstat and Walker, with the Newton solver, and on the raw mesh
+whose integration failures move the estimates (139 moved estimates and 21
+failed resolutions in 5 s simulated). Not run: the suite on a GPU.
+
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of
 mfem-mgis and to the builds of the examples and of mm-opera-hpc): each
