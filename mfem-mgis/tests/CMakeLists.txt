@@ -79,7 +79,8 @@ if(MFEM_MGIS_HAVE_TFEL)
     UO2Shrinkage_RAPHAEL2008
     FailingIsotropicLinearElasticity
     OrthotropicSaintVenantKirchhoffElasticity
-    LogarithmicStrainElasticity)
+    LogarithmicStrainElasticity
+    SaturatingElasticity)
 
   # TwoLayerCube executable
   add_test_executable(TwoLayerCube)
@@ -1491,6 +1492,36 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif()
   endforeach()
 
+  # NewtonLineSearchTest executable: line search of the Newton solver by
+  # backtracking on the norm of the residual (non linear elasticity whose
+  # stress saturates, integration failures, plasticity), also with the
+  # integration by batches and the computations by kernels, on the host and
+  # on the debug device of MFEM
+  add_test_executable(NewtonLineSearchTest)
+  add_test(NAME NewtonLineSearchTest
+           COMMAND NewtonLineSearchTest
+                   --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                   --library $<TARGET_FILE:BehaviourTest>)
+  # on 2 processes, with MUMPS if available, otherwise with the conjugate
+  # gradient of MFEM
+  if(MFEM_USE_MPI)
+    add_test(NAME NewtonLineSearchTestP
+             COMMAND mpirun -n 2 ./NewtonLineSearchTest --parallel
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    set_tests_properties(NewtonLineSearchTestP
+                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
+  foreach(_device cpu debug)
+    add_test(NAME NewtonLineSearchTest-kernels-${_device}
+             COMMAND NewtonLineSearchTest --device ${_device}
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    set_tests_properties(NewtonLineSearchTest-kernels-${_device}
+                         PROPERTIES ENVIRONMENT
+                         "${fixed_point_solver_test_kernels}")
+  endforeach()
+
   # MaterialArraysTest executable: arrays of the materials in the memory of
   # MFEM, on the host, on the debug device of MFEM and on the GPU. The
   # point-wise model is also integrated by batches with the library
@@ -1900,6 +1931,11 @@ if(MFEM_USE_MPI)
   set_tests_properties(AdaptiveLinearSolverToleranceTestP
                        PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
 endif()
+
+# LineSearchTest executable: line search of the Newton methods by
+# backtracking on the norm of the residual, on scalar equations
+add_test_executable(LineSearchTest)
+add_test(NAME LineSearchTest COMMAND LineSearchTest)
 
 # HypreKrylovAbsoluteToleranceTest executable
 if(MFEM_USE_MPI)

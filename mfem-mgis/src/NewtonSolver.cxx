@@ -88,6 +88,12 @@ namespace mfem_mgis {
     mfem::Vector c;  // opposite of the Newton's correction
     r.SetSize(this->oper->Width());
     c.SetSize(this->oper->Width());
+    // estimate of the unknowns at a trial of the line search, if any
+    mfem::Vector xn;
+    if (this->line_search.isEnabled()) {
+      xn.SetSize(x.Size());
+      xn.UseDevice(true);
+    }
 
     auto updateResidual = [this, &r, &x] {
       if (this->ctx_ptr != nullptr) {
@@ -95,6 +101,21 @@ namespace mfem_mgis {
         this->computeResidual(r, x);
       } else {
         this->computeResidual(r, x);
+      }
+      return this->Norm(r);
+    };
+    // trial of the line search: integration of the behaviours and norm of
+    // the residual at an estimate, nothing if the integration fails
+    const auto evaluate =
+        [this, &r](const mfem::Vector &u) -> std::optional<real> {
+      if (!this->processNewUnknownsEstimate(u)) {
+        return {};
+      }
+      if (this->ctx_ptr != nullptr) {
+        CatchTimeSection(*(this->ctx_ptr), "NS::computeResidual");
+        this->computeResidual(r, u);
+      } else {
+        this->computeResidual(r, u);
       }
       return this->Norm(r);
     };
@@ -243,6 +264,75 @@ namespace mfem_mgis {
         break;
       }
       //
+      if (this->line_search.isEnabled()) {
+        // line search by backtracking on the norm of the residual: an
+        // estimate at which the integration of the behaviours fails is a
+        // refused trial, and the reductions of the step are not counted as
+        // iterations
+        const auto ls = this->line_search.search(
+            xn, x, c, norm, linear_solver_tolerance.value_or(real{0}),
+            evaluate);
+        auto ls_information = Parameters{};
+        ls_information.replaceOrInsert("StepLength", ls.step_length);
+        ls_information.replaceOrInsert("NumberOfStepReductions",
+                                       ls.reductions);
+        if (!ls.success) {
+          if (shall_print) {
+            log << "Newton iteration " << std::setw(2) << it
+                << " : line search failed after " << ls.reductions
+                << " reductions of the step\n";
+          }
+          auto iteration = Parameters{};
+          iteration.replaceOrInsert("LineSearch", ls_information);
+          add_to_iterations_information(iteration, true);
+          // at the floor of the rounding errors, no step decreases the
+          // residual: the current estimate, the best one (the norms
+          // decrease), is accepted. The behaviours, integrated at the last
+          // trial, are integrated again.
+          if ((norm <= this->stagnation_relative_tolerance *
+                           (*(this->reference_residual_norm))) &&
+              (this->processNewUnknownsEstimate(x))) {
+            norm = updateResidual();
+            if (shall_print) {
+              log << "Newton iteration " << std::setw(2) << it
+                  << " : stagnation of the residual below the relative "
+                     "tolerance "
+                  << this->stagnation_relative_tolerance
+                  << ", accepted as convergence\n";
+            }
+            this->converged = 1;
+            converged_by_stagnation = true;
+          }
+          break;
+        }
+        if (ls.reductions != 0) {
+          if (shall_print) {
+            log << "Newton iteration " << std::setw(2) << it
+                << " : line search, step length " << ls.step_length
+                << " after " << ls.reductions << " reductions\n";
+          }
+          if (t != nullptr) {
+            // the norm of the residual of the linear solve becomes the one
+            // of the linear model at the retained step
+            t->setStepLength(ls.step_length);
+            if (t->requiresLinearResidualNorm()) {
+              if (const auto lm = t->getLinearResidualNorm(); lm.has_value()) {
+                ls_information.replaceOrInsert("LinearModelResidualNorm", *lm);
+              }
+            }
+          }
+        }
+        x = xn;
+        previous_norms[0] = previous_norms[1];
+        previous_norms[1] = norm;
+        norm = ls.norm;
+        auto iteration = Parameters{};
+        iteration.replaceOrInsert("Norm", norm);
+        iteration.replaceOrInsert("LineSearch", ls_information);
+        add_to_iterations_information(iteration, true);
+        ++it;
+        continue;
+      }
       // x_{i+1} = x_i - c * [DF(x_i)]^{-1} [F(x_i)-b]
       //      add(x, -1, c, x);
       x -= c;
@@ -324,6 +414,14 @@ namespace mfem_mgis {
       }
       t = *ot;
     }
+    auto l = this->line_search;
+    if (contains(params, "LineSearch")) {
+      const auto ol = LineSearch::read(ctx, params);
+      if (isInvalid(ol)) {
+        return false;
+      }
+      l = *ol;
+    }
     const auto ostagnation = get_if<double>(
         ctx, params, "StagnationRelativeTolerance",
         static_cast<double>(this->stagnation_relative_tolerance));
@@ -337,11 +435,13 @@ namespace mfem_mgis {
     }
     const auto others =
         remove(params, std::vector<std::string>{"AdaptiveLinearSolverTolerance",
+                                                "LineSearch",
                                                 "StagnationRelativeTolerance"});
     if (!NonLinearSolverBase::setSolverParameters(ctx, others)) {
       return false;
     }
     this->adaptive_linear_solver_tolerance = t;
+    this->line_search = l;
     this->stagnation_relative_tolerance = static_cast<real>(*ostagnation);
     return true;
   }  // end of setSolverParameters
@@ -387,7 +487,13 @@ namespace mfem_mgis {
         lr.UseDevice(true);
         J.Mult(c, lr);
         lr -= r;
-        t->setLinearResidualNorm(this->Norm(lr));
+        if (this->line_search.isEnabled()) {
+          // the scalar product with the residual gives the norm of the
+          // linear model at a reduced step
+          t->setLinearResidual(this->Norm(lr), this->Dot(lr, r));
+        } else {
+          t->setLinearResidualNorm(this->Norm(lr));
+        }
       }
       return true;
     });

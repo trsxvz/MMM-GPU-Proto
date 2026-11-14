@@ -1,0 +1,54 @@
+@DSL DefaultDSL;
+@Behaviour SaturatingElasticity;
+@Date 14 / 11 / 2026;
+@Description {
+  Isotropic non linear elasticity whose equivalent stress saturates:
+  seq = s0 tanh(3 mu eeq / s0) + 3 muinf eeq, where eeq is the equivalent
+  strain. The stress derives from a potential: the consistent tangent
+  operator is symmetric, and positive definite thanks to the residual
+  shear modulus muinf. Close to the saturation, the tangent stiffness is
+  much lower than the secant one: the Newton method without line search
+  oscillates between two saturated states when the loading is reversed.
+  Used to test the line search of the non linear solvers.
+}
+
+@Parameter stress kb = 150e9;
+kb.setGlossaryName("BulkModulus");
+@Parameter stress mu = 80e9;
+mu.setGlossaryName("ShearModulus");
+@Parameter stress s0 = 240e6;
+s0.setEntryName("SaturationStress");
+@Parameter stress muinf = 4e9;
+muinf.setEntryName("ResidualShearModulus");
+
+@PredictionOperator {
+  static_cast<void>(smt);
+  Dt = kb * Stensor4::IxI() + 2 * (mu + muinf) * Stensor4::K();
+}
+
+@ProvidesSymmetricTangentOperator;
+@Integrator {
+  const auto e = eval(eto + deto);
+  const auto ed = deviator(e);
+  const auto ed2 = ed | ed;
+  const auto eeq = sqrt(2 * ed2 / 3);
+  // secant and tangent shear moduli
+  const auto flow = eeq > strain(1e-12);
+  auto mus = mu + muinf;
+  auto mut = mu + muinf;
+  if (flow) {
+    const auto th = tanh(3 * mu * eeq / s0);
+    mus = s0 * th / (3 * eeq) + muinf;
+    mut = mu * (1 - th * th) + muinf;
+  }
+  sig = kb * trace(e) * Stensor::Id() + 2 * mus * ed;
+  if (computeTangentOperator_) {
+    if ((smt == CONSISTENTTANGENTOPERATOR) && flow) {
+      const auto n = eval(ed / sqrt(ed2));
+      Dt = kb * Stensor4::IxI() + 2 * mus * Stensor4::K() +
+           2 * (mut - mus) * (n ^ n);
+    } else {
+      Dt = kb * Stensor4::IxI() + 2 * (mu + muinf) * Stensor4::K();
+    }
+  }
+}

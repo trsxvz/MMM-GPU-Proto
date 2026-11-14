@@ -15,6 +15,7 @@
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
+#include "MFEMMGIS/NonLinearSolvers/LineSearch.hxx"
 
 namespace mfem_mgis {
 
@@ -29,8 +30,24 @@ namespace mfem_mgis {
    * `AbsoluteTolerance`, `MaximumNumberOfIterations`, `VerbosityLevel`),
    * `DiscardLinearSolverFailure`, `AdaptiveLinearSolverTolerance`
    * (relative tolerance of the iterative linear solver adapted to the
-   * decrease of the residual, see `AdaptiveLinearSolverTolerance`) and
-   * `StagnationRelativeTolerance` (see `stagnation_relative_tolerance`).
+   * decrease of the residual, see `AdaptiveLinearSolverTolerance`),
+   * `LineSearch` (line search by backtracking on the norm of the residual,
+   * see `LineSearch`) and `StagnationRelativeTolerance` (see
+   * `stagnation_relative_tolerance`).
+   *
+   * Without line search, the correction is always applied, and its
+   * amplitude is only divided by two, as many times as required, when the
+   * integration of the behaviours fails at the new estimate, each
+   * reduction being counted as an iteration. With the line search, an
+   * estimate at which the integration fails is a refused trial, the
+   * reductions of the step are not counted as iterations, and the
+   * resolution fails if no step is acceptable: the behaviours are then
+   * integrated at the last trial, and the time step shall be reverted. A
+   * search failing below the `StagnationRelativeTolerance` (floor of the
+   * rounding errors) is accepted as convergence, at the current estimate. A
+   * correction given by a linear solver whose failure is discarded
+   * (`DiscardLinearSolverFailure`) may not decrease the residual: the
+   * search then fails.
    */
   struct MFEM_MGIS_EXPORT NewtonSolver : public NonLinearSolverBase {
 #ifdef MFEM_USE_MPI
@@ -63,7 +80,8 @@ namespace mfem_mgis {
      * \param[in] r: residual
      * \param[in] u: current estimate of the unknowns
      * \param[in, out] t: adaptive tolerance of the linear solver, if any,
-     * given the norm of the residual of the linear solve if required
+     * given the norm of the residual of the linear solve if required (and
+     * its scalar product with the residual if a line search is made)
      * \return true on success
      */
     virtual bool computeNewtonCorrection(
@@ -77,6 +95,11 @@ namespace mfem_mgis {
      * `AdaptiveLinearSolverTolerance`), disabled by default
      */
     AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
+    /*!
+     * \brief settings of the line search (option `LineSearch`), disabled by
+     * default
+     */
+    LineSearch line_search;
     /*!
      * \brief relative residual below which a stagnation of the residual is
      * accepted as convergence (option `StagnationRelativeTolerance`, zero

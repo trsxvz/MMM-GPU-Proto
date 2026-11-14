@@ -920,6 +920,45 @@ at the end of each resolution (the predictions keep it).
                   mfem_mgis::Parameters{{"InitialTolerance", 0.1}}}}}}) |
       or_die;
 
+Line search (LineSearch)
+------------------------
+
+The corrections of the Newton solver may be reduced by a line search by
+backtracking on the norm of the residual (Eisenstat and Walker, 1994 and
+1996): the step is halved until the norm of the residual decreases
+sufficiently, an estimate at which the integration of the behaviours fails
+being refused. The resolution fails if no step is acceptable (see
+:doc:`nonlinear_algorithms`).
+
+- Option name: ``LineSearch``, with the value ``None`` (default) or
+  ``Backtracking``, possibly with options.
+- The reductions of the step are not counted as iterations.
+- Options:
+
++-----------------------------------+--------------------------------------+
+| Key                               | Description                          |
++===================================+======================================+
+| ``SufficientDecrease``            | Coefficient of the decrease          |
+|                                   | criterion, in ]0, 1[, 1e-4 by        |
+|                                   | default.                             |
++-----------------------------------+--------------------------------------+
+| ``MaximumNumberOfStepReductions`` | Maximum number of reductions of the  |
+|                                   | step of an iteration, at least 1, 10 |
+|                                   | by default.                          |
++-----------------------------------+--------------------------------------+
+
+**Example:**
+
+.. code-block:: cpp
+
+  problem.setSolverParameters(
+      ctx, {{"LineSearch",
+             mfem_mgis::Parameters{
+                 {"Backtracking",
+                  mfem_mgis::Parameters{
+                      {"MaximumNumberOfStepReductions", 5}}}}}}) |
+      or_die;
+
 Stagnation of the residual (StagnationRelativeTolerance)
 --------------------------------------------------------
 

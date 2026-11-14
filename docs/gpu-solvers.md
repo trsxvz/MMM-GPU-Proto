@@ -58,7 +58,7 @@ rows.
 | Matrix free p-multigrid with AMG on the Q1 (order 2 and higher), or LOR (`LORSolver`) | both | 7 | MFEM |
 | Addition: distributed Ginkgo (MPI matrices, two level Schwarz, distributed PGM multigrid) | both | 7 | Ginkgo 1.8 to 1.11; MFEM 4.10 wrappers |
 | Addition: AmgX in mixed precision (mode `dDFI`) and 3×3 block matrices | NVIDIA GPU | 6 | AmgX; not in the MFEM wrapper. Blocks done on 16/10/2026 (`NodalBlocks`, no gain on the beam); `dDFI` not supported by AmgX 2.5 |
-| Line search for Newton (hook `ComputeScalingFactor`) | both | 6 | to be written in the Newton of mfem-mgis (today it only divides the correction by 2 when the behaviour fails) |
+| Line search for Newton (hook `ComputeScalingFactor`) | both | 6 | done in mfem-mgis on 14/11/2026: option `LineSearch` of the Newton solver, backtracking on the norm of the residual (Eisenstat and Walker), disabled by default |
 | Elasticity AMG with rigid body modes on GPU: GAMG of PETSc with near null space (Kokkos), new block path on GPU (Adams, arXiv 2606.24748); requires repairing the PETSc path of mfem-mgis | both | 6 | PETSc 3.26 (`aijkokkos`; the block path of the paper is not there). Since 15/10/2026, the solvers of PETSc compute on the host when MFEM computes on a GPU: with MFEM 4.10, the vectors of MFEM placed in the vectors of PETSc of the GPU were seen as null, and these vectors made `PetscFinalize` abort; GAMG on the GPU needs this interoperability first |
 | KINSOL of SUNDIALS through MFEM (`KINSolver`: fixed point with Anderson, JFNK, line search) | both | 6 | SUNDIALS 7.9, MFEM; requires an operator whose `Mult` integrates the behaviour |
 | Addition: prediction by extrapolation of the displacement increment | both | 5 | mfem-mgis |
@@ -170,10 +170,13 @@ the operators are there.
   4.9 as in 4.10). To be written; `SNESQN` of PETSc
   (`-snes_qn_type lbfgs`, `-snes_qn_scale_type jacobian`) is the
   existing reference of an L-BFGS with a preconditioned initial inverse.
-- **Line search** (interest 6): the Newton of mfem-mgis today
+- **Line search** (interest 6): without option, the Newton of mfem-mgis
   divides the correction by 2 only when the behaviour fails
-  (`NewtonSolver::Mult`). A real line search (on the
-  norm of the residual or the energy) is to be written there.
+  (`NewtonSolver::Mult`). Done on 14/11/2026: option `LineSearch`
+  (`Backtracking`) of the Newton solver, a line search on
+  the norm of the residual (inexact Newton backtracking of Eisenstat and
+  Walker), which also refuses the estimates at which the behaviour fails.
+  A line search on the energy is not written.
 - **KINSOL** (interest 6): fixed point with Anderson, Picard, matrix free
   Newton-Krylov (`SetJFNK`), line search, reused Jacobian
   (`SetMaxSetupCalls`). The MFEM wrapper uses the CUDA vectors of
@@ -656,7 +659,8 @@ assembly of the nonlinear forms) were checked again on those of 4.10.
 | Krylov solvers of MFEM, matrix free smoothers, p-MG, LOR, `BatchedLinAlg` | `mfem@4.10.0 +cuda cxxstd=20` |
 | Same kernels on multicore CPU, libCEED backend | `mfem +openmp +threadsafe +libceed`, `libceed +cuda +openmp` |
 | Inexact Newton, fixed point and Anderson | done in mfem-mgis |
-| Line search, preconditioned L-BFGS | to be written in mfem-mgis |
+| Line search | done in mfem-mgis (option `LineSearch`) |
+| Preconditioned L-BFGS | to be written in mfem-mgis |
 | BoomerAMG, MGR, FSAI, ILU, Krylov solvers of hypre | `hypre@3.2.0 +cuda +umpire` |
 | Ginkgo, distributed included | `ginkgo@1.11.0 +cuda +openmp +mpi`, `mfem +ginkgo` |
 | GAMG, SNES, pipelined Krylov | `petsc@3.26.0 +cuda +kokkos +openmp +hypre`, `kokkos-kernels`, `mfem +petsc` |

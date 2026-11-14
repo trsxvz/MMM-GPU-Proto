@@ -1,0 +1,2284 @@
+From 6b041ea08231689f9a830dec82c8d6d5f0b86dd2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 14 Nov 2026 02:34:58 +0100
+Subject: [PATCH] Newton solver: line search by backtracking on the norm of the
+ residual
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Option LineSearch of the Newton solver (None by default, Backtracking):
+the step of an iteration is halved until the norm of the residual
+decreases sufficiently, ||r(x - θ c)|| <= [1 - t θ (1 - η)] ||r(x)||, the
+inexact Newton backtracking of Eisenstat and Walker (t = 1e-4, η being the
+adapted tolerance of the linear solve, ten reductions at most). An estimate
+at which the integration of the behaviours fails is a refused trial, the
+reductions are not counted as iterations, and the resolution fails if no
+step is acceptable (accepted as convergence below the
+StagnationRelativeTolerance). An accepted full step requires no other
+integration nor residual than the ones of the next iteration.
+
+The settings, the reading of the options and the search are in the
+LineSearch structure, on the model of AdaptiveLinearSolverTolerance. With
+the first choice of Eisenstat and Walker, the tolerance which follows a
+reduced step uses the norm of the linear model at this step,
+||(1 - θ) r - θ (J c - r)||, given by the norms of r and of J c - r and by
+their scalar product (setLinearResidual, setStepLength): one scalar product
+per iteration, no product by the operator.
+
+Without the option, the iterations are unchanged: the code of the
+correction, of its reduction on an integration failure and of the adaptive
+tolerance is the same.
+
+Tests: LineSearchTest (options, criterion and failures on scalar
+equations), AdaptiveLinearSolverToleranceTest (norm of the linear model
+compared to the one computed on vectors) and NewtonLineSearchTest, with the
+test behaviour SaturatingElasticity (non linear elasticity whose stress
+saturates): a cube loaded close to the saturation then unloaded in one time
+step, for which the Newton solver oscillates without line search and
+converges to the analytical solution with it; integration failures refused
+by the search; plastic cube; stagnation.
+---
+ CHANGELOG.md                                  |   2 +
+ docs/source/bibliography.bib                  |  33 +
+ docs/source/user_guide/glossary.rst           |  39 +
+ .../user_guide/nonlinear_algorithms.rst       |  82 ++
+ include/CMakeLists.txt                        |   1 +
+ .../AdaptiveLinearSolverTolerance.hxx         |  37 +-
+ .../MFEMMGIS/NonLinearSolvers/LineSearch.hxx  | 114 +++
+ .../NonLinearSolvers/NewtonSolver.hxx         |  29 +-
+ src/AdaptiveLinearSolverTolerance.cxx         |  26 +
+ src/CMakeLists.txt                            |   1 +
+ src/LineSearch.cxx                            |  93 ++
+ src/NewtonSolver.cxx                          | 108 ++-
+ tests/AdaptiveLinearSolverToleranceTest.cxx   |  93 +-
+ tests/CMakeLists.txt                          |  38 +-
+ tests/LineSearchTest.cxx                      | 340 +++++++
+ tests/NewtonLineSearchTest.cxx                | 849 ++++++++++++++++++
+ tests/SaturatingElasticity.mfront             |  54 ++
+ 17 files changed, 1930 insertions(+), 9 deletions(-)
+ create mode 100644 include/MFEMMGIS/NonLinearSolvers/LineSearch.hxx
+ create mode 100644 src/LineSearch.cxx
+ create mode 100644 tests/LineSearchTest.cxx
+ create mode 100644 tests/NewtonLineSearchTest.cxx
+ create mode 100644 tests/SaturatingElasticity.mfront
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 82561a5912..13c733b04c 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -69,6 +69,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+   `Steffensen`, `Cast3M`...)
+ - `AdaptiveLinearSolverTolerance` option (Eisenstat-Walker) of the Newton
+   solver and of the `NewtonK0` method
++- `LineSearch` option of the Newton solver: line search by backtracking on
++  the norm of the residual (Eisenstat-Walker), disabled by default
+ - solvers of AmgX (`AmgX`, `AmgXPCG`, CMake option `enable-amgx`) and of
+   cuDSS (`CuDSSSolver`); parameter `ReuseAnalysis` of `MUMPSSolver`;
+   `AbsoluteTolerance` of the Krylov solvers of hypre; options of
+diff --git a/docs/source/bibliography.bib b/docs/source/bibliography.bib
+index 15c657ef75..a8c1c2f240 100644
+--- a/docs/source/bibliography.bib
++++ b/docs/source/bibliography.bib
+@@ -128,3 +128,36 @@ The aim of this paper is to give some insights about some innovative features in
+ 	year = {2020},
+ 	note = {Publisher: The Open Journal}
+ }
++
++@article{eisenstat_globally_1994,
++	title = {Globally convergent inexact {Newton} methods},
++	volume = {4},
++	doi = {10.1137/0804022},
++	pages = {393--422},
++	number = {2},
++	journal = {SIAM Journal on Optimization},
++	author = {Eisenstat, Stanley C. and Walker, Homer F.},
++	year = {1994}
++}
++
++@article{eisenstat_choosing_1996,
++	title = {Choosing the forcing terms in an inexact {Newton} method},
++	volume = {17},
++	doi = {10.1137/0917003},
++	pages = {16--32},
++	number = {1},
++	journal = {SIAM Journal on Scientific Computing},
++	author = {Eisenstat, Stanley C. and Walker, Homer F.},
++	year = {1996}
++}
++
++@article{pernice_nitsol_1998,
++	title = {{NITSOL}: a {Newton} iterative solver for nonlinear systems},
++	volume = {19},
++	doi = {10.1137/S1064827596303843},
++	pages = {302--318},
++	number = {1},
++	journal = {SIAM Journal on Scientific Computing},
++	author = {Pernice, Michael and Walker, Homer F.},
++	year = {1998}
++}
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 2d7795625b..d939820dad 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -920,6 +920,45 @@ at the end of each resolution (the predictions keep it).
+                   mfem_mgis::Parameters{{"InitialTolerance", 0.1}}}}}}) |
+       or_die;
+ 
++Line search (LineSearch)
++------------------------
++
++The corrections of the Newton solver may be reduced by a line search by
++backtracking on the norm of the residual (Eisenstat and Walker, 1994 and
++1996): the step is halved until the norm of the residual decreases
++sufficiently, an estimate at which the integration of the behaviours fails
++being refused. The resolution fails if no step is acceptable (see
++:doc:`nonlinear_algorithms`).
++
++- Option name: ``LineSearch``, with the value ``None`` (default) or
++  ``Backtracking``, possibly with options.
++- The reductions of the step are not counted as iterations.
++- Options:
++
+++-----------------------------------+--------------------------------------+
++| Key                               | Description                          |
+++===================================+======================================+
++| ``SufficientDecrease``            | Coefficient of the decrease          |
++|                                   | criterion, in ]0, 1[, 1e-4 by        |
++|                                   | default.                             |
+++-----------------------------------+--------------------------------------+
++| ``MaximumNumberOfStepReductions`` | Maximum number of reductions of the  |
++|                                   | step of an iteration, at least 1, 10 |
++|                                   | by default.                          |
+++-----------------------------------+--------------------------------------+
++
++**Example:**
++
++.. code-block:: cpp
++
++  problem.setSolverParameters(
++      ctx, {{"LineSearch",
++             mfem_mgis::Parameters{
++                 {"Backtracking",
++                  mfem_mgis::Parameters{
++                      {"MaximumNumberOfStepReductions", 5}}}}}}) |
++      or_die;
++
+ Stagnation of the residual (StagnationRelativeTolerance)
+ --------------------------------------------------------
+ 
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index 5c29e2cb4f..0bc70b5b5d 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -197,6 +197,88 @@ solution that does not lead to an integration failure is found, or until
+ the maximum number of iterations is reached (each reduction counts as an
+ iteration).
+ 
++.. _mfem_mgis_line_search:
++
++Line search
++-----------
++
++By default, the correction is always applied, whatever its effect on the
++residual. Far from the solution, the residual may then increase from one
++iteration to the next, and the iterations may oscillate or diverge. The
++option :cxx:`LineSearch` of the Newton solver, set to :cxx:`Backtracking`,
++globalizes the method by a line search on the norm of the residual, the
++backtracking of the inexact Newton methods of Eisenstat and Walker
++:cite:`eisenstat_globally_1994,eisenstat_choosing_1996`, also used by NITSOL
++:cite:`pernice_nitsol_1998` and by the default line search of the SNES
++solvers of PETSc. The new estimate is:
++
++.. math::
++
++   \mathbb{u}^{(n+1)} = \mathbb{u}^{(n)}+\theta\,\delta\,\mathbb{u}^{(n)}
++
++where the step length :math:`\theta` is the first value of
++:math:`1, 1/2, 1/4, \ldots` which satisfies:
++
++.. math::
++
++   \left\|\mathbb{r}\left(\mathbb{u}^{(n)}+\theta\,\delta\,\mathbb{u}^{(n)}\right)\right\|
++   \leq \left[1-t\,\theta\,\left(1-\eta\right)\right]\,\left\|\mathbb{r}\left(\mathbb{u}^{(n)}\right)\right\|
++
++where:
++
++- :math:`\mathbb{r}` denotes the residual, whose euclidean norm is the one
++  of the convergence criterion;
++- :math:`t` is the option :cxx:`SufficientDecrease`
++  (:math:`10^{-4}` by default);
++- :math:`\eta` is the relative tolerance of the linear solve of the
++  iteration if it is adapted to the decrease of the residual (option
++  :cxx:`AdaptiveLinearSolverTolerance`), zero otherwise.
++
++The line search has the following properties:
++
++- An estimate at which the integration of the behaviours fails, or whose
++  residual is not finite, is a refused trial: the line search replaces the
++  handling of the integration failures described above.
++- The reductions of the step are not counted as iterations.
++- The search fails if no step is accepted after
++  :cxx:`MaximumNumberOfStepReductions` reductions (10 by default, a
++  smallest step length of about :math:`10^{-3}`). The resolution then
++  fails: the behaviours were integrated at the last trial, and the time
++  step shall be reverted, as after any failed resolution. A search which
++  fails at the floor of the rounding errors (see below) is accepted as
++  convergence.
++- The behaviours are integrated with the consistent tangent operator at
++  each trial. When the full step is accepted, which is the case of most
++  iterations, the line search requires no other integration and no other
++  residual than the ones of the next iteration. Each refused trial costs
++  one integration of the behaviours and one residual.
++- With the first choice of Eisenstat and Walker, the tolerance of the
++  linear solve which follows a reduced step uses the norm of the linear
++  model at this step,
++  :math:`\left\|\mathbb{r}+\theta\,\mathbb{K}\,\cdot\,\delta\,\mathbb{u}\right\|`,
++  as in :cite:`eisenstat_choosing_1996`. It is computed from the residual
++  of the linear solve at the price of one scalar product per iteration.
++- A correction given by a linear solver which failed (option
++  :cxx:`DiscardLinearSolverFailure`) may not decrease the residual: the
++  search, hence the resolution, then fails.
++
++The line search does not protect the first estimate of a resolution, which
++is given by the prediction.
++
++.. code-block:: c++
++
++   problem.setSolverParameters(
++       ctx, {{"LineSearch", "Backtracking"},
++             {"AdaptiveLinearSolverTolerance", "EisenstatWalker1"}}) |
++       or_die;
++
++The information on each iteration returned by the resolution
++(:cxx:`NonLinearResolutionOutput::iterations_information`) then has an
++entry :cxx:`LineSearch`, which gives the step length (:cxx:`StepLength`),
++the number of reductions (:cxx:`NumberOfStepReductions`) and, after a
++reduced step with the first choice of Eisenstat and Walker, the norm of
++the linear model (:cxx:`LinearModelResidualNorm`).
++
+ Stagnation of the residual
+ --------------------------
+ 
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index e9bb5e4d8e..52face33a0 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -136,6 +136,7 @@ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverFactory.ixx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NewtonSolver.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers AccelerationAlgorithm.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers AdaptiveLinearSolverTolerance.hxx)
++mfem_mgis_header(MFEMMGIS/NonLinearSolvers LineSearch.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers FixedPointSolver.hxx)
+ mfem_mgis_header(MFEMMGIS/Utilities DataFileUtilities.hxx)
+ mfem_mgis_header(MFEMMGIS/Utilities Buffer.hxx)
+diff --git a/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx b/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
+index 151244eed5..4c6ea91d5a 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
+@@ -31,9 +31,12 @@ namespace mfem_mgis {
+    *   `η_i = | ||F_i|| - ||F_{i-1} + J_{i-1} s_{i-1}|| | / ||F_{i-1}||`,
+    *   which requires the norm of the residual of the previous linear solve
+    *   (one product by the tangent operator per iteration; after a reduction
+-   *   of the correction, the residual of the complete linear solve is
+-   *   used; if this norm is not given, the formula of the second choice is
+-   *   used for this iteration);
++   *   of the correction on an integration failure, the residual of the
++   *   complete linear solve is used, whereas a line search, see
++   *   `LineSearch`, gives the norm of the linear model at the step it
++   *   retained, `||F_{i-1} + θ J_{i-1} s_{i-1}||`, as in the paper, see
++   *   `setStepLength`; if this norm is not given, the formula of the second
++   *   choice is used for this iteration);
+    * - choice 2 (`EisenstatWalker2`): `η_i = γ (||F_i|| / ||F_{i-1}||)^α`.
+    *
+    * Safeguards, as Eisenstat and Walker and PETSc: when the following value
+@@ -128,6 +131,29 @@ namespace mfem_mgis {
+      * \param[in] n: norm
+      */
+     void setLinearResidualNorm(const real n) noexcept;
++    /*!
++     * \brief sets the norm of the residual of the last linear solve,
++     * `J c - r` (`c` being the opposite of the correction and `r` the
++     * residual of the non linear problem), and its scalar product with `r`,
++     * which gives the norm of the linear model at a reduced step (see
++     * `setStepLength`)
++     * \param[in] n: norm
++     * \param[in] d: scalar product of the residual of the linear solve and
++     * of the residual of the non linear problem
++     */
++    void setLinearResidual(const real n, const real d) noexcept;
++    /*!
++     * \brief declares that the correction was multiplied by `θ` (line
++     * search): the norm of the residual of the last linear solve is
++     * replaced by the one of the linear model at the reduced step,
++     * `||r - θ J c|| = ||(1 - θ) r - θ (J c - r)||`, computed from the norms
++     * of `r` and of `J c - r` and from their scalar product. Nothing is
++     * done if this scalar product was not given since the last update of
++     * the tolerance (see `setLinearResidual`), or if the step length was
++     * already declared.
++     * \param[in] theta: step length
++     */
++    void setStepLength(const real theta) noexcept;
+     /*!
+      * \return the norm of the residual of the last linear solve, if set
+      * since the last update of the tolerance
+@@ -147,6 +173,11 @@ namespace mfem_mgis {
+     real previous_norm = 0;
+     //! \brief norm of the residual of the previous linear solve, if set
+     std::optional<real> linear_residual_norm;
++    /*!
++     * \brief scalar product of the residual of the previous linear solve and
++     * of the residual of the non linear problem, if set
++     */
++    std::optional<real> linear_residual_scalar_product;
+     //! \brief previous tolerance
+     real previous_tolerance = 0;
+   };  // end of struct AdaptiveLinearSolverToleranceUpdater
+diff --git a/include/MFEMMGIS/NonLinearSolvers/LineSearch.hxx b/include/MFEMMGIS/NonLinearSolvers/LineSearch.hxx
+new file mode 100644
+index 0000000000..ddaec94bd7
+--- /dev/null
++++ b/include/MFEMMGIS/NonLinearSolvers/LineSearch.hxx
+@@ -0,0 +1,114 @@
++/*!
++ * \file   MFEMMGIS/NonLinearSolvers/LineSearch.hxx
++ * \brief  This file declares the `LineSearch` class, the line search of the
++ * Newton methods by backtracking on the norm of the residual
++ * \date   14/11/2026
++ */
++
++#ifndef LIB_MFEMMGIS_NONLINEARSOLVERS_LINESEARCH_HXX
++#define LIB_MFEMMGIS_NONLINEARSOLVERS_LINESEARCH_HXX
++
++#include <optional>
++#include <functional>
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MFEMForward.hxx"
++
++namespace mfem_mgis {
++
++  // forward declaration
++  struct Parameters;
++
++  /*!
++   * \brief line search of a Newton method by backtracking on the norm of
++   * the residual (inexact Newton backtracking method, Eisenstat and Walker,
++   * SIAM J. Optim. 4(2), 1994, and SIAM J. Sci. Comput. 17(1), 1996, as the
++   * `bt` line search of PETSc and as NITSOL). `c` being the opposite of the
++   * correction of an iteration, an approximation of `J⁻¹ F(x)`, the new
++   * estimate is `x - θ c`, where the step length `θ` is the first value of
++   * `1, 1/2, 1/4...` such that:
++   *
++   * `||F(x - θ c)|| <= [1 - t θ (1 - η)] ||F(x)||`
++   *
++   * where `t` is the option `SufficientDecrease` and `η` the relative
++   * tolerance of the linear solve which gave `c`, if adapted (see
++   * `AdaptiveLinearSolverTolerance`), zero otherwise. An estimate at which
++   * the integration of the behaviours fails, or whose residual is not
++   * finite, is refused. The search fails if the step length reaches
++   * `2^-n`, `n` being the option `MaximumNumberOfStepReductions`, without
++   * being accepted: the resolution then fails.
++   *
++   * The behaviours are integrated with the tangent operator at each trial:
++   * an accepted step, the full one in most iterations, requires no other
++   * integration nor residual than the ones of the next iteration.
++   *
++   * Option `LineSearch` of the `Newton` solver: `None` (default, the
++   * correction is always applied) or `Backtracking`, given by a name, by a
++   * dictionary associating a name with its options, or by a dictionary
++   * with the entries `Name` and `Options`. Options: `SufficientDecrease`
++   * (1e-4, in ]0, 1[) and `MaximumNumberOfStepReductions` (10, at least 1).
++   */
++  struct MFEM_MGIS_EXPORT LineSearch {
++    //! \brief methods
++    enum struct Method { NONE, BACKTRACKING };
++    //! \brief step retained by a search
++    struct Result {
++      //! \brief if true, an acceptable step was found
++      bool success = false;
++      //! \brief step length `θ` of the last trial
++      real step_length = 1;
++      //! \brief norm of the residual at the accepted estimate, on success
++      real norm = 0;
++      //! \brief number of reductions of the step
++      size_type reductions = 0;
++    };
++    /*!
++     * \brief function integrating the behaviours at an estimate of the
++     * unknowns and computing the residual: returns the norm of the
++     * residual, or nothing if the integration failed
++     */
++    using Evaluation = std::function<std::optional<real>(const mfem::Vector&)>;
++    /*!
++     * \return the line search given by the option `LineSearch`, or an
++     * invalid value on error
++     * \param[in, out] ctx: execution context
++     * \param[in] params: parameters, which shall contain the option
++     */
++    [[nodiscard]] static std::optional<LineSearch> read(
++        Context& ctx, const Parameters& params) noexcept;
++    //! \return if a line search is made
++    [[nodiscard]] bool isEnabled() const noexcept {
++      return this->method != Method::NONE;
++    }
++    /*!
++     * \brief searches a step length satisfying the decrease criterion. The
++     * trials are computed from the current estimate, which is not modified.
++     * On success, the behaviours are integrated and the residual is
++     * computed at the new estimate; on failure, at the last trial.
++     * \return the step retained
++     * \param[out] xn: new estimate `x - θ c` (the last trial on failure)
++     * \param[in] x: current estimate
++     * \param[in] c: opposite of the correction
++     * \param[in] norm: norm of the residual at the current estimate
++     * \param[in] eta: relative tolerance of the linear solve which gave the
++     * correction, if adapted, zero otherwise
++     * \param[in] evaluate: integration of the behaviours and computation of
++     * the residual at a trial
++     * \pre the line search is enabled
++     */
++    [[nodiscard]] Result search(mfem::Vector& xn,
++                                const mfem::Vector& x,
++                                const mfem::Vector& c,
++                                const real norm,
++                                const real eta,
++                                const Evaluation& evaluate) const;
++    //! \brief method
++    Method method = Method::NONE;
++    //! \brief coefficient `t` of the decrease criterion
++    real sufficient_decrease = real{1e-4};
++    //! \brief maximum number of reductions of the step of an iteration
++    size_type maximum_number_of_step_reductions = 10;
++  };  // end of struct LineSearch
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEMMGIS_NONLINEARSOLVERS_LINESEARCH_HXX */
+diff --git a/include/MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx b/include/MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx
+index 8aa0456480..ca02615dd1 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx
+@@ -15,6 +15,7 @@
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
++#include "MFEMMGIS/NonLinearSolvers/LineSearch.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -29,8 +30,24 @@ namespace mfem_mgis {
+    * `AbsoluteTolerance`, `MaximumNumberOfIterations`, `VerbosityLevel`),
+    * `DiscardLinearSolverFailure`, `AdaptiveLinearSolverTolerance`
+    * (relative tolerance of the iterative linear solver adapted to the
+-   * decrease of the residual, see `AdaptiveLinearSolverTolerance`) and
+-   * `StagnationRelativeTolerance` (see `stagnation_relative_tolerance`).
++   * decrease of the residual, see `AdaptiveLinearSolverTolerance`),
++   * `LineSearch` (line search by backtracking on the norm of the residual,
++   * see `LineSearch`) and `StagnationRelativeTolerance` (see
++   * `stagnation_relative_tolerance`).
++   *
++   * Without line search, the correction is always applied, and its
++   * amplitude is only divided by two, as many times as required, when the
++   * integration of the behaviours fails at the new estimate, each
++   * reduction being counted as an iteration. With the line search, an
++   * estimate at which the integration fails is a refused trial, the
++   * reductions of the step are not counted as iterations, and the
++   * resolution fails if no step is acceptable: the behaviours are then
++   * integrated at the last trial, and the time step shall be reverted. A
++   * search failing below the `StagnationRelativeTolerance` (floor of the
++   * rounding errors) is accepted as convergence, at the current estimate. A
++   * correction given by a linear solver whose failure is discarded
++   * (`DiscardLinearSolverFailure`) may not decrease the residual: the
++   * search then fails.
+    */
+   struct MFEM_MGIS_EXPORT NewtonSolver : public NonLinearSolverBase {
+ #ifdef MFEM_USE_MPI
+@@ -63,7 +80,8 @@ namespace mfem_mgis {
+      * \param[in] r: residual
+      * \param[in] u: current estimate of the unknowns
+      * \param[in, out] t: adaptive tolerance of the linear solver, if any,
+-     * given the norm of the residual of the linear solve if required
++     * given the norm of the residual of the linear solve if required (and
++     * its scalar product with the residual if a line search is made)
+      * \return true on success
+      */
+     virtual bool computeNewtonCorrection(
+@@ -77,6 +95,11 @@ namespace mfem_mgis {
+      * `AdaptiveLinearSolverTolerance`), disabled by default
+      */
+     AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
++    /*!
++     * \brief settings of the line search (option `LineSearch`), disabled by
++     * default
++     */
++    LineSearch line_search;
+     /*!
+      * \brief relative residual below which a stagnation of the residual is
+      * accepted as convergence (option `StagnationRelativeTolerance`, zero
+diff --git a/src/AdaptiveLinearSolverTolerance.cxx b/src/AdaptiveLinearSolverTolerance.cxx
+index 8a6d09662b..d5753554bb 100644
+--- a/src/AdaptiveLinearSolverTolerance.cxx
++++ b/src/AdaptiveLinearSolverTolerance.cxx
+@@ -152,6 +152,7 @@ namespace mfem_mgis {
+     this->previous_norm = norm;
+     this->previous_tolerance = eta;
+     this->linear_residual_norm.reset();
++    this->linear_residual_scalar_product.reset();
+     return eta;
+   }  // end of update
+ 
+@@ -164,8 +165,33 @@ namespace mfem_mgis {
+   void AdaptiveLinearSolverToleranceUpdater::setLinearResidualNorm(
+       const real n) noexcept {
+     this->linear_residual_norm = n;
++    this->linear_residual_scalar_product.reset();
+   }  // end of setLinearResidualNorm
+ 
++  void AdaptiveLinearSolverToleranceUpdater::setLinearResidual(
++      const real n, const real d) noexcept {
++    this->linear_residual_norm = n;
++    this->linear_residual_scalar_product = d;
++  }  // end of setLinearResidual
++
++  void AdaptiveLinearSolverToleranceUpdater::setStepLength(
++      const real theta) noexcept {
++    if ((!this->linear_residual_norm.has_value()) ||
++        (!this->linear_residual_scalar_product.has_value())) {
++      return;
++    }
++    // ||(1 - θ) r - θ lr||², with lr = J c - r and ||r|| the norm given to
++    // the last update of the tolerance
++    const auto n = *(this->linear_residual_norm);
++    const auto d = *(this->linear_residual_scalar_product);
++    const auto r = this->previous_norm;
++    const auto n2 = (1 - theta) * (1 - theta) * r * r -
++                    2 * theta * (1 - theta) * d + theta * theta * n * n;
++    this->linear_residual_norm = std::sqrt(std::max(n2, real{0}));
++    // the norm is now the one of the linear model at the reduced step
++    this->linear_residual_scalar_product.reset();
++  }  // end of setStepLength
++
+   std::optional<real>
+   AdaptiveLinearSolverToleranceUpdater::getLinearResidualNorm() const noexcept {
+     return this->linear_residual_norm;
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index db4ea3f30a..d47c03d4f7 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -85,6 +85,7 @@ list(APPEND MFEMMGIS_SOURCES
+   KINSOLSolver.cxx
+   PETScSNESSolver.cxx
+   AdaptiveLinearSolverTolerance.cxx
++  LineSearch.cxx
+   AnalyticalTests.cxx
+   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+   IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+diff --git a/src/LineSearch.cxx b/src/LineSearch.cxx
+new file mode 100644
+index 0000000000..076453936c
+--- /dev/null
++++ b/src/LineSearch.cxx
+@@ -0,0 +1,93 @@
++/*!
++ * \file   src/LineSearch.cxx
++ * \brief  This file implements the `LineSearch` class
++ * \date   14/11/2026
++ */
++
++#include <cmath>
++#include <string>
++#include <vector>
++#include "mfem/linalg/vector.hpp"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/NonLinearSolvers/LineSearch.hxx"
++
++namespace mfem_mgis {
++
++  std::optional<LineSearch> LineSearch::read(Context& ctx,
++                                             const Parameters& params) noexcept {
++    const auto* const option = "LineSearch";
++    const auto oa = getFactoryArgument(ctx, params, option);
++    if (isInvalid(oa)) {
++      return {};
++    }
++    const auto& [n, opts] = *oa;
++    auto l = LineSearch{};
++    if (n == "None") {
++      if (!opts.empty()) {
++        return ctx.registerErrorMessage(
++            "LineSearch: no option expected with 'None'");
++      }
++      return l;
++    }
++    if (n != "Backtracking") {
++      return ctx.registerErrorMessage("LineSearch: invalid method '" + n +
++                                      "' (expected 'None' or 'Backtracking')");
++    }
++    l.method = Method::BACKTRACKING;
++    if (!checkParameters(
++            ctx, opts,
++            std::vector<std::string>{"SufficientDecrease",
++                                     "MaximumNumberOfStepReductions"})) {
++      return {};
++    }
++    const auto odecrease =
++        get_if<double>(ctx, opts, "SufficientDecrease", l.sufficient_decrease);
++    const auto oreductions =
++        get_if<size_type>(ctx, opts, "MaximumNumberOfStepReductions",
++                          l.maximum_number_of_step_reductions);
++    if (isInvalid(odecrease) || isInvalid(oreductions)) {
++      return {};
++    }
++    if ((*odecrease <= 0) || (*odecrease >= 1)) {
++      return ctx.registerErrorMessage(
++          "LineSearch: the sufficient decrease must be in ]0, 1[");
++    }
++    if (*oreductions < 1) {
++      return ctx.registerErrorMessage(
++          "LineSearch: the maximum number of step reductions must be at "
++          "least 1");
++    }
++    l.sufficient_decrease = static_cast<real>(*odecrease);
++    l.maximum_number_of_step_reductions = *oreductions;
++    return l;
++  }  // end of read
++
++  LineSearch::Result LineSearch::search(mfem::Vector& xn,
++                                        const mfem::Vector& x,
++                                        const mfem::Vector& c,
++                                        const real norm,
++                                        const real eta,
++                                        const Evaluation& evaluate) const {
++    auto r = Result{};
++    subtract(x, c, xn);
++    while (true) {
++      const auto v = evaluate(xn);
++      if (v.has_value() && std::isfinite(*v) &&
++          (*v <=
++           (1 - this->sufficient_decrease * r.step_length * (1 - eta)) * norm)) {
++        r.success = true;
++        r.norm = *v;
++        return r;
++      }
++      if (r.reductions >= this->maximum_number_of_step_reductions) {
++        return r;
++      }
++      // the trial is computed from the current estimate: the rounding errors
++      // of the previous trials are not accumulated
++      r.step_length /= 2;
++      ++(r.reductions);
++      add(x, -r.step_length, c, xn);
++    }
++  }  // end of search
++
++}  // end of namespace mfem_mgis
+diff --git a/src/NewtonSolver.cxx b/src/NewtonSolver.cxx
+index f1a6009f30..ffa61511ad 100644
+--- a/src/NewtonSolver.cxx
++++ b/src/NewtonSolver.cxx
+@@ -88,6 +88,12 @@ namespace mfem_mgis {
+     mfem::Vector c;  // opposite of the Newton's correction
+     r.SetSize(this->oper->Width());
+     c.SetSize(this->oper->Width());
++    // estimate of the unknowns at a trial of the line search, if any
++    mfem::Vector xn;
++    if (this->line_search.isEnabled()) {
++      xn.SetSize(x.Size());
++      xn.UseDevice(true);
++    }
+ 
+     auto updateResidual = [this, &r, &x] {
+       if (this->ctx_ptr != nullptr) {
+@@ -98,6 +104,21 @@ namespace mfem_mgis {
+       }
+       return this->Norm(r);
+     };
++    // trial of the line search: integration of the behaviours and norm of
++    // the residual at an estimate, nothing if the integration fails
++    const auto evaluate =
++        [this, &r](const mfem::Vector &u) -> std::optional<real> {
++      if (!this->processNewUnknownsEstimate(u)) {
++        return {};
++      }
++      if (this->ctx_ptr != nullptr) {
++        CatchTimeSection(*(this->ctx_ptr), "NS::computeResidual");
++        this->computeResidual(r, u);
++      } else {
++        this->computeResidual(r, u);
++      }
++      return this->Norm(r);
++    };
+ 
+     this->final_iter = size_type{};
+     this->final_norm = std::numeric_limits<real>::max();
+@@ -243,6 +264,75 @@ namespace mfem_mgis {
+         break;
+       }
+       //
++      if (this->line_search.isEnabled()) {
++        // line search by backtracking on the norm of the residual: an
++        // estimate at which the integration of the behaviours fails is a
++        // refused trial, and the reductions of the step are not counted as
++        // iterations
++        const auto ls = this->line_search.search(
++            xn, x, c, norm, linear_solver_tolerance.value_or(real{0}),
++            evaluate);
++        auto ls_information = Parameters{};
++        ls_information.replaceOrInsert("StepLength", ls.step_length);
++        ls_information.replaceOrInsert("NumberOfStepReductions",
++                                       ls.reductions);
++        if (!ls.success) {
++          if (shall_print) {
++            log << "Newton iteration " << std::setw(2) << it
++                << " : line search failed after " << ls.reductions
++                << " reductions of the step\n";
++          }
++          auto iteration = Parameters{};
++          iteration.replaceOrInsert("LineSearch", ls_information);
++          add_to_iterations_information(iteration, true);
++          // at the floor of the rounding errors, no step decreases the
++          // residual: the current estimate, the best one (the norms
++          // decrease), is accepted. The behaviours, integrated at the last
++          // trial, are integrated again.
++          if ((norm <= this->stagnation_relative_tolerance *
++                           (*(this->reference_residual_norm))) &&
++              (this->processNewUnknownsEstimate(x))) {
++            norm = updateResidual();
++            if (shall_print) {
++              log << "Newton iteration " << std::setw(2) << it
++                  << " : stagnation of the residual below the relative "
++                     "tolerance "
++                  << this->stagnation_relative_tolerance
++                  << ", accepted as convergence\n";
++            }
++            this->converged = 1;
++            converged_by_stagnation = true;
++          }
++          break;
++        }
++        if (ls.reductions != 0) {
++          if (shall_print) {
++            log << "Newton iteration " << std::setw(2) << it
++                << " : line search, step length " << ls.step_length
++                << " after " << ls.reductions << " reductions\n";
++          }
++          if (t != nullptr) {
++            // the norm of the residual of the linear solve becomes the one
++            // of the linear model at the retained step
++            t->setStepLength(ls.step_length);
++            if (t->requiresLinearResidualNorm()) {
++              if (const auto lm = t->getLinearResidualNorm(); lm.has_value()) {
++                ls_information.replaceOrInsert("LinearModelResidualNorm", *lm);
++              }
++            }
++          }
++        }
++        x = xn;
++        previous_norms[0] = previous_norms[1];
++        previous_norms[1] = norm;
++        norm = ls.norm;
++        auto iteration = Parameters{};
++        iteration.replaceOrInsert("Norm", norm);
++        iteration.replaceOrInsert("LineSearch", ls_information);
++        add_to_iterations_information(iteration, true);
++        ++it;
++        continue;
++      }
+       // x_{i+1} = x_i - c * [DF(x_i)]^{-1} [F(x_i)-b]
+       //      add(x, -1, c, x);
+       x -= c;
+@@ -324,6 +414,14 @@ namespace mfem_mgis {
+       }
+       t = *ot;
+     }
++    auto l = this->line_search;
++    if (contains(params, "LineSearch")) {
++      const auto ol = LineSearch::read(ctx, params);
++      if (isInvalid(ol)) {
++        return false;
++      }
++      l = *ol;
++    }
+     const auto ostagnation = get_if<double>(
+         ctx, params, "StagnationRelativeTolerance",
+         static_cast<double>(this->stagnation_relative_tolerance));
+@@ -337,11 +435,13 @@ namespace mfem_mgis {
+     }
+     const auto others =
+         remove(params, std::vector<std::string>{"AdaptiveLinearSolverTolerance",
++                                                "LineSearch",
+                                                 "StagnationRelativeTolerance"});
+     if (!NonLinearSolverBase::setSolverParameters(ctx, others)) {
+       return false;
+     }
+     this->adaptive_linear_solver_tolerance = t;
++    this->line_search = l;
+     this->stagnation_relative_tolerance = static_cast<real>(*ostagnation);
+     return true;
+   }  // end of setSolverParameters
+@@ -387,7 +487,13 @@ namespace mfem_mgis {
+         lr.UseDevice(true);
+         J.Mult(c, lr);
+         lr -= r;
+-        t->setLinearResidualNorm(this->Norm(lr));
++        if (this->line_search.isEnabled()) {
++          // the scalar product with the residual gives the norm of the
++          // linear model at a reduced step
++          t->setLinearResidual(this->Norm(lr), this->Dot(lr, r));
++        } else {
++          t->setLinearResidualNorm(this->Norm(lr));
++        }
+       }
+       return true;
+     });
+diff --git a/tests/AdaptiveLinearSolverToleranceTest.cxx b/tests/AdaptiveLinearSolverToleranceTest.cxx
+index c3b0025100..4125542dc9 100644
+--- a/tests/AdaptiveLinearSolverToleranceTest.cxx
++++ b/tests/AdaptiveLinearSolverToleranceTest.cxx
+@@ -6,13 +6,15 @@
+  * solvers of hypre, tolerances given by the two choices of Eisenstat and
+  * Walker and by the safeguards, compared to a direct evaluation of their
+  * formulas, restoration of the initial tolerance, refusal of a direct
+- * solver and of invalid options.
++ * solver and of invalid options, norm of the linear model at the step
++ * retained by a line search.
+  * \date   10/10/2026
+  */
+ 
+ #include <cmath>
+ #include <memory>
+ #include <string>
++#include <vector>
+ #include <cstdlib>
+ #include <iostream>
+ #include <algorithm>
+@@ -199,6 +201,94 @@ static void checkFirstChoice() {
+         "first choice: safeguard of the third iteration");
+ }  // end of checkFirstChoice
+ 
++/*!
++ * \brief norm of the linear model at the step retained by a line search:
++ * given the norm of the residual of the linear solve, `lr = J c - r`, and
++ * its scalar product with the residual `r`, the norm of
++ * `(1 - θ) r - θ lr` is the one computed on the vectors, and gives the
++ * next tolerance of the first choice of Eisenstat and Walker
++ */
++static void checkStepLength() {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  // the safeguard of an initial tolerance of 0.05 is below its threshold:
++  // the next tolerance is the one of the formula
++  const auto ot = AdaptiveLinearSolverTolerance::read(
++      ctx, Parameters{{"AdaptiveLinearSolverTolerance",
++                       Parameters{{"EisenstatWalker1",
++                                   Parameters{{"InitialTolerance", 0.05}}}}}});
++  check(ot.has_value(), "step length: options refused");
++  if (!ot.has_value()) {
++    return;
++  }
++  // in float, the norm is computed with the rounding errors of this type
++  auto isClose = [](const double a, const double b, const double tolerance) {
++    return std::abs(a - b) <= tolerance * std::max(std::abs(a), std::abs(b));
++  };
++  constexpr auto norm_tolerance = mfem_mgis::unit_tests::tolerance(1e-13, 1e-5);
++  constexpr auto eta_tolerance = mfem_mgis::unit_tests::tolerance(1e-12, 1e-4);
++  auto s = mfem::CGSolver{};
++  s.SetRelTol(initial_tolerance);
++  const auto r = std::vector<double>{3, -1, 2, 0.5};
++  const auto lr = std::vector<double>{0.4, 0.3, -0.2, 0.1};
++  auto dot = [](const std::vector<double>& a, const std::vector<double>& b) {
++    auto v = 0.;
++    for (std::size_t i = 0; i != a.size(); ++i) {
++      v += a[i] * b[i];
++    }
++    return v;
++  };
++  const auto nr = std::sqrt(dot(r, r));
++  const auto nlr = std::sqrt(dot(lr, lr));
++  // norm of the residual at the next iteration
++  const auto f1 = 0.6 * nr;
++  auto previous = 0.;
++  for (const auto theta : {1., 0.5, 0.25}) {
++    auto u = AdaptiveLinearSolverToleranceUpdater{*ot, s};
++    static_cast<void>(u.update(0, nr, 1e-12));
++    u.setLinearResidual(nlr, dot(lr, r));
++    u.setStepLength(theta);
++    auto m = std::vector<double>(r.size());
++    for (std::size_t i = 0; i != r.size(); ++i) {
++      m[i] = (1 - theta) * r[i] - theta * lr[i];
++    }
++    const auto expected = std::sqrt(dot(m, m));
++    const auto name = "step length " + std::to_string(theta);
++    const auto lm = u.getLinearResidualNorm();
++    check(lm.has_value() && isClose(*lm, expected, norm_tolerance),
++          name + ": norm of the linear model (" +
++              std::to_string(lm.value_or(-1)) + " instead of " +
++              std::to_string(expected) + ")");
++    // the norms of the three step lengths differ
++    check(!isClose(expected, previous, 1e-2),
++          name + ": norm of the linear model not discriminating");
++    previous = expected;
++    // a second declaration of the step length changes nothing
++    u.setStepLength(theta);
++    check(u.getLinearResidualNorm() == lm,
++          name + ": step length declared twice");
++    const auto eta = std::abs(f1 - expected) / nr;
++    const auto v = u.update(1, f1, 1e-12);
++    check(isClose(v, eta, eta_tolerance),
++          name + ": next tolerance (" + std::to_string(v) + " instead of " +
++              std::to_string(eta) + ")");
++  }
++  // without the scalar product, the norm of the residual of the complete
++  // linear solve is kept
++  auto u = AdaptiveLinearSolverToleranceUpdater{*ot, s};
++  static_cast<void>(u.update(0, nr, 1e-12));
++  u.setLinearResidualNorm(nlr);
++  u.setStepLength(0.5);
++  const auto n = u.getLinearResidualNorm();
++  check(n.has_value() && isClose(*n, nlr, norm_tolerance),
++        "step length without scalar product: norm changed");
++  // nothing is done without the norm of the residual of the linear solve
++  static_cast<void>(u.update(1, f1, 1e-12));
++  u.setStepLength(0.5);
++  check(!u.getLinearResidualNorm().has_value(),
++        "step length without residual of the linear solve: norm set");
++}  // end of checkStepLength
++
+ //! \brief a direct solver is refused
+ static void checkDirectSolver() {
+   using namespace mfem_mgis;
+@@ -290,6 +380,7 @@ int main(int argc, char** argv) {
+   }
+   checkSecondChoice();
+   checkFirstChoice();
++  checkStepLength();
+   checkDirectSolver();
+   checkRefusals();
+   std::cout << (failures == 0 ? "success" : "failure") << '\n';
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index d2db457155..1e078e4c3d 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -79,7 +79,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+     UO2Shrinkage_RAPHAEL2008
+     FailingIsotropicLinearElasticity
+     OrthotropicSaintVenantKirchhoffElasticity
+-    LogarithmicStrainElasticity)
++    LogarithmicStrainElasticity
++    SaturatingElasticity)
+ 
+   # TwoLayerCube executable
+   add_test_executable(TwoLayerCube)
+@@ -1491,6 +1492,36 @@ if(MFEM_MGIS_HAVE_TFEL)
+     endif()
+   endforeach()
+ 
++  # NewtonLineSearchTest executable: line search of the Newton solver by
++  # backtracking on the norm of the residual (non linear elasticity whose
++  # stress saturates, integration failures, plasticity), also with the
++  # integration by batches and the computations by kernels, on the host and
++  # on the debug device of MFEM
++  add_test_executable(NewtonLineSearchTest)
++  add_test(NAME NewtonLineSearchTest
++           COMMAND NewtonLineSearchTest
++                   --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                   --library $<TARGET_FILE:BehaviourTest>)
++  # on 2 processes, with MUMPS if available, otherwise with the conjugate
++  # gradient of MFEM
++  if(MFEM_USE_MPI)
++    add_test(NAME NewtonLineSearchTestP
++             COMMAND mpirun -n 2 ./NewtonLineSearchTest --parallel
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>)
++    set_tests_properties(NewtonLineSearchTestP
++                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++  endif()
++  foreach(_device cpu debug)
++    add_test(NAME NewtonLineSearchTest-kernels-${_device}
++             COMMAND NewtonLineSearchTest --device ${_device}
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>)
++    set_tests_properties(NewtonLineSearchTest-kernels-${_device}
++                         PROPERTIES ENVIRONMENT
++                         "${fixed_point_solver_test_kernels}")
++  endforeach()
++
+   # MaterialArraysTest executable: arrays of the materials in the memory of
+   # MFEM, on the host, on the debug device of MFEM and on the GPU. The
+   # point-wise model is also integrated by batches with the library
+@@ -1901,6 +1932,11 @@ if(MFEM_USE_MPI)
+                        PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+ endif()
+ 
++# LineSearchTest executable: line search of the Newton methods by
++# backtracking on the norm of the residual, on scalar equations
++add_test_executable(LineSearchTest)
++add_test(NAME LineSearchTest COMMAND LineSearchTest)
++
+ # HypreKrylovAbsoluteToleranceTest executable
+ if(MFEM_USE_MPI)
+   add_test_executable(HypreKrylovAbsoluteToleranceTest)
+diff --git a/tests/LineSearchTest.cxx b/tests/LineSearchTest.cxx
+new file mode 100644
+index 0000000000..0fe3bde977
+--- /dev/null
++++ b/tests/LineSearchTest.cxx
+@@ -0,0 +1,340 @@
++/*!
++ * \file   LineSearchTest.cxx
++ * \brief  Test of the line search of the Newton methods by backtracking on
++ * the norm of the residual (`LineSearch`), without mesh: options read and
++ * refused, full step accepted with one evaluation, step lengths compared to
++ * a direct evaluation of the decrease criterion on a scalar equation for
++ * which Newton's method diverges, trials refused on an integration failure
++ * or on a norm which is not finite, failure of the search, tolerance of the
++ * linear solver, sufficient decrease and maximum number of reductions taken
++ * into account.
++ * \date   14/11/2026
++ */
++
++#include <cmath>
++#include <limits>
++#include <string>
++#include <vector>
++#include <cstdlib>
++#include <iostream>
++#include <optional>
++#include <algorithm>
++#include "mfem/general/optparser.hpp"
++#include "mfem/linalg/vector.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MPI.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/NonLinearSolvers/LineSearch.hxx"
++#include "Tolerance.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \return if two values are equal up to the rounding errors
++static bool areClose(const double a, const double b) {
++  return std::abs(a - b) <= mfem_mgis::unit_tests::tolerance(1e-14) *
++                                std::max(std::abs(a), std::abs(b));
++}  // end of areClose
++
++//! \return the line search given by a value of the option `LineSearch`
++static mfem_mgis::LineSearch makeLineSearch(const mfem_mgis::Parameter& value) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  const auto ol = LineSearch::read(ctx, Parameters{{"LineSearch", value}});
++  if (!ol.has_value()) {
++    std::cerr << ctx.getErrorMessage() << '\n';
++    std::exit(EXIT_FAILURE);
++  }
++  return *ol;
++}  // end of makeLineSearch
++
++//! \brief options read, default values, invalid options refused
++static void checkOptions() {
++  using namespace mfem_mgis;
++  const auto none = makeLineSearch("None");
++  check(!none.isEnabled(), "'None' is enabled");
++  check(!LineSearch{}.isEnabled(), "the default line search is enabled");
++  const auto bt = makeLineSearch("Backtracking");
++  check(bt.isEnabled() && (bt.method == LineSearch::Method::BACKTRACKING),
++        "'Backtracking' is not enabled");
++  check(areClose(bt.sufficient_decrease, 1e-4),
++        "default sufficient decrease");
++  check(bt.maximum_number_of_step_reductions == 10,
++        "default maximum number of step reductions");
++  const auto with_options = makeLineSearch(
++      Parameters{{"Backtracking",
++                  Parameters{{"SufficientDecrease", 0.25},
++                             {"MaximumNumberOfStepReductions", 4}}}});
++  check(areClose(with_options.sufficient_decrease, 0.25) &&
++            (with_options.maximum_number_of_step_reductions == 4),
++        "options given by a dictionary associating a name with its options");
++  const auto with_name = makeLineSearch(
++      Parameters{{"Name", "Backtracking"},
++                 {"Options", Parameters{{"SufficientDecrease", 0.5}}}});
++  check(areClose(with_name.sufficient_decrease, 0.5) &&
++            (with_name.maximum_number_of_step_reductions == 10),
++        "options given by the entries 'Name' and 'Options'");
++  // refusal of a value, with part of the expected error message
++  auto check_refusal = [](const Parameter& value, const std::string& name,
++                          const char* const message) {
++    auto ctx = Context{};
++    const auto ol = LineSearch::read(ctx, Parameters{{"LineSearch", value}});
++    check(!ol.has_value(), name + " is accepted");
++    // reading the error message clears it
++    const auto e = ctx.getErrorMessage();
++    check(e.find(message) != std::string::npos,
++          name + ": unexpected error message (" + e + ")");
++  };
++  auto bt_option = [](const char* const k, const Parameter& v) {
++    return Parameters{{"Backtracking", Parameters{{k, v}}}};
++  };
++  check_refusal("Unknown", "an unknown method", "invalid method");
++  check_refusal(
++      Parameters{{"None", Parameters{{"SufficientDecrease", 1e-4}}}},
++      "an option of 'None'", "no option expected");
++  check_refusal(bt_option("Unknown", 1), "an unknown option", "Unknown");
++  check_refusal(bt_option("SufficientDecrease", 0.),
++                "a null sufficient decrease", "sufficient decrease");
++  check_refusal(bt_option("SufficientDecrease", 1.),
++                "a sufficient decrease of 1", "sufficient decrease");
++  check_refusal(bt_option("MaximumNumberOfStepReductions", 0),
++                "a null maximum number of step reductions",
++                "maximum number of step reductions");
++}  // end of checkOptions
++
++/*!
++ * \brief a full step which decreases the residual is accepted with one
++ * evaluation
++ */
++static void checkFullStep() {
++  using namespace mfem_mgis;
++  const auto ls = makeLineSearch("Backtracking");
++  auto x = mfem::Vector(3);
++  auto c = mfem::Vector(3);
++  auto xn = mfem::Vector(3);
++  for (int i = 0; i != 3; ++i) {
++    x(i) = real(i + 1);
++    c(i) = real(2 * i + 1) / 4;
++  }
++  auto evaluations = 0;
++  const auto r = ls.search(xn, x, c, 2, 0,
++                           [&evaluations](const mfem::Vector&) noexcept {
++                             ++evaluations;
++                             return std::optional<real>{real{1}};
++                           });
++  check(r.success && (r.step_length == 1) && (r.reductions == 0) &&
++            (r.norm == 1),
++        "full step: step retained");
++  check(evaluations == 1,
++        "full step: " + std::to_string(evaluations) + " evaluations");
++  auto same = true;
++  for (int i = 0; i != 3; ++i) {
++    same = same && (xn(i) == x(i) - c(i)) && (x(i) == real(i + 1));
++  }
++  check(same, "full step: new estimate");
++}  // end of checkFullStep
++
++/*!
++ * \brief Newton's method on `atan(x) = 0` from 1.5, where it diverges
++ * without line search: the step lengths are the ones of a direct evaluation
++ * of the decrease criterion, and the iterations converge
++ */
++static void checkScalarEquation() {
++  using namespace mfem_mgis;
++  const auto ls = makeLineSearch("Backtracking");
++  // without line search, the iterates move away from the solution
++  {
++    auto x = real{1.5};
++    for (int i = 0; i != 5; ++i) {
++      x -= std::atan(x) * (1 + x * x);
++    }
++    check(std::abs(x) > 100, "scalar equation: Newton's method converges");
++  }
++  auto x = mfem::Vector(1);
++  auto c = mfem::Vector(1);
++  auto xn = mfem::Vector(1);
++  x(0) = real{1.5};
++  auto reduced = 0;
++  auto converged = false;
++  constexpr auto goal = mfem_mgis::unit_tests::tolerance(1e-12, 1e-5);
++  for (int i = 0; i != 20; ++i) {
++    const auto norm = std::abs(std::atan(x(0)));
++    if (norm < goal) {
++      converged = true;
++      break;
++    }
++    c(0) = std::atan(x(0)) * (1 + x(0) * x(0));
++    // direct evaluation of the criterion
++    auto theta = real{1};
++    auto reductions = size_type{};
++    while (!(std::abs(std::atan(x(0) - theta * c(0))) <=
++             (1 - ls.sufficient_decrease * theta) * norm)) {
++      theta /= 2;
++      ++reductions;
++    }
++    const auto r =
++        ls.search(xn, x, c, norm, 0, [](const mfem::Vector& u) {
++          return std::optional<real>{std::abs(std::atan(u(0)))};
++        });
++    check(r.success && (r.step_length == theta) &&
++              (r.reductions == reductions),
++          "scalar equation: step length of iteration " + std::to_string(i) +
++              " (" + std::to_string(r.step_length) + " instead of " +
++              std::to_string(theta) + ")");
++    check(r.success && (r.norm < norm) &&
++              areClose(r.norm, std::abs(std::atan(xn(0)))),
++          "scalar equation: norm of iteration " + std::to_string(i));
++    if (!r.success) {
++      break;
++    }
++    if (r.reductions != 0) {
++      ++reduced;
++    }
++    x = xn;
++  }
++  check(converged, "scalar equation: no convergence");
++  check(reduced > 0, "scalar equation: no step reduced");
++}  // end of checkScalarEquation
++
++/*!
++ * \brief trials refused: failures of the evaluation (integration failures),
++ * norms which are not finite, no acceptable step
++ */
++static void checkRefusedTrials() {
++  using namespace mfem_mgis;
++  const auto ls = makeLineSearch("Backtracking");
++  auto x = mfem::Vector(2);
++  auto c = mfem::Vector(2);
++  auto xn = mfem::Vector(2);
++  x(0) = real{1};
++  x(1) = real{-2};
++  c(0) = real{3};
++  c(1) = real{0.5};
++  // the first three evaluations fail
++  {
++    auto evaluations = 0;
++    const auto r = ls.search(
++        xn, x, c, 1, 0, [&evaluations](const mfem::Vector&) noexcept {
++          ++evaluations;
++          return evaluations <= 3 ? std::optional<real>{}
++                                  : std::optional<real>{real{0.5}};
++        });
++    check(r.success && (r.reductions == 3) && (r.step_length == real{0.125}) &&
++              (evaluations == 4),
++          "failures of the evaluation: " + std::to_string(r.reductions) +
++              " reductions");
++    check((xn(0) == x(0) - c(0) / 8) && (xn(1) == x(1) - c(1) / 8),
++          "failures of the evaluation: new estimate");
++  }
++  // norms which are not finite
++  {
++    auto evaluations = 0;
++    const auto r = ls.search(
++        xn, x, c, 1, 0, [&evaluations](const mfem::Vector&) noexcept {
++          ++evaluations;
++          if (evaluations == 1) {
++            return std::optional<real>{
++                std::numeric_limits<real>::quiet_NaN()};
++          }
++          if (evaluations == 2) {
++            return std::optional<real>{std::numeric_limits<real>::infinity()};
++          }
++          return std::optional<real>{real{0.5}};
++        });
++    check(r.success && (r.reductions == 2) && (r.step_length == real{0.25}),
++          "norms which are not finite: " + std::to_string(r.reductions) +
++              " reductions");
++  }
++  // no acceptable step: failure after the maximum number of reductions, the
++  // current estimate being unchanged
++  for (const auto n : {10, 3}) {
++    auto l = ls;
++    if (n != 10) {
++      l = makeLineSearch(
++          Parameters{{"Backtracking",
++                      Parameters{{"MaximumNumberOfStepReductions", n}}}});
++    }
++    auto evaluations = 0;
++    const auto r =
++        l.search(xn, x, c, 1, 0, [&evaluations](const mfem::Vector&) noexcept {
++          ++evaluations;
++          return std::optional<real>{real{2}};
++        });
++    const auto theta = std::ldexp(real{1}, -n);
++    check((!r.success) && (r.reductions == n) && (r.step_length == theta) &&
++              (evaluations == n + 1),
++          "no acceptable step: " + std::to_string(r.reductions) +
++              " reductions, " + std::to_string(evaluations) +
++              " evaluations (" + std::to_string(n) +
++              " reductions expected)");
++    check((x(0) == real{1}) && (x(1) == real{-2}),
++          "no acceptable step: current estimate modified");
++    check((xn(0) == x(0) - theta * c(0)) && (xn(1) == x(1) - theta * c(1)),
++          "no acceptable step: last trial");
++  }
++}  // end of checkRefusedTrials
++
++/*!
++ * \brief the tolerance of the linear solver and the sufficient decrease
++ * are taken into account by the decrease criterion
++ */
++static void checkCriterion() {
++  using namespace mfem_mgis;
++  auto x = mfem::Vector(1);
++  auto c = mfem::Vector(1);
++  auto xn = mfem::Vector(1);
++  x(0) = real{1};
++  c(0) = real{1};
++  // norm of the residual at the full step, half of it at the reduced ones
++  auto search = [&](const LineSearch& ls, const real full, const real eta) {
++    auto evaluations = 0;
++    return ls.search(xn, x, c, 1, eta,
++                     [&evaluations, full](const mfem::Vector&) noexcept {
++                       ++evaluations;
++                       return std::optional<real>{
++                           evaluations == 1 ? full : full / 2};
++                     });
++  };
++  // sufficient decrease of 0.1: the full step is accepted below 0.9 with
++  // an exact linear solve, below 0.99 with a tolerance of 0.9
++  const auto ls = makeLineSearch(
++      Parameters{{"Backtracking", Parameters{{"SufficientDecrease", 0.1}}}});
++  check(search(ls, real{0.95}, 0).reductions == 1,
++        "decrease of 5 % accepted with an exact linear solve");
++  check(search(ls, real{0.95}, real{0.9}).reductions == 0,
++        "decrease of 5 % refused with a tolerance of the linear solve of 0.9");
++  check(search(ls, real{0.85}, 0).reductions == 0,
++        "decrease of 15 % refused with a sufficient decrease of 0.1");
++  // default sufficient decrease: a decrease of 5 % is accepted
++  check(search(makeLineSearch("Backtracking"), real{0.95}, 0).reductions == 0,
++        "decrease of 5 % refused with the default sufficient decrease");
++  // an increase is always refused
++  check(search(makeLineSearch("Backtracking"), real{1.5}, real{0.9})
++                .reductions == 1,
++        "increase of the residual accepted");
++}  // end of checkCriterion
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  auto args = mfem::OptionsParser(argc, argv);
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  checkOptions();
++  checkFullStep();
++  checkScalarEquation();
++  checkRefusedTrials();
++  checkCriterion();
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+diff --git a/tests/NewtonLineSearchTest.cxx b/tests/NewtonLineSearchTest.cxx
+new file mode 100644
+index 0000000000..4360eca711
+--- /dev/null
++++ b/tests/NewtonLineSearchTest.cxx
+@@ -0,0 +1,849 @@
++/*!
++ * \file   NewtonLineSearchTest.cxx
++ * \brief  Test of the line search of the Newton solver (option
++ * `LineSearch`).
++ *
++ * A cube made of the `SaturatingElasticity` behaviour is loaded in uniaxial
++ * stress close to the saturation, then partly unloaded, or loaded in the
++ * other direction, in one time step: the strain is uniform, and the Newton
++ * iterations are the ones of a scalar equation. Without line search, the
++ * second resolution does not converge: the iterates oscillate between two
++ * saturated states. With the line search, it converges to the analytical
++ * solution, the norms of the residual decrease, and the step lengths are
++ * the expected ones. A full step being accepted, the iterations are the
++ * ones of the solver without line search. The option may be changed
++ * between two time steps. With the first choice of Eisenstat and Walker,
++ * the tolerance which follows a reduced step uses the norm of the linear
++ * model at this step.
++ *
++ * A cube made of the `FailingIsotropicLinearElasticity` behaviour, whose
++ * integration fails above a trace of the strain, is loaded beyond it: the
++ * trials at which the integration fails are refused, the numbers of
++ * reductions are the expected ones, and the resolution fails when no step
++ * is acceptable.
++ *
++ * On the plastic cube of `FixedPointSolverTest`, the line search gives the
++ * solution of the solver without line search. A resolution whose tolerance
++ * can't be reached stops at the floor of the rounding errors and is
++ * accepted.
++ * \date   14/11/2026
++ */
++
++#include <array>
++#include <cmath>
++#include <limits>
++#include <memory>
++#include <string>
++#include <vector>
++#include <cstdlib>
++#include <utility>
++#include <iostream>
++#include <optional>
++#include <algorithm>
++#include <functional>
++#include "mfem/general/device.hpp"
++#include "mfem/general/optparser.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MPI.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
++#include "SequentialLinearSolver.hxx"
++#include "Tolerance.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief if true, the computations are parallel
++static bool parallel = false;
++//! \brief if true, the numerical type of mfem-mgis is double
++static constexpr auto double_precision =
++    sizeof(mfem_mgis::real) == sizeof(double);
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \return if two values are equal up to a relative tolerance
++static bool areClose(const double a, const double b, const double tolerance) {
++  return std::abs(a - b) <= tolerance * std::max(std::abs(a), std::abs(b));
++}  // end of areClose
++
++/*!
++ * \brief material parameters of the `SaturatingElasticity` behaviour
++ * (default values of the behaviour): bulk modulus, shear modulus,
++ * saturation stress and residual shear modulus
++ */
++static constexpr auto bulk_modulus = 150e9;
++static constexpr auto shear_modulus = 80e9;
++static constexpr auto saturation_stress = 240e6;
++static constexpr auto residual_shear_modulus = 4e9;
++
++/*!
++ * \return the axial and the lateral strains of the `SaturatingElasticity`
++ * behaviour under an uniaxial stress
++ * \param[in] p: stress
++ */
++static std::array<double, 2> getUniaxialStrains(const double p) {
++  // equivalent stress as a function of the equivalent strain, inverted by
++  // bisection
++  auto seq = [](const double e) {
++    return saturation_stress *
++               std::tanh(3 * shear_modulus * e / saturation_stress) +
++           3 * residual_shear_modulus * e;
++  };
++  auto lower = 0.;
++  auto upper = 1.;
++  for (int i = 0; i != 200; ++i) {
++    const auto middle = (lower + upper) / 2;
++    if (seq(middle) < std::abs(p)) {
++      lower = middle;
++    } else {
++      upper = middle;
++    }
++  }
++  const auto e = std::copysign((lower + upper) / 2, p);
++  return {e + p / (9 * bulk_modulus), -e / 2 + p / (9 * bulk_modulus)};
++}  // end of getUniaxialStrains
++
++//! \brief information on an iteration
++struct Iteration {
++  //! \brief norm of the residual at the end of the iteration, if any
++  std::optional<double> norm;
++  //! \brief step length of the line search, if any
++  std::optional<double> step_length;
++  //! \brief number of reductions of the step by the line search
++  mfem_mgis::size_type reductions = 0;
++  //! \brief norm of the linear model at the step retained, if computed
++  std::optional<double> linear_model_residual_norm;
++  //! \brief relative tolerance of the linear solver, if adapted
++  std::optional<double> tolerance;
++  //! \brief norm of the residual of the linear solve, if computed
++  std::optional<double> linear_residual_norm;
++};
++
++//! \brief information on a resolution
++struct Resolution {
++  //! \brief status
++  bool status = false;
++  //! \brief initial norm of the residual
++  double initial_norm = 0;
++  //! \brief number of iterations
++  mfem_mgis::size_type number_of_iterations = 0;
++  //! \brief iterations
++  std::vector<Iteration> iterations;
++};
++
++//! \brief results of a computation
++struct Results {
++  //! \brief true if all the resolutions converged
++  bool status = false;
++  //! \brief resolutions of the time steps, the last one being the failed one
++  std::vector<Resolution> resolutions;
++  //! \brief smallest and largest unknowns at the end of the computation
++  std::array<double, 2> extrema = {0, 0};
++  //! \brief unknowns at the end of the computation
++  std::vector<mfem_mgis::real> u;
++};
++
++//! \brief description of a computation
++struct Computation {
++  //! \brief behaviour
++  const char* behaviour = "SaturatingElasticity";
++  /*!
++   * \brief uniaxial stresses imposed at the end of each time step, by a
++   * pressure on the face `Xmax`. If empty, the displacement `1e-2 t` is
++   * imposed on this face, during two time steps.
++   */
++  std::vector<double> stresses = {};
++  //! \brief value of the `NonLinearSolver` parameter, the default if empty
++  mfem_mgis::Parameters solver = {};
++  //! \brief parameters of the non linear solver replacing the default ones
++  mfem_mgis::Parameters solver_parameters = {};
++  //! \brief options of the non linear solver changed before the second step
++  mfem_mgis::Parameters changes = {};
++  //! \brief linear solver, a direct solver if null
++  const char* linear_solver = nullptr;
++  //! \brief options of the linear solver
++  mfem_mgis::Parameters linear_solver_options = {};
++};
++
++//! \return the line search and the other options of the Newton solver
++static mfem_mgis::Parameters makeNewtonSolver(
++    const mfem_mgis::Parameters& options) {
++  return mfem_mgis::Parameters{{"Newton", options}};
++}  // end of makeNewtonSolver
++
++/*!
++ * \return the results of a computation
++ * \param[in] mesh: mesh of a cube
++ * \param[in] library: behaviour library
++ * \param[in] c: computation
++ */
++static Results compute(const char* const mesh,
++                       const char* const library,
++                       const Computation& c) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto or_die = ctx.getFatalFailureHandler();
++  auto params = Parameters{
++      {"MeshFileName", mesh},
++      {"FiniteElementFamily", "H1"},
++      {"FiniteElementOrder", 1},
++      {"UnknownsSize", 3},
++      {"NumberOfUniformRefinements", 1},
++      {"Materials", Parameters{{"Cube", 1}}},
++      {"Boundaries",
++       Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
++      {"Hypothesis", "Tridimensional"},
++      {"Parallel", parallel}};
++  if (!c.solver.empty()) {
++    params.insert(throwing, {{"NonLinearSolver", c.solver}});
++  }
++  auto problem = construct<NonLinearEvolutionProblem>(ctx, params) | or_die;
++  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
++                                 c.behaviour) |
++      or_die;
++  auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
++  for (auto* s : {&m.s0, &m.s1}) {
++    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
++        or_die;
++  }
++  for (const auto& [boundary, component] :
++       {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
++    problem.addUniformDirichletBoundaryCondition(
++        ctx, {{"Boundary", boundary}, {"Component", component}}) |
++        or_die;
++  }
++  if (c.stresses.empty()) {
++    problem.addUniformDirichletBoundaryCondition(
++        ctx, {{"Boundary", "Xmax"},
++              {"Component", 0},
++              {"LoadingEvolution",
++               [](const real t) noexcept { return 1e-2 * t; }}}) |
++        or_die;
++  } else {
++    // the stress is linear over each time step, of unit duration; the
++    // pressure is its opposite
++    problem.addBoundaryCondition(
++        ctx,
++        std::make_unique<UniformImposedPressureBoundaryCondition>(
++            problem.getFiniteElementDiscretization(), "Xmax",
++            [stresses = c.stresses](const real t) {
++              const auto n = static_cast<int>(stresses.size());
++              const auto i =
++                  std::clamp(static_cast<int>(std::ceil(t)) - 1, 0, n - 1);
++              const auto s0 = (i == 0) ? 0. : stresses[i - 1];
++              const auto s1 = stresses[i];
++              return static_cast<real>(-(s0 + (s1 - s0) * (t - i)));
++            })) |
++        or_die;
++  }
++  // direct solver: MUMPS in parallel if MFEM provides it, otherwise the
++  // conjugate gradient of MFEM with the tightest tolerance (the tangent
++  // operators of the behaviours of the test are symmetric positive
++  // definite)
++#ifdef MFEM_MGIS_HAVE_MUMPS
++  const auto* const parallel_solver = "MUMPSSolver";
++  const auto parallel_solver_options = Parameters{};
++#else  /* MFEM_MGIS_HAVE_MUMPS */
++  const auto* const parallel_solver = "CGSolver";
++  const auto parallel_solver_options =
++      Parameters{{"VerbosityLevel", 0},
++                 {"RelativeTolerance", 1e-14},
++                 {"AbsoluteTolerance", 0.},
++                 {"MaximumNumberOfIterations", 10000}};
++#endif /* MFEM_MGIS_HAVE_MUMPS */
++  const auto* const ls =
++      (c.linear_solver != nullptr)
++          ? c.linear_solver
++          : (parallel ? parallel_solver : unit_tests::sequential_direct_solver);
++  const auto ls_options =
++      (c.linear_solver != nullptr)
++          ? c.linear_solver_options
++          : (parallel ? parallel_solver_options
++                      : unit_tests::getSequentialDirectSolverParameters());
++  problem.setLinearSolver(ctx, ls, ls_options) | or_die;
++  auto solver_parameters = Parameters{{"VerbosityLevel", 0},
++                                      {"RelativeTolerance", 1e-12},
++                                      {"AbsoluteTolerance", 0.},
++                                      {"MaximumNumberOfIterations", 50}};
++  for (const auto& [k, v] : c.solver_parameters) {
++    solver_parameters.replaceOrInsert(k, v);
++  }
++  problem.setSolverParameters(ctx, solver_parameters) | or_die;
++  auto r = Results{};
++  const auto nsteps =
++      c.stresses.empty() ? 2 : static_cast<int>(c.stresses.size());
++  for (int i = 0; i != nsteps; ++i) {
++    if ((i == 1) && (!c.changes.empty())) {
++      problem.setSolverParameters(ctx, c.changes) | or_die;
++    }
++    auto local = Context{};
++    const auto o = problem.solve(local, real(i), 1);
++    auto& resolution = r.resolutions.emplace_back();
++    resolution.status = o.status;
++    resolution.initial_norm = o.initial_residual_norm;
++    resolution.number_of_iterations = o.iterations;
++    for (const auto& information : o.iterations_information) {
++      const auto& p = get<Parameters>(throwing, information);
++      auto& iteration = resolution.iterations.emplace_back();
++      if (contains(p, "Norm")) {
++        iteration.norm = get<double>(throwing, p, "Norm");
++      }
++      if (contains(p, "LineSearch")) {
++        const auto& l = get<Parameters>(throwing, p, "LineSearch");
++        iteration.step_length = get<double>(throwing, l, "StepLength");
++        iteration.reductions = get<int>(throwing, l, "NumberOfStepReductions");
++        if (contains(l, "LinearModelResidualNorm")) {
++          iteration.linear_model_residual_norm =
++              get<double>(throwing, l, "LinearModelResidualNorm");
++        }
++      }
++      if (contains(p, "LinearSolver")) {
++        const auto& l = get<Parameters>(throwing, p, "LinearSolver");
++        if (contains(l, "RelativeTolerance")) {
++          iteration.tolerance = get<double>(throwing, l, "RelativeTolerance");
++        }
++        if (contains(l, "ResidualNorm")) {
++          iteration.linear_residual_norm =
++              get<double>(throwing, l, "ResidualNorm");
++        }
++      }
++    }
++    if (!o.status) {
++      return r;
++    }
++    problem.update(ctx) | or_die;
++  }
++  const auto& u = problem.getUnknowns(ets);
++  r.u.assign(u.HostRead(), u.HostRead() + u.Size());
++  // the opposite of the smallest unknown and the largest one, on all the
++  // processes
++  auto extrema = std::array<double, 2>{0, 0};
++  for (const auto v : r.u) {
++    extrema[0] = std::max(extrema[0], -static_cast<double>(v));
++    extrema[1] = std::max(extrema[1], static_cast<double>(v));
++  }
++#ifdef MFEM_USE_MPI
++  if (parallel) {
++    MPI_Allreduce(MPI_IN_PLACE, extrema.data(), 2, MPI_DOUBLE, MPI_MAX,
++                  MPI_COMM_WORLD);
++  }
++#endif /* MFEM_USE_MPI */
++  r.extrema = {-extrema[0], extrema[1]};
++  r.status = true;
++  return r;
++}  // end of compute
++
++/*!
++ * \brief checks that the norms of the residual of the resolutions decrease
++ * \param[in] r: results
++ * \param[in] name: name of the computation
++ */
++static void checkDecreasingNorms(const Results& r, const std::string& name) {
++  for (const auto& resolution : r.resolutions) {
++    auto previous = resolution.initial_norm;
++    for (const auto& iteration : resolution.iterations) {
++      if (!iteration.norm.has_value()) {
++        continue;
++      }
++      check(*(iteration.norm) < previous,
++            name + ": the norm of the residual does not decrease");
++      previous = *(iteration.norm);
++    }
++  }
++}  // end of checkDecreasingNorms
++
++/*!
++ * \brief checks the solution of a cube of `SaturatingElasticity` under an
++ * uniaxial stress: the displacements are linear, the largest and smallest
++ * ones being the strains (the cube has a unit side)
++ * \param[in] r: results
++ * \param[in] p: uniaxial stress
++ * \param[in] name: name of the computation
++ */
++static void checkUniaxialSolution(const Results& r,
++                                  const double p,
++                                  const std::string& name) {
++  constexpr auto tolerance = mfem_mgis::unit_tests::tolerance(1e-8, 1e-3);
++  const auto e = getUniaxialStrains(p);
++  const auto expected =
++      std::array<double, 2>{std::min(e[0], e[1]), std::max(e[0], e[1])};
++  check(r.status && areClose(r.extrema[0], expected[0], tolerance) &&
++            areClose(r.extrema[1], expected[1], tolerance),
++        name + ": solution (strains " + std::to_string(r.extrema[0]) + " and " +
++            std::to_string(r.extrema[1]) + ", " + std::to_string(expected[0]) +
++            " and " + std::to_string(expected[1]) + " expected)");
++}  // end of checkUniaxialSolution
++
++/*!
++ * \brief cube of `SaturatingElasticity` loaded close to the saturation,
++ * then unloaded
++ * \param[in] mesh: mesh
++ * \param[in] library: behaviour library
++ * \param[in] stresses: stresses at the end of the two time steps, divided
++ * by the saturation stress
++ * \param[in] step_lengths: step lengths expected for the first iterations
++ * of the second time step, the following ones being full steps
++ */
++static void checkSaturation(const char* const mesh,
++                            const char* const library,
++                            const std::array<double, 2>& stresses,
++                            const std::vector<double>& step_lengths) {
++  using namespace mfem_mgis;
++  const auto loading = std::vector<double>{stresses[0] * saturation_stress,
++                                           stresses[1] * saturation_stress};
++  const auto name = "saturation (" + std::to_string(stresses[0]) + ", " +
++                    std::to_string(stresses[1]) + ")";
++  const auto backtracking =
++      makeNewtonSolver({{"LineSearch", "Backtracking"}});
++  // without line search: the first resolution converges, the second one
++  // does not (the case would not test anything otherwise)
++  const auto none = compute(mesh, library, {.stresses = loading});
++  check((!none.status) && (none.resolutions.size() == 2) &&
++            (none.resolutions[0].status),
++        name + ": convergence without line search");
++  // with the line search
++  const auto r =
++      compute(mesh, library, {.stresses = loading, .solver = backtracking});
++  check(r.status, name + ": no convergence with the line search");
++  if ((!r.status) || (none.resolutions.size() != 2)) {
++    return;
++  }
++  checkUniaxialSolution(r, loading[1], name);
++  checkDecreasingNorms(r, name);
++  // first resolution: the full steps are accepted, and the iterations are
++  // the ones of the solver without line search (the last norms, at the
++  // level of the rounding errors, are not compared). In float, the last
++  // iterations, at the floor of the rounding errors, may be reduced.
++  const auto& first = r.resolutions[0];
++  const auto& reference = none.resolutions[0];
++  // relative norm above which the norms of the two computations are
++  // compared, and tolerance of the comparison
++  constexpr auto norms_floor = mfem_mgis::unit_tests::tolerance(1e-6, 1e-3);
++  if (double_precision) {
++    check(first.number_of_iterations == reference.number_of_iterations,
++          name + ": number of iterations of the first resolution (" +
++              std::to_string(first.number_of_iterations) + ", " +
++              std::to_string(reference.number_of_iterations) +
++              " without line search)");
++  }
++  for (std::size_t i = 0;
++       i != std::min(first.iterations.size(), reference.iterations.size());
++       ++i) {
++    const auto& iteration = first.iterations[i];
++    check(iteration.step_length.has_value(),
++          name + ": no information on the line search");
++    if (double_precision) {
++      check((iteration.step_length.value_or(0) == 1) &&
++                (iteration.reductions == 0),
++            name + ": step reduced during the first resolution");
++    }
++    const auto n = iteration.norm.value_or(0);
++    if (n > norms_floor * first.initial_norm) {
++      check(areClose(n, reference.iterations[i].norm.value_or(0),
++                     norms_floor),
++            name + ": norms of the first resolution");
++    }
++  }
++  // second resolution: expected step lengths
++  const auto& second = r.resolutions[1];
++  check(second.iterations.size() >= step_lengths.size(),
++        name + ": number of iterations of the second resolution");
++  auto description = std::string{};
++  for (std::size_t i = 0; i != second.iterations.size(); ++i) {
++    const auto& iteration = second.iterations[i];
++    const auto expected = (i < step_lengths.size()) ? step_lengths[i] : 1.;
++    const auto theta = iteration.step_length.value_or(0);
++    description += " " + std::to_string(theta);
++    if ((i < step_lengths.size()) || double_precision) {
++      check((theta == expected) &&
++                (theta == std::ldexp(1., -iteration.reductions)),
++            name + ": step length of the iteration " + std::to_string(i + 1) +
++                " of the second resolution (" + std::to_string(theta) + ", " +
++                std::to_string(expected) + " expected)");
++    }
++  }
++  std::cout << name << ": " << second.number_of_iterations
++            << " iterations of the second resolution, step lengths"
++            << description << '\n';
++  // line search enabled before the second time step only
++  const auto changed = compute(
++      mesh, library,
++      {.stresses = loading, .changes = {{"LineSearch", "Backtracking"}}});
++  check(changed.status &&
++            (!changed.resolutions[0].iterations[0].step_length.has_value()) &&
++            (changed.resolutions[1].iterations[0].step_length.has_value()),
++        name + ": line search enabled before the second time step");
++  // same state at the end of the first time step, same iterations (in
++  // float, the last iterations of the first time step may differ)
++  if (changed.status && double_precision) {
++    check(changed.resolutions[1].number_of_iterations ==
++              second.number_of_iterations,
++          name + ": iterations after the line search was enabled");
++  }
++  if (changed.status) {
++    checkUniaxialSolution(changed, loading[1], name + ", option changed");
++  }
++  // line search disabled before the second time step
++  const auto disabled = compute(
++      mesh, library,
++      {.stresses = loading,
++       .solver = backtracking,
++       .changes = {{"LineSearch", "None"}}});
++  check((!disabled.status) && (disabled.resolutions.size() == 2),
++        name + ": line search disabled before the second time step");
++}  // end of checkSaturation
++
++/*!
++ * \brief the tolerance of the linear solver which follows a reduced step
++ * (first choice of Eisenstat and Walker) uses the norm of the linear model
++ * at this step. The first linear solve of each resolution being precise,
++ * the first step of the second resolution is halved as with a direct
++ * solver, and the norm of the linear model is then half the norm of the
++ * residual.
++ * \param[in] mesh: mesh
++ * \param[in] library: behaviour library
++ */
++static void checkAdaptiveTolerance(const char* const mesh,
++                                   const char* const library) {
++  using namespace mfem_mgis;
++  const auto name = std::string{"saturation, EisenstatWalker1"};
++  const auto loading =
++      std::vector<double>{0.98 * saturation_stress, 0.4 * saturation_stress};
++  constexpr auto initial_tolerance = 1e-10;
++  // absolute convergence criterion, about 1e-11 times the initial residuals
++  // (2e-4 in float), so that the tolerances can be computed again
++  constexpr auto goal = mfem_mgis::unit_tests::tolerance(1e-3, 1e4);
++  const auto r = compute(
++      mesh, library,
++      {.stresses = loading,
++       .solver = makeNewtonSolver(
++           {{"LineSearch", "Backtracking"},
++            {"AdaptiveLinearSolverTolerance",
++             Parameters{{"EisenstatWalker1",
++                         Parameters{{"InitialTolerance",
++                                     initial_tolerance}}}}}}),
++       .solver_parameters = {{"RelativeTolerance", 0.},
++                             {"AbsoluteTolerance", goal}},
++       .linear_solver = "CGSolver",
++       .linear_solver_options = {{"RelativeTolerance", 1e-12},
++                                 {"AbsoluteTolerance", 0.},
++                                 {"MaximumNumberOfIterations", 10000}}});
++  check(r.status, name + ": no convergence");
++  if (!r.status) {
++    return;
++  }
++  constexpr auto tolerance = mfem_mgis::unit_tests::tolerance(1e-6, 1e-3);
++  const auto e = getUniaxialStrains(loading[1]);
++  check(areClose(r.extrema[0], std::min(e[0], e[1]), tolerance) &&
++            areClose(r.extrema[1], std::max(e[0], e[1]), tolerance),
++        name + ": solution");
++  checkDecreasingNorms(r, name);
++  const auto golden_ratio = (1 + std::sqrt(5.)) / 2;
++  auto reduced = 0;
++  auto checked = 0;
++  // rounding errors of the norm of the linear model
++  constexpr auto model_tolerance = mfem_mgis::unit_tests::tolerance(1e-6, 1e-4);
++  for (const auto& resolution : r.resolutions) {
++    const auto& iterations = resolution.iterations;
++    for (std::size_t k = 0; k != iterations.size(); ++k) {
++      const auto& iteration = iterations[k];
++      // norm of the residual before this iteration
++      const auto f = (k == 0) ? resolution.initial_norm
++                              : iterations[k - 1].norm.value_or(0);
++      const auto theta = iteration.step_length.value_or(0);
++      const auto lr = iteration.linear_residual_norm.value_or(-1);
++      check(lr >= 0, name + ": no norm of the residual of the linear solve");
++      // norm of the linear model at the step retained
++      auto model = lr;
++      if (theta != 1) {
++        ++reduced;
++        check(iteration.linear_model_residual_norm.has_value(),
++              name + ": no norm of the linear model after a reduced step");
++        model = iteration.linear_model_residual_norm.value_or(-1);
++        // norm of (1 - θ) r - θ lr
++        check((model >= std::abs((1 - theta) * f - theta * lr) *
++                               (1 - model_tolerance)) &&
++                  (model <=
++                   ((1 - theta) * f + theta * lr) * (1 + model_tolerance)),
++              name + ": norm of the linear model (" + std::to_string(model) +
++                  ")");
++      } else {
++        check(!iteration.linear_model_residual_norm.has_value(),
++              name + ": norm of the linear model after a full step");
++      }
++      // tolerance of the next iteration
++      if ((k + 1 == iterations.size()) ||
++          (!iteration.tolerance.has_value()) ||
++          (!iterations[k + 1].tolerance.has_value()) ||
++          (!iteration.norm.has_value())) {
++        continue;
++      }
++      const auto fn = *(iteration.norm);
++      auto eta = std::abs(fn - model) / f;
++      const auto safeguard = std::pow(*(iteration.tolerance), golden_ratio);
++      if (safeguard > 0.1) {
++        eta = std::max(eta, safeguard);
++      }
++      eta = std::min(std::max(eta, static_cast<double>(goal) / (2 * fn)), 0.9);
++      const auto v = *(iterations[k + 1].tolerance);
++      check(areClose(v, eta, mfem_mgis::unit_tests::tolerance(1e-10, 1e-4)),
++            name + ": relative tolerance of a linear solve (" +
++                std::to_string(v) + " instead of " + std::to_string(eta) +
++                ")");
++      ++checked;
++    }
++  }
++  check(checked > 0, name + ": no relative tolerance checked");
++  // first iteration of the second resolution
++  const auto& second = r.resolutions[1];
++  const auto& first_iteration = second.iterations[0];
++  check((first_iteration.step_length.value_or(0) == 0.5) &&
++            areClose(first_iteration.linear_model_residual_norm.value_or(0),
++                     second.initial_norm / 2, tolerance),
++        name + ": first iteration of the second resolution");
++  std::cout << name << ": " << reduced << " reduced steps, " << checked
++            << " tolerances checked\n";
++}  // end of checkAdaptiveTolerance
++
++/*!
++ * \brief cube of `FailingIsotropicLinearElasticity` in uniaxial stress,
++ * the trace of the strain of the solution being 1.5 times the one above
++ * which the integration fails: the trials at which the integration fails
++ * are refused, the estimates get closer to the limit, and the search
++ * finally fails
++ * \param[in] mesh: mesh
++ * \param[in] library: behaviour library
++ */
++static void checkIntegrationFailures(const char* const mesh,
++                                     const char* const library) {
++  using namespace mfem_mgis;
++  const auto name = std::string{"integration failures"};
++  // maximum trace of the strain of the behaviour, and trace of the strain
++  // of the solution, σ / (3 λ + 2 μ)
++  constexpr auto maximum_trace = 1e-3;
++  constexpr auto stress = 7.8e8;
++  constexpr auto solution_trace = stress / (3 * 1.2e11 + 2 * 8e10);
++  const auto r = compute(mesh, library,
++                         {.behaviour = "FailingIsotropicLinearElasticity",
++                          .stresses = {stress},
++                          .solver = makeNewtonSolver(
++                              {{"LineSearch", "Backtracking"}})});
++  check((!r.status) && (r.resolutions.size() == 1),
++        name + ": convergence beyond the limit of the behaviour");
++  if (r.resolutions.empty()) {
++    return;
++  }
++  checkDecreasingNorms(r, name);
++  // direct evaluation: the problem is linear, the trace of the strain of
++  // the trial of step length θ is t + θ (solution_trace - t)
++  auto expected = std::vector<size_type>{};
++  auto trace = 0.;
++  auto failed = false;
++  while (!failed) {
++    auto theta = 1.;
++    auto reductions = size_type{};
++    while (trace + theta * (solution_trace - trace) > maximum_trace) {
++      if (reductions == 10) {
++        failed = true;
++        break;
++      }
++      theta /= 2;
++      ++reductions;
++    }
++    expected.push_back(reductions);
++    trace += theta * (solution_trace - trace);
++  }
++  const auto& iterations = r.resolutions[0].iterations;
++  auto description = std::string{};
++  for (const auto& iteration : iterations) {
++    description += " " + std::to_string(iteration.reductions);
++  }
++  std::cout << name << ": reductions" << description << '\n';
++  // in float, the last reductions depend on the rounding errors: the first
++  // three ones are compared
++  const auto n = double_precision ? expected.size() : std::size_t{3};
++  check(iterations.size() >= n, name + ": number of iterations");
++  for (std::size_t i = 0; i != std::min(n, iterations.size()); ++i) {
++    check(iterations[i].reductions == expected[i],
++          name + ": " + std::to_string(iterations[i].reductions) +
++              " reductions at the iteration " + std::to_string(i + 1) + ", " +
++              std::to_string(expected[i]) + " expected");
++  }
++  // the search which fails made the maximum number of reductions
++  if (!iterations.empty()) {
++    const auto& last = iterations.back();
++    check((!last.norm.has_value()) && (last.reductions == 10) &&
++              (last.step_length.value_or(0) == std::ldexp(1., -10)),
++          name + ": failure of the last search");
++  }
++  // maximum number of reductions given by the option: the first iteration
++  // requires one reduction, the second one two reductions
++  const auto bounded = compute(
++      mesh, library,
++      {.behaviour = "FailingIsotropicLinearElasticity",
++       .stresses = {stress},
++       .solver = makeNewtonSolver(
++           {{"LineSearch",
++             Parameters{{"Backtracking",
++                         Parameters{{"MaximumNumberOfStepReductions", 1}}}}}})});
++  check((!bounded.status) && (bounded.resolutions.size() == 1) &&
++            (bounded.resolutions[0].iterations.size() == 2) &&
++            (bounded.resolutions[0].iterations[1].reductions == 1) &&
++            (!bounded.resolutions[0].iterations[1].norm.has_value()),
++        name + ": maximum number of reductions");
++}  // end of checkIntegrationFailures
++
++/*!
++ * \brief plastic cube of `FixedPointSolverTest`: the line search gives the
++ * solution of the solver without line search, with the same iterations if
++ * no step is reduced
++ * \param[in] mesh: mesh
++ * \param[in] library: behaviour library
++ */
++static void checkPlasticCube(const char* const mesh,
++                             const char* const library) {
++  using namespace mfem_mgis;
++  const auto name = std::string{"plastic cube"};
++  const auto none = compute(
++      mesh, library, {.behaviour = "IsotropicLinearHardeningPlasticity"});
++  const auto r =
++      compute(mesh, library,
++              {.behaviour = "IsotropicLinearHardeningPlasticity",
++               .solver = makeNewtonSolver({{"LineSearch", "Backtracking"}})});
++  check(none.status && r.status, name + ": resolution failed");
++  if (!(none.status && r.status)) {
++    return;
++  }
++  auto reduced = 0;
++  for (const auto& resolution : r.resolutions) {
++    for (const auto& iteration : resolution.iterations) {
++      if (iteration.reductions != 0) {
++        ++reduced;
++      }
++    }
++  }
++  auto difference = 0.;
++  auto maximum = 0.;
++  if (none.u.size() == r.u.size()) {
++    for (std::size_t i = 0; i != r.u.size(); ++i) {
++      difference = std::max(
++          difference, static_cast<double>(std::abs(r.u[i] - none.u[i])));
++      maximum = std::max(maximum, static_cast<double>(std::abs(none.u[i])));
++    }
++  } else {
++    difference = 1;
++    maximum = 1;
++  }
++  std::cout << name << ": " << reduced
++            << " reduced steps, relative difference to the solver without "
++               "line search "
++            << difference / maximum << '\n';
++  check(difference <=
++            mfem_mgis::unit_tests::tolerance(1e-8, 3e-4) * maximum,
++        name + ": solution");
++  if (reduced == 0) {
++    for (std::size_t i = 0; i != r.resolutions.size(); ++i) {
++      check(r.resolutions[i].number_of_iterations ==
++                none.resolutions[i].number_of_iterations,
++            name + ": number of iterations of the time step " +
++                std::to_string(i + 1));
++    }
++  }
++}  // end of checkPlasticCube
++
++/*!
++ * \brief a tolerance which can't be reached: the residual reaches the
++ * floor of the rounding errors, where no step decreases it, and the
++ * resolution is accepted (see the option `StagnationRelativeTolerance`)
++ * \param[in] mesh: mesh
++ * \param[in] library: behaviour library
++ */
++static void checkStagnation(const char* const mesh,
++                            const char* const library) {
++  using namespace mfem_mgis;
++  const auto name = std::string{"stagnation"};
++  const auto loading =
++      std::vector<double>{0.98 * saturation_stress, 0.4 * saturation_stress};
++  const auto r =
++      compute(mesh, library,
++              {.stresses = loading,
++               .solver = makeNewtonSolver({{"LineSearch", "Backtracking"}}),
++               .solver_parameters = {{"RelativeTolerance", 0.},
++                                     {"AbsoluteTolerance", 0.}}});
++  check(r.status, name + ": resolution refused at the floor of the residual");
++  if (r.status) {
++    checkUniaxialSolution(r, loading[1], name);
++    checkDecreasingNorms(r, name);
++  }
++}  // end of checkStagnation
++
++/*!
++ * \brief an invalid option of the Newton solver is refused
++ * \param[in] mesh: mesh
++ * \param[in] options: options of the Newton solver
++ * \param[in] name: name of the check
++ * \param[in] message: part of the expected error message
++ */
++static void checkRefusal(const char* const mesh,
++                         const mfem_mgis::Parameters& options,
++                         const std::string& name,
++                         const char* const message) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  const auto o = construct<NonLinearEvolutionProblem>(
++      ctx, Parameters{{"MeshFileName", mesh},
++                      {"FiniteElementFamily", "H1"},
++                      {"FiniteElementOrder", 1},
++                      {"UnknownsSize", 3},
++                      {"Hypothesis", "Tridimensional"},
++                      {"NonLinearSolver", makeNewtonSolver(options)},
++                      {"Parallel", parallel}});
++  check(isInvalid(o), name + " is accepted");
++  // reading the error message clears it
++  const auto e = ctx.getErrorMessage();
++  check(e.find(message) != std::string::npos,
++        name + ": unexpected error message (" + e + ")");
++}  // end of checkRefusal
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* mesh = "cube.mesh";
++  const char* library = "src/libBehaviourTest.so";
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&mesh, "-m", "--mesh", "mesh of a cube");
++  args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  // unloading from 0.98 to 0.4 times the saturation stress: the first step
++  // is halved; loading in the other direction, from 0.95 to -0.5 times the
++  // saturation stress: the second step is divided by four
++  checkSaturation(mesh, library, {0.98, 0.4}, {0.5});
++  checkSaturation(mesh, library, {0.95, -0.5}, {1, 0.25});
++  checkAdaptiveTolerance(mesh, library);
++  checkIntegrationFailures(mesh, library);
++  checkPlasticCube(mesh, library);
++  checkStagnation(mesh, library);
++  checkRefusal(mesh, {{"LineSearch", "Unknown"}}, "an invalid line search",
++               "invalid method");
++  checkRefusal(
++      mesh,
++      {{"LineSearch",
++        Parameters{{"Backtracking",
++                    Parameters{{"SufficientDecrease", 2.}}}}}},
++      "an invalid sufficient decrease", "sufficient decrease");
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+diff --git a/tests/SaturatingElasticity.mfront b/tests/SaturatingElasticity.mfront
+new file mode 100644
+index 0000000000..9ee8438e4f
+--- /dev/null
++++ b/tests/SaturatingElasticity.mfront
+@@ -0,0 +1,54 @@
++@DSL DefaultDSL;
++@Behaviour SaturatingElasticity;
++@Date 14 / 11 / 2026;
++@Description {
++  Isotropic non linear elasticity whose equivalent stress saturates:
++  seq = s0 tanh(3 mu eeq / s0) + 3 muinf eeq, where eeq is the equivalent
++  strain. The stress derives from a potential: the consistent tangent
++  operator is symmetric, and positive definite thanks to the residual
++  shear modulus muinf. Close to the saturation, the tangent stiffness is
++  much lower than the secant one: the Newton method without line search
++  oscillates between two saturated states when the loading is reversed.
++  Used to test the line search of the non linear solvers.
++}
++
++@Parameter stress kb = 150e9;
++kb.setGlossaryName("BulkModulus");
++@Parameter stress mu = 80e9;
++mu.setGlossaryName("ShearModulus");
++@Parameter stress s0 = 240e6;
++s0.setEntryName("SaturationStress");
++@Parameter stress muinf = 4e9;
++muinf.setEntryName("ResidualShearModulus");
++
++@PredictionOperator {
++  static_cast<void>(smt);
++  Dt = kb * Stensor4::IxI() + 2 * (mu + muinf) * Stensor4::K();
++}
++
++@ProvidesSymmetricTangentOperator;
++@Integrator {
++  const auto e = eval(eto + deto);
++  const auto ed = deviator(e);
++  const auto ed2 = ed | ed;
++  const auto eeq = sqrt(2 * ed2 / 3);
++  // secant and tangent shear moduli
++  const auto flow = eeq > strain(1e-12);
++  auto mus = mu + muinf;
++  auto mut = mu + muinf;
++  if (flow) {
++    const auto th = tanh(3 * mu * eeq / s0);
++    mus = s0 * th / (3 * eeq) + muinf;
++    mut = mu * (1 - th * th) + muinf;
++  }
++  sig = kb * trace(e) * Stensor::Id() + 2 * mus * ed;
++  if (computeTangentOperator_) {
++    if ((smt == CONSISTENTTANGENTOPERATOR) && flow) {
++      const auto n = eval(ed / sqrt(ed2));
++      Dt = kb * Stensor4::IxI() + 2 * mus * Stensor4::K() +
++           2 * (mut - mus) * (n ^ n);
++    } else {
++      Dt = kb * Stensor4::IxI() + 2 * (mu + muinf) * Stensor4::K();
++    }
++  }
++}
+-- 
+2.34.1
+

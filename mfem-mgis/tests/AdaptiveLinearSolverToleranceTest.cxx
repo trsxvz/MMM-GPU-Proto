@@ -6,13 +6,15 @@
  * solvers of hypre, tolerances given by the two choices of Eisenstat and
  * Walker and by the safeguards, compared to a direct evaluation of their
  * formulas, restoration of the initial tolerance, refusal of a direct
- * solver and of invalid options.
+ * solver and of invalid options, norm of the linear model at the step
+ * retained by a line search.
  * \date   10/10/2026
  */
 
 #include <cmath>
 #include <memory>
 #include <string>
+#include <vector>
 #include <cstdlib>
 #include <iostream>
 #include <algorithm>
@@ -199,6 +201,94 @@ static void checkFirstChoice() {
         "first choice: safeguard of the third iteration");
 }  // end of checkFirstChoice
 
+/*!
+ * \brief norm of the linear model at the step retained by a line search:
+ * given the norm of the residual of the linear solve, `lr = J c - r`, and
+ * its scalar product with the residual `r`, the norm of
+ * `(1 - θ) r - θ lr` is the one computed on the vectors, and gives the
+ * next tolerance of the first choice of Eisenstat and Walker
+ */
+static void checkStepLength() {
+  using namespace mfem_mgis;
+  auto ctx = Context{};
+  // the safeguard of an initial tolerance of 0.05 is below its threshold:
+  // the next tolerance is the one of the formula
+  const auto ot = AdaptiveLinearSolverTolerance::read(
+      ctx, Parameters{{"AdaptiveLinearSolverTolerance",
+                       Parameters{{"EisenstatWalker1",
+                                   Parameters{{"InitialTolerance", 0.05}}}}}});
+  check(ot.has_value(), "step length: options refused");
+  if (!ot.has_value()) {
+    return;
+  }
+  // in float, the norm is computed with the rounding errors of this type
+  auto isClose = [](const double a, const double b, const double tolerance) {
+    return std::abs(a - b) <= tolerance * std::max(std::abs(a), std::abs(b));
+  };
+  constexpr auto norm_tolerance = mfem_mgis::unit_tests::tolerance(1e-13, 1e-5);
+  constexpr auto eta_tolerance = mfem_mgis::unit_tests::tolerance(1e-12, 1e-4);
+  auto s = mfem::CGSolver{};
+  s.SetRelTol(initial_tolerance);
+  const auto r = std::vector<double>{3, -1, 2, 0.5};
+  const auto lr = std::vector<double>{0.4, 0.3, -0.2, 0.1};
+  auto dot = [](const std::vector<double>& a, const std::vector<double>& b) {
+    auto v = 0.;
+    for (std::size_t i = 0; i != a.size(); ++i) {
+      v += a[i] * b[i];
+    }
+    return v;
+  };
+  const auto nr = std::sqrt(dot(r, r));
+  const auto nlr = std::sqrt(dot(lr, lr));
+  // norm of the residual at the next iteration
+  const auto f1 = 0.6 * nr;
+  auto previous = 0.;
+  for (const auto theta : {1., 0.5, 0.25}) {
+    auto u = AdaptiveLinearSolverToleranceUpdater{*ot, s};
+    static_cast<void>(u.update(0, nr, 1e-12));
+    u.setLinearResidual(nlr, dot(lr, r));
+    u.setStepLength(theta);
+    auto m = std::vector<double>(r.size());
+    for (std::size_t i = 0; i != r.size(); ++i) {
+      m[i] = (1 - theta) * r[i] - theta * lr[i];
+    }
+    const auto expected = std::sqrt(dot(m, m));
+    const auto name = "step length " + std::to_string(theta);
+    const auto lm = u.getLinearResidualNorm();
+    check(lm.has_value() && isClose(*lm, expected, norm_tolerance),
+          name + ": norm of the linear model (" +
+              std::to_string(lm.value_or(-1)) + " instead of " +
+              std::to_string(expected) + ")");
+    // the norms of the three step lengths differ
+    check(!isClose(expected, previous, 1e-2),
+          name + ": norm of the linear model not discriminating");
+    previous = expected;
+    // a second declaration of the step length changes nothing
+    u.setStepLength(theta);
+    check(u.getLinearResidualNorm() == lm,
+          name + ": step length declared twice");
+    const auto eta = std::abs(f1 - expected) / nr;
+    const auto v = u.update(1, f1, 1e-12);
+    check(isClose(v, eta, eta_tolerance),
+          name + ": next tolerance (" + std::to_string(v) + " instead of " +
+              std::to_string(eta) + ")");
+  }
+  // without the scalar product, the norm of the residual of the complete
+  // linear solve is kept
+  auto u = AdaptiveLinearSolverToleranceUpdater{*ot, s};
+  static_cast<void>(u.update(0, nr, 1e-12));
+  u.setLinearResidualNorm(nlr);
+  u.setStepLength(0.5);
+  const auto n = u.getLinearResidualNorm();
+  check(n.has_value() && isClose(*n, nlr, norm_tolerance),
+        "step length without scalar product: norm changed");
+  // nothing is done without the norm of the residual of the linear solve
+  static_cast<void>(u.update(1, f1, 1e-12));
+  u.setStepLength(0.5);
+  check(!u.getLinearResidualNorm().has_value(),
+        "step length without residual of the linear solve: norm set");
+}  // end of checkStepLength
+
 //! \brief a direct solver is refused
 static void checkDirectSolver() {
   using namespace mfem_mgis;
@@ -290,6 +380,7 @@ int main(int argc, char** argv) {
   }
   checkSecondChoice();
   checkFirstChoice();
+  checkStepLength();
   checkDirectSolver();
   checkRefusals();
   std::cout << (failures == 0 ? "success" : "failure") << '\n';

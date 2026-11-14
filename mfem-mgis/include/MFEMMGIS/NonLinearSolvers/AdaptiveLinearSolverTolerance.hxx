@@ -31,9 +31,12 @@ namespace mfem_mgis {
    *   `η_i = | ||F_i|| - ||F_{i-1} + J_{i-1} s_{i-1}|| | / ||F_{i-1}||`,
    *   which requires the norm of the residual of the previous linear solve
    *   (one product by the tangent operator per iteration; after a reduction
-   *   of the correction, the residual of the complete linear solve is
-   *   used; if this norm is not given, the formula of the second choice is
-   *   used for this iteration);
+   *   of the correction on an integration failure, the residual of the
+   *   complete linear solve is used, whereas a line search, see
+   *   `LineSearch`, gives the norm of the linear model at the step it
+   *   retained, `||F_{i-1} + θ J_{i-1} s_{i-1}||`, as in the paper, see
+   *   `setStepLength`; if this norm is not given, the formula of the second
+   *   choice is used for this iteration);
    * - choice 2 (`EisenstatWalker2`): `η_i = γ (||F_i|| / ||F_{i-1}||)^α`.
    *
    * Safeguards, as Eisenstat and Walker and PETSc: when the following value
@@ -129,6 +132,29 @@ namespace mfem_mgis {
      */
     void setLinearResidualNorm(const real n) noexcept;
     /*!
+     * \brief sets the norm of the residual of the last linear solve,
+     * `J c - r` (`c` being the opposite of the correction and `r` the
+     * residual of the non linear problem), and its scalar product with `r`,
+     * which gives the norm of the linear model at a reduced step (see
+     * `setStepLength`)
+     * \param[in] n: norm
+     * \param[in] d: scalar product of the residual of the linear solve and
+     * of the residual of the non linear problem
+     */
+    void setLinearResidual(const real n, const real d) noexcept;
+    /*!
+     * \brief declares that the correction was multiplied by `θ` (line
+     * search): the norm of the residual of the last linear solve is
+     * replaced by the one of the linear model at the reduced step,
+     * `||r - θ J c|| = ||(1 - θ) r - θ (J c - r)||`, computed from the norms
+     * of `r` and of `J c - r` and from their scalar product. Nothing is
+     * done if this scalar product was not given since the last update of
+     * the tolerance (see `setLinearResidual`), or if the step length was
+     * already declared.
+     * \param[in] theta: step length
+     */
+    void setStepLength(const real theta) noexcept;
+    /*!
      * \return the norm of the residual of the last linear solve, if set
      * since the last update of the tolerance
      */
@@ -147,6 +173,11 @@ namespace mfem_mgis {
     real previous_norm = 0;
     //! \brief norm of the residual of the previous linear solve, if set
     std::optional<real> linear_residual_norm;
+    /*!
+     * \brief scalar product of the residual of the previous linear solve and
+     * of the residual of the non linear problem, if set
+     */
+    std::optional<real> linear_residual_scalar_product;
     //! \brief previous tolerance
     real previous_tolerance = 0;
   };  // end of struct AdaptiveLinearSolverToleranceUpdater

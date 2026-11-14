@@ -197,6 +197,88 @@ solution that does not lead to an integration failure is found, or until
 the maximum number of iterations is reached (each reduction counts as an
 iteration).
 
+.. _mfem_mgis_line_search:
+
+Line search
+-----------
+
+By default, the correction is always applied, whatever its effect on the
+residual. Far from the solution, the residual may then increase from one
+iteration to the next, and the iterations may oscillate or diverge. The
+option :cxx:`LineSearch` of the Newton solver, set to :cxx:`Backtracking`,
+globalizes the method by a line search on the norm of the residual, the
+backtracking of the inexact Newton methods of Eisenstat and Walker
+:cite:`eisenstat_globally_1994,eisenstat_choosing_1996`, also used by NITSOL
+:cite:`pernice_nitsol_1998` and by the default line search of the SNES
+solvers of PETSc. The new estimate is:
+
+.. math::
+
+   \mathbb{u}^{(n+1)} = \mathbb{u}^{(n)}+\theta\,\delta\,\mathbb{u}^{(n)}
+
+where the step length :math:`\theta` is the first value of
+:math:`1, 1/2, 1/4, \ldots` which satisfies:
+
+.. math::
+
+   \left\|\mathbb{r}\left(\mathbb{u}^{(n)}+\theta\,\delta\,\mathbb{u}^{(n)}\right)\right\|
+   \leq \left[1-t\,\theta\,\left(1-\eta\right)\right]\,\left\|\mathbb{r}\left(\mathbb{u}^{(n)}\right)\right\|
+
+where:
+
+- :math:`\mathbb{r}` denotes the residual, whose euclidean norm is the one
+  of the convergence criterion;
+- :math:`t` is the option :cxx:`SufficientDecrease`
+  (:math:`10^{-4}` by default);
+- :math:`\eta` is the relative tolerance of the linear solve of the
+  iteration if it is adapted to the decrease of the residual (option
+  :cxx:`AdaptiveLinearSolverTolerance`), zero otherwise.
+
+The line search has the following properties:
+
+- An estimate at which the integration of the behaviours fails, or whose
+  residual is not finite, is a refused trial: the line search replaces the
+  handling of the integration failures described above.
+- The reductions of the step are not counted as iterations.
+- The search fails if no step is accepted after
+  :cxx:`MaximumNumberOfStepReductions` reductions (10 by default, a
+  smallest step length of about :math:`10^{-3}`). The resolution then
+  fails: the behaviours were integrated at the last trial, and the time
+  step shall be reverted, as after any failed resolution. A search which
+  fails at the floor of the rounding errors (see below) is accepted as
+  convergence.
+- The behaviours are integrated with the consistent tangent operator at
+  each trial. When the full step is accepted, which is the case of most
+  iterations, the line search requires no other integration and no other
+  residual than the ones of the next iteration. Each refused trial costs
+  one integration of the behaviours and one residual.
+- With the first choice of Eisenstat and Walker, the tolerance of the
+  linear solve which follows a reduced step uses the norm of the linear
+  model at this step,
+  :math:`\left\|\mathbb{r}+\theta\,\mathbb{K}\,\cdot\,\delta\,\mathbb{u}\right\|`,
+  as in :cite:`eisenstat_choosing_1996`. It is computed from the residual
+  of the linear solve at the price of one scalar product per iteration.
+- A correction given by a linear solver which failed (option
+  :cxx:`DiscardLinearSolverFailure`) may not decrease the residual: the
+  search, hence the resolution, then fails.
+
+The line search does not protect the first estimate of a resolution, which
+is given by the prediction.
+
+.. code-block:: c++
+
+   problem.setSolverParameters(
+       ctx, {{"LineSearch", "Backtracking"},
+             {"AdaptiveLinearSolverTolerance", "EisenstatWalker1"}}) |
+       or_die;
+
+The information on each iteration returned by the resolution
+(:cxx:`NonLinearResolutionOutput::iterations_information`) then has an
+entry :cxx:`LineSearch`, which gives the step length (:cxx:`StepLength`),
+the number of reductions (:cxx:`NumberOfStepReductions`) and, after a
+reduced step with the first choice of Eisenstat and Walker, the norm of
+the linear model (:cxx:`LinearModelResidualNorm`).
+
 Stagnation of the residual
 --------------------------
 

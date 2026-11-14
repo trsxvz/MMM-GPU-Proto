@@ -85,6 +85,7 @@ list(APPEND MFEMMGIS_SOURCES
   KINSOLSolver.cxx
   PETScSNESSolver.cxx
   AdaptiveLinearSolverTolerance.cxx
+  LineSearch.cxx
   AnalyticalTests.cxx
   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
   IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx

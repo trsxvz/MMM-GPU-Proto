@@ -152,6 +152,7 @@ namespace mfem_mgis {
     this->previous_norm = norm;
     this->previous_tolerance = eta;
     this->linear_residual_norm.reset();
+    this->linear_residual_scalar_product.reset();
     return eta;
   }  // end of update
 
@@ -164,7 +165,32 @@ namespace mfem_mgis {
   void AdaptiveLinearSolverToleranceUpdater::setLinearResidualNorm(
       const real n) noexcept {
     this->linear_residual_norm = n;
+    this->linear_residual_scalar_product.reset();
   }  // end of setLinearResidualNorm
+
+  void AdaptiveLinearSolverToleranceUpdater::setLinearResidual(
+      const real n, const real d) noexcept {
+    this->linear_residual_norm = n;
+    this->linear_residual_scalar_product = d;
+  }  // end of setLinearResidual
+
+  void AdaptiveLinearSolverToleranceUpdater::setStepLength(
+      const real theta) noexcept {
+    if ((!this->linear_residual_norm.has_value()) ||
+        (!this->linear_residual_scalar_product.has_value())) {
+      return;
+    }
+    // ||(1 - θ) r - θ lr||², with lr = J c - r and ||r|| the norm given to
+    // the last update of the tolerance
+    const auto n = *(this->linear_residual_norm);
+    const auto d = *(this->linear_residual_scalar_product);
+    const auto r = this->previous_norm;
+    const auto n2 = (1 - theta) * (1 - theta) * r * r -
+                    2 * theta * (1 - theta) * d + theta * theta * n * n;
+    this->linear_residual_norm = std::sqrt(std::max(n2, real{0}));
+    // the norm is now the one of the linear model at the reduced step
+    this->linear_residual_scalar_product.reset();
+  }  // end of setStepLength
 
   std::optional<real>
   AdaptiveLinearSolverToleranceUpdater::getLinearResidualNorm() const noexcept {
