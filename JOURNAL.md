@@ -6756,3 +6756,125 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   lines of 81 columns in the new files, to fix with the next patch.
 - `cases/polycrystal/adastra-fm/`: `ls-tests.slurm`, `ls-identity.slurm`
   and `ls-stats.py` (attempts, reduced steps and refused trials of a log).
+
+### 2026-11-14, prediction by linear extrapolation, GPU tests of the line search
+
+- Context: with the line search (previous entry), the steps of 1 s of the
+  polycrystal no longer fail, but 18 time steps out of 20 see their first
+  Newton step reduced, and the first resolution of each time step, which
+  starts from the unknowns of the beginning of the step, makes three
+  quarters of the Newton corrections. This entry is the second milestone
+  of the design of the night: the prediction by extrapolation.
+- mfem-mgis, patch 0292: prediction strategy
+  `LINEAR_EXTRAPOLATION_PREDICTION`. The estimate is
+  `u0 + (dt / dt_p) (u0 - u_p)`, then the values imposed by the Dirichlet
+  boundary conditions; no linear system is solved. Two rules: the
+  extrapolation is only made at the first resolution of a time step (the
+  first `solve` after `update` or `revert`), the following ones starting
+  from the previous solution; and the reference of the relative criterion
+  remains the residual of the default prediction, computed by one
+  integration of the behaviours without tangent operator and one residual
+  per time step, so that the criterion does not depend on the prediction.
+  Refused with the non linear solver of PETSc selected globally. The other
+  strategies are unchanged.
+- mm-opera-hpc, patch 0050: option `--prediction` of the polycrystal
+  (`Default`, `LinearExtrapolation`).
+- The three lines of 81 columns of the patches 0290 and 0291 are fixed in
+  the commit of the patch 0290 (patches regenerated, code unchanged).
+- Tests: `LinearExtrapolationPredictionTest` (Newton solver, fixed point on
+  the elastic operator, NewtonK0; sequential, 2 processes, kernels on the host
+  and on the debug device). A resolution limited to zero iteration leaves the
+  prediction in the unknowns: the test compares the predicted values, the
+  reference, and the ratio of the residual of the prediction to the reference,
+  which is analytical on a linear problem (2/3, 0.6, 0.375 and 1/3 for a
+  displacement in t²). Eight mutations of the library (no extrapolation,
+  extrapolation at each resolution, reference not given, ratio of the time
+  increments ignored, imposed values not applied, flag not raised by `revert`
+  or by `update`, increment not released) all make it fail (job 5979297). On
+  Adastra (job 5979268): the 15 tests of the prediction and of the line
+  search, and 84 other tests using the non linear solvers. On the CI (run
+  43554531170): the whole suite on the CPU, in double (262 tests of mfem-mgis,
+  14 of mm-opera-hpc) and in float (258 and 14), all passed.
+- Suite of mfem-mgis on a GPU, not run for the line search:
+  `ls-gpu-tests.slurm` runs the tests using the non linear solvers on one
+  MI300A with the settings of `scripts/mfem-mgis-gpu-suite.sh`. With the
+  patches 0290 and 0291 (job 5979191): 95 tests out of 95 with the kernels
+  forced, 95 out of 95 with the computations selected by each test, and the
+  test selecting a device. With the patch 0292 (job 5979353): 98 out of 98 in
+  both modes (the same tests and three variants of
+  `LinearExtrapolationPredictionTest`), and the test selecting a device.
+- Options disabled, same outputs bit for bit as the executable preceding the
+  line search, on the four cases of the previous entry (100 grains, 96 cores;
+  job 5979298): NewtonK0 with each choice of Eisenstat and Walker, the Newton
+  solver, and the raw mesh (3214 lines of iterations, 139 estimates moved
+  after a failure of the behaviour, 21 failed resolutions).
+- Polycrystal of the tests of mm-opera-hpc (5 grains, 0.2 s in four time
+  steps, NewtonK0 with the first choice of Eisenstat and Walker and the
+  line search, job 5979268): 29 lines of iterations without the
+  extrapolation, 23 with it; at the iteration 0 of the time steps 2 to 4,
+  the residual of the extrapolated estimate is 2.6e-4 to 7.3e-4 times the
+  one of the default prediction; the axial stresses differ by 8e-8 at
+  most.
+- Polycrystal of 400 grains (13.2 million unknowns, one node, one material
+  for all the grains, 20 s simulated), NewtonK0 with the first choice of
+  Eisenstat and Walker from 0.01 and the line search, without and with the
+  extrapolation (`pred-ab.slurm`: same executable, the variants one after
+  the other on the same node):
+
+  | Computation | Newton corrections | of which first resolutions | Iterations with a reduced step | Loop (s) | Slurm step (s) | Energy (kJ) |
+  |---|---|---|---|---|---|---|
+  | 4 MI300A, steps of 1 s (job 5979327, 2 runs) | 220, 217 | 164, 161 | 29, 26 (13 %, 12 %) | 171, 169 | 216, 195 | 504, 486 |
+  | the same with the extrapolation | 114, 112 | 58, 57 | 1, 1 (0.9 %) | 102, 101 | 130, 129 | 294, 292 |
+  | 4 MI300A, steps of 0.25 s (job 5978686, 2 runs) | 371, 367 | 322, 319 | 1, 0 | 276, 270 | 339, 318 | 791, 768 |
+  | the same with the extrapolation (job 5979384) | 185, 186 | 136, 137 | 1, 1 | 150, 148 | 213, 196 | 428, 416 |
+  | 96 cores, steps of 1 s (job 5978880) | 250 | 197 | 35 (14 %) | 2120 | 2253 | 2974 |
+  | the same with the extrapolation (job 5979328) | 109 | 55 | 1 (0.9 %) | 1150 | 1307 | 1712 |
+
+  All these computations accept all their time steps (20 or 80), with 46
+  or 104 resolutions. With the extrapolation, half of the Newton
+  corrections disappear (48 to 56 %), on the GPUs and on the cores, with
+  the steps of 1 s and of 0.25 s; the loop over the time steps is 40 to 46
+  % shorter, and the Slurm step 37 to 42 % shorter. The first resolution
+  of a time step takes 2 corrections (median) instead of 7 with the steps
+  of 1 s (9.5 on the cores), and of 4 with the steps of 0.25 s. The step
+  of the line search is almost never reduced any more: 1 iteration out of
+  110, against 12 to 14 %; without the extrapolation, the first step of 18
+  time steps out of 20 was reduced, with it, none.
+- The extrapolation without the line search (job 5979469, 4 MI300A, steps
+  of 1 s, 2 runs): 20 steps accepted, no failure, 114 and 111 corrections,
+  loop 105 and 102 s. At this size, the gain comes from the extrapolation,
+  which also removes the 2 to 4 failed attempts of the computations without
+  line search; the line search remains the safeguard of the sizes at which
+  most of the attempts failed.
+- Quality of the prediction: at the iteration 0, the residual of the
+  extrapolated estimate is 0.47 (second step) to 0.015 times the one of
+  the default prediction with the steps of 1 s (median 0.033), and 0.009
+  times (median) with the steps of 0.25 s. It is never larger.
+- Same physics: with the steps of 0.25 s, the axial stresses with and
+  without the extrapolation differ by 8e-8 at most at 5, 10 and 20 s; with
+  the steps of 1 s, by 1.5e-6 at most on the GPUs, which is also the
+  difference between two runs of the same variant, and by 8e-7 on the
+  cores. The computations on the cores and on the GPUs with the
+  extrapolation make the same 20 time steps, and their axial stresses
+  differ by 1.8e-6 at most.
+- Cores against GPUs at 400 grains, same options on both sides (NewtonK0,
+  first choice from 0.01, line search, extrapolation), steps of 1 s: 1307 s
+  against 130 s in duration of the Slurm steps, a ratio of 10.1 (10.8
+  without the extrapolation).
+- Larger sizes, with the same executable, steps of 1 s, line search and
+  extrapolation (jobs 5979459 and 5979461): 6,400 grains on 64 MI300A: 20
+  steps, no failure, 164 and 163 lines of iterations, loop 123 and 119 s,
+  Slurm step 237 and 218 s (355 and 353 s and 343 and 348 lines with the
+  line search only; 486 and 509 s with the steps of 0.25 s without them),
+  of which 74 s to read the mesh; 1,600 grains on 16 MI300A: 173 and 153 s,
+  159 and 157 lines (269 and 250 s with the line search only). The
+  computations on the cores are running.
+- Not done: the refusal of the extrapolation with the non linear solver of
+  PETSc selected globally is not tested (no test of the suite uses this
+  mode, and neither Adastra nor the CI has PETSc); the test of the
+  polycrystal compares its axial stress to Cast3M within 1 %, not to the
+  computation without extrapolation within 1e-6 (the CI also runs in
+  float).
+- `cases/polycrystal/adastra-fm/`: `ls-gpu-tests.slurm`, `pred-tests.slurm`,
+  `pred-ab.slurm`; `ls-stats.py` also describes the first resolution of
+  each time step.

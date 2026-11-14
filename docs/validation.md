@@ -594,7 +594,47 @@ on 96 cores gives the same outputs bit for bit as the previous executable
 per grain and lines of the iterations of the logs), with NewtonK0 and each
 choice of Eisenstat and Walker, with the Newton solver, and on the raw mesh
 whose integration failures move the estimates (139 moved estimates and 21
-failed resolutions in 5 s simulated). Not run: the suite on a GPU.
+failed resolutions in 5 s simulated). The suite on a GPU was run afterwards
+(next paragraph).
+
+The prediction by linear extrapolation (strategy
+`LINEAR_EXTRAPOLATION_PREDICTION`, patch 0292 of 14/11/2026) is validated by
+`LinearExtrapolationPredictionTest`, with the Newton solver, the fixed point
+on the elastic operator and NewtonK0. A resolution limited to zero iteration
+leaves the prediction in the unknowns: on a cube in its elastic domain, moved
+by a displacement in t², the test compares the predicted values (previous
+increment weighted by the ratio of the time increments, exact imposed
+values), the reference of the relative criterion (the one of the default
+prediction) and the ratio of the residual of the prediction to this
+reference, which is analytical; it checks that the extrapolation is made
+again after `revert`, that a second resolution of a time step keeps the
+solution of the first one, and that another strategy releases the increment.
+With a displacement proportional to the time, no iteration is made from the
+second time step; on the plastic cube, the solution is the one of the default
+prediction with fewer iterations (3 against 15). Eight mutations of the
+library each make the test fail (job 5979297). On 14/11/2026:
+
+- on the CI (run 43554531170): the whole suite on the CPU, in double (262
+  tests of mfem-mgis, 14 of mm-opera-hpc) and in float (258 and 14), all
+  passed;
+- on Adastra (`cases/polycrystal/adastra-fm/pred-tests.slurm`, job 5979268):
+  the 15 tests of the prediction and of the line search, and 84 other tests
+  using the non linear solvers;
+- on one MI300A (`ls-gpu-tests.slurm`, settings of
+  `scripts/mfem-mgis-gpu-suite.sh`), the tests using the non linear solvers:
+  with the line search only (job 5979191), 95 out of 95 with the kernels
+  forced, 95 out of 95 with the computations selected by each test, and the
+  test selecting a device; with the extrapolation (job 5979353), 98 out of 98
+  in both modes (the same tests and three variants of
+  `LinearExtrapolationPredictionTest`), and the test selecting a device.
+
+Without the option, the outputs of the polycrystal of 100 grains remain the
+ones of the executable preceding the line search, bit for bit, on the four
+cases above (`ls-identity.slurm`, job 5979298): NewtonK0 with each choice of
+Eisenstat and Walker, the Newton solver, and the raw mesh (3214 lines of
+iterations, 139 estimates moved after a failure of the behaviour, 21 failed
+resolutions). The refusal with the non linear solver of PETSc selected
+globally is not tested.
 
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of
