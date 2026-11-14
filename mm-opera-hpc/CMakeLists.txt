@@ -95,6 +95,51 @@ function(mm_opera_hpc_add_checked_test)
                    -- ${_t_COMMAND})
 endfunction()
 
+# Tests comparing the results of a case to the ones of the same case run
+# with additional options, which must not change them: the case is run
+# twice by cmake/run-and-compare.py, each run in its own directory
+# (<name>/reference and <name>/compared in the build directory of the case,
+# so that the files given to the command must be absolute paths), then the
+# values of their output files are compared, by ranges of columns, with a
+# relative tolerance (see the script). Without Python 3, the case is only
+# run with the additional options.
+#
+# usage: mm_opera_hpc_add_compared_test(NAME <name>
+#            COMPARISONS <output file> <columns> <relative tolerance>
+#                        [<output file> <columns> <relative tolerance>...]
+#            OPTIONS <additional option...>
+#            COMMAND <command...>)
+set(MM_OPERA_HPC_RUN_AND_COMPARE
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/run-and-compare.py")
+function(mm_opera_hpc_add_compared_test)
+  cmake_parse_arguments(_t "" "NAME" "COMPARISONS;OPTIONS;COMMAND" ${ARGN})
+  if(NOT Python3_Interpreter_FOUND)
+    add_test(NAME ${_t_NAME} COMMAND ${_t_COMMAND} ${_t_OPTIONS})
+    return()
+  endif()
+  set(_comparisons)
+  list(LENGTH _t_COMPARISONS _n)
+  math(EXPR _last "${_n} - 1")
+  foreach(_i RANGE 0 ${_last} 3)
+    math(EXPR _j "${_i} + 1")
+    math(EXPR _k "${_i} + 2")
+    list(GET _t_COMPARISONS ${_i} _file)
+    list(GET _t_COMPARISONS ${_j} _columns)
+    list(GET _t_COMPARISONS ${_k} _tolerance)
+    list(APPEND _comparisons --compare ${_file} ${_columns} ${_tolerance})
+  endforeach()
+  set(_options)
+  foreach(_option ${_t_OPTIONS})
+    list(APPEND _options "--option=${_option}")
+  endforeach()
+  add_test(NAME ${_t_NAME}
+           COMMAND ${Python3_EXECUTABLE}
+                   ${MM_OPERA_HPC_RUN_AND_COMPARE}
+                   --directory ${CMAKE_CURRENT_BINARY_DIR}/${_t_NAME}
+                   ${_comparisons} ${_options}
+                   -- ${_t_COMMAND})
+endfunction()
+
 add_subdirectory(src)
 add_subdirectory(polycrystal)
 add_subdirectory(bubble)

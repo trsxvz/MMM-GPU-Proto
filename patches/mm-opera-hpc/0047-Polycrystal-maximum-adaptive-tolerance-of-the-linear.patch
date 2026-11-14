@@ -1,4 +1,4 @@
-From 79b0577c6a70151cadd4566d8aea59a5e9414664 Mon Sep 17 00:00:00 2001
+From 2edb1d348e5f203f399d6bfcf5cb20bea3e37876 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 13 Nov 2026 23:28:19 +0100
 Subject: [PATCH] Polycrystal: maximum adaptive tolerance of the linear solver
@@ -16,7 +16,7 @@ few points) brings the tolerance back to 0.9, and the residual oscillates.
  2 files changed, 20 insertions(+), 2 deletions(-)
 
 diff --git a/polycrystal/README.md b/polycrystal/README.md
-index b78a2c6..26f17e3 100644
+index d0085e4..e384f17 100644
 --- a/polycrystal/README.md
 +++ b/polycrystal/README.md
 @@ -91,6 +91,7 @@ Usage: ./uniaxial-polycrystal --help
@@ -28,7 +28,7 @@ index b78a2c6..26f17e3 100644
  | `--amgx-parameters <string>`                | string |                              | Parameters of AmgX, as `name=value` separated by commas.                                                                                      |
  | `--amgx-single-precision`, `--no-amgx-single-precision` | bool   | `false`                      | Computations of AmgX in single precision.                                                                                                     |
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index a946303..6be8e64 100644
+index 8dea9bf..d5d51f5 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -90,6 +90,12 @@ struct NumericalParameters {
@@ -44,7 +44,7 @@ index a946303..6be8e64 100644
    /*!
     * \brief linear solver of the elastic operator of `NewtonK0`:
     * `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX, which
-@@ -266,10 +272,13 @@ int main(int argc, char *argv[]) {
+@@ -267,10 +273,13 @@ int main(int argc, char *argv[]) {
    auto non_linear_solver_options = mfem_mgis::Parameters{};
    const auto initial_tolerance_given =
        p.adaptive_linear_solver_initial_tolerance != -1;
@@ -60,7 +60,7 @@ index a946303..6be8e64 100644
      std::exit(EXIT_FAILURE);
    }
    // options of the linear solver of the problem
-@@ -312,6 +321,11 @@ int main(int argc, char *argv[]) {
+@@ -313,6 +322,11 @@ int main(int argc, char *argv[]) {
                                p.adaptive_linear_solver_initial_tolerance) |
            or_die;
      }
@@ -72,7 +72,7 @@ index a946303..6be8e64 100644
      non_linear_solver_options.insert(
          ctx, "AdaptiveLinearSolverTolerance",
          mfem_mgis::Parameters{
-@@ -456,6 +470,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -457,6 +471,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
    args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
                   "--adaptive-linear-solver-initial-tolerance",
                   "initial adaptive tolerance, the default one if -1");

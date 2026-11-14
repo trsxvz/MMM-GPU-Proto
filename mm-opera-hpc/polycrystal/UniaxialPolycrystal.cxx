@@ -250,11 +250,12 @@ static void setupMaterials(
     const TestParameters &,
     Grains &);
 static Grains mergeGrains(mfem_mgis::FiniteElementDiscretization &);
-static void addGrainsMeanStresses(mfem_mgis::attributes::MayAbort,
-                                  mfem_mgis::Context &,
-                                  mfem_mgis::PeriodicNonLinearEvolutionProblem &,
-                                  const Grains &,
-                                  const std::string &);
+static void addGrainsMeanStresses(
+    mfem_mgis::attributes::MayAbort,
+    mfem_mgis::Context &,
+    mfem_mgis::PeriodicNonLinearEvolutionProblem &,
+    const Grains &,
+    const std::string &);
 static void setLinearSolver(mfem_mgis::attributes::MayAbort,
                             mfem_mgis::Context &,
                             mfem_mgis::PeriodicNonLinearEvolutionProblem &,
@@ -713,17 +714,10 @@ static void setupMaterials(
         "setupMaterials : incorrect number of vectors in vector file");
   }
   if (p.single_material) {
-    // orientations of the grains given point by point, and grain of each
-    // point
+    // grain of each point, read by the averages of the stresses per grain
+    // whatever the symmetry of the behaviour
     auto &mat = problem.getMaterial(ctx, 1, 0) | or_die;
-    if (mat.b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
-      return;
-    }
     const auto &qspace = mat.getPartialQuadratureSpace();
-    auto a1 = std::make_shared<mfem_mgis::PartialQuadratureFunction>(qspace, 3);
-    auto a2 = std::make_shared<mfem_mgis::PartialQuadratureFunction>(qspace, 3);
-    auto v1 = a1->getValues();
-    auto v2 = a2->getValues();
     const auto &elements = qspace.getElements();
     const auto &offsets = qspace.getElementOffsets();
     const auto *const pe = elements.HostRead();
@@ -732,15 +726,26 @@ static void setupMaterials(
         static_cast<std::size_t>(qspace.getNumberOfIntegrationPoints()), 0);
     for (int i = 0; i != elements.Size(); ++i) {
       const auto g = grains.of_elements[static_cast<std::size_t>(pe[i])] - 1;
-      const auto &r1 = vectors[2 * static_cast<std::size_t>(g)];
-      const auto &r2 = vectors[2 * static_cast<std::size_t>(g) + 1];
       for (auto o = static_cast<std::size_t>(po[i]);
            o != static_cast<std::size_t>(po[i + 1]); ++o) {
         grains.of_points[o] = g;
-        for (std::size_t k = 0; k != 3; ++k) {
-          v1[3 * o + k] = r1[k];
-          v2[3 * o + k] = r2[k];
-        }
+      }
+    }
+    if (mat.b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
+      return;
+    }
+    // orientations of the grains given point by point
+    auto a1 = std::make_shared<mfem_mgis::PartialQuadratureFunction>(qspace, 3);
+    auto a2 = std::make_shared<mfem_mgis::PartialQuadratureFunction>(qspace, 3);
+    auto v1 = a1->getValues();
+    auto v2 = a2->getValues();
+    for (std::size_t o = 0; o != grains.of_points.size(); ++o) {
+      const auto g = static_cast<std::size_t>(grains.of_points[o]);
+      const auto &r1 = vectors[2 * g];
+      const auto &r2 = vectors[2 * g + 1];
+      for (std::size_t k = 0; k != 3; ++k) {
+        v1[3 * o + k] = r1[k];
+        v2[3 * o + k] = r2[k];
       }
     }
     mat.setRotationMatrix(mfem_mgis::RotationMatrix3D{
@@ -1018,11 +1023,12 @@ static Grains mergeGrains(mfem_mgis::FiniteElementDiscretization &fed) {
  * \param[in] grains: grains of the points of the material
  * \param[in] f: output file
  */
-static void addGrainsMeanStresses(mfem_mgis::attributes::MayAbort,
-                                  mfem_mgis::Context &ctx,
-                                  mfem_mgis::PeriodicNonLinearEvolutionProblem &p,
-                                  const Grains &grains,
-                                  const std::string &f) {
+static void addGrainsMeanStresses(
+    mfem_mgis::attributes::MayAbort,
+    mfem_mgis::Context &ctx,
+    mfem_mgis::PeriodicNonLinearEvolutionProblem &p,
+    const Grains &grains,
+    const std::string &f) {
   auto or_die = ctx.getFatalFailureHandler();
   auto out = std::make_shared<std::ofstream>();
   const auto &m = p.getMaterial(ctx, 1, 0) | or_die;

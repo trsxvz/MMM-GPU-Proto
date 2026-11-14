@@ -36,6 +36,63 @@ mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-DisplacementGradient
   COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
           --macroscopic-stress-output-file polycrystal-test-dg.res
           --displacement-gradient)
+# the same with one material for all the grains (option --single-material),
+# whose number is written when the option is taken into account (expected in
+# the output, which reveals an ignored option; ctest then ignores the exit
+# status: a mismatch, a failure of the command or an error of the scripts
+# of cmake/ is recognized by its message)
+mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-SingleMaterial
+  FILE polycrystal-test-single-material.res ${_polycrystal_checks}
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-single-material.res
+          --single-material)
+# one material for all the grains gives the results of one material per
+# grain: two time steps of 0.2 s with the averages of the stresses per grain
+# (post-processings without the ParaView export), with and without the
+# option, on one process and on two. Compared: the main output file
+# (time, diagonal components of the deformation gradient, diagonal
+# components of the stress, relatively to the axial one) and the averages
+# per grain (file avgStressPolycrystal, relatively to the largest component
+# at each time).
+# In double, the two computations only differ by the order of some sums:
+# relative differences of 1e-16 were measured on the main output file of
+# this case (4e-17 on one process, 1e-16 on two), and 3e-13 for 100 grains
+# on 96 processes. Its 14 digits are compared with a tolerance of 1e-9,
+# which still accepts linear solves (relative tolerance of 1e-12) stopping
+# one iteration apart. The averages per grain are written with 6 digits,
+# hence the tolerance of 2e-5 (twice a unit of the last digit); they were
+# identical. In float, the stresses are only known within 3e4 Pa or so (see
+# the tolerances of the simulation), for an axial stress of 1.8e7 Pa at the
+# first time step: tolerance of 1 %, the one of the comparison to Cast3M.
+if("${MFEMMGIS_REAL_TYPE}" STREQUAL "float")
+  set(_polycrystal_comparisons polycrystal.res 1,2-4,5-7 1e-2
+                               avgStressPolycrystal 1,2- 1e-2)
+else()
+  set(_polycrystal_comparisons polycrystal.res 1,2-4,5-7 1e-9
+                               avgStressPolycrystal 1,2- 2e-5)
+endif()
+set(_polycrystal_comparison_options
+    --disable-paraview-export --nstep 2 --duration 0.4
+    --mesh ${CMAKE_CURRENT_SOURCE_DIR}/mesh/5crystals.msh
+    --vect ${CMAKE_CURRENT_SOURCE_DIR}/mesh/vectors_5crystals.txt
+    --macroscopic-stress-output-file polycrystal.res)
+mm_opera_hpc_add_compared_test(
+  NAME UniaxialPolycrystalTest-SingleMaterial-Comparison
+  COMPARISONS ${_polycrystal_comparisons}
+  OPTIONS --single-material
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal>
+          ${_polycrystal_comparison_options})
+mm_opera_hpc_add_compared_test(
+  NAME UniaxialPolycrystalTestPar-SingleMaterial-Comparison
+  COMPARISONS ${_polycrystal_comparisons}
+  OPTIONS --single-material
+  COMMAND mpirun -n 2 $<TARGET_FILE:uniaxial-polycrystal>
+          ${_polycrystal_comparison_options})
+set_tests_properties(UniaxialPolycrystalTest-SingleMaterial
+  UniaxialPolycrystalTest-SingleMaterial-Comparison
+  UniaxialPolycrystalTestPar-SingleMaterial-Comparison PROPERTIES
+  PASS_REGULAR_EXPRESSION "Nombre de grains : +5"
+  FAIL_REGULAR_EXPRESSION "MISMATCH;run-and-check.py: ;run-and-compare.py: ;no row ;Traceback")
 if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursPolycrystal_HAVE_GPU_BEHAVIOURS)
   mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-gpu
     FILE polycrystal-test-gpu.res ${_polycrystal_checks}
