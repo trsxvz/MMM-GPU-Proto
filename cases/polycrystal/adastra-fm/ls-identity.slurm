@@ -15,7 +15,10 @@
 # iterations of the logs. FM_VARIANTS (default "A B") gives the executables
 # run, FM_REFERENCE_DIR the results directory of a previous job holding the
 # outputs of A when only B is run, FM_TIMEOUT_CPU the time limit of a
-# computation in s (default 2400).
+# computation in s (default 2400). FM_EXTRA_OPTIONS replaces the option
+# --single-material: empty for one material per grain, or with the options
+# of the measurements (line search, prediction) to compare two executables
+# with these options enabled.
 #SBATCH --job-name=fm-ls-identity
 #SBATCH --constraint=MI300
 #SBATCH --nodes=1
@@ -31,7 +34,8 @@ out=$R/ls-identity-$SLURM_JOB_ID
 mkdir -p "$out"
 A=${FM_EXECUTABLE_A:-$W/fix3/bin/uniaxial-polycrystal-B}
 B=${FM_EXECUTABLE_B:?}
-log "start, A $A, B $B, scripts $P"
+log "start, A $A, B $B, scripts $P," \
+  "options ${FM_EXTRA_OPTIONS---single-material}"
 export refinement=1 solver_label=best
 export run_timeout_gpu=2400 run_timeout_cpu=${FM_TIMEOUT_CPU:-2400}
 export vectors=$MESHES/v100/vectors_100crystals.txt
@@ -50,7 +54,8 @@ run_case() {
   for v in ${FM_VARIANTS:-A B}; do
     e=$A
     [ $v = B ] && e=$B
-    executable=$e extra_options=--single-material label=$1-$v modes=cpu \
+    executable=$e extra_options="${FM_EXTRA_OPTIONS---single-material}" \
+      label=$1-$v modes=cpu \
       "$P/cases/measure-polycrystal-grains.sh" "$out" > "$out/$1-$v.out" 2>&1
     log "$1 $v: $(tail -1 "$out/series.txt")"
   done

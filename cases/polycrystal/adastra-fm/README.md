@@ -59,6 +59,9 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     alone and compares it to the outputs of a previous job (the raw mesh
     takes 30 minutes per computation); `FM_TIMEOUT_CPU` is the time limit of
     a computation.
+  - `FM_EXTRA_OPTIONS` replaces `--single-material`: empty for one material
+    per grain, or with the options of the measurements (line search,
+    prediction) to compare two executables with these options enabled.
 - **`ls-stats.py <log>...`: counters of a computation**: attempts of time
   steps by time increment, Newton corrections, iterations whose step was
   reduced by the line search, refused trials, failed searches.
@@ -100,6 +103,25 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   - Logged: the line of the computation, the extrapolated estimates
     discarded, the estimates moved after an integration failure, the failed
     resolutions.
+- **`review-tests.slurm`: tests added after the review of the patches**
+  (14/11/2026).
+  - Separate build in `FM_FIX`, then the unit tests of mfem-mgis on the
+    weights of the integration points kept by the problems, on the kept
+    rotation matrices and on the failure of the line search of NewtonK0
+    (`FM_TESTS`), and other tests using the materials and the non linear
+    solvers (`FM_OTHER_TESTS`).
+  - Then the tests of the polycrystal of mm-opera-hpc by `ctest`, with the
+    behaviours built there, and the comparison of `--single-material` to
+    one material per grain run by hand (`cmake/run-and-compare.py` of
+    mm-opera-hpc), on one process and on two.
+- **`review-mutations.slurm`: mutations of the code covered by these
+  tests.**
+  - Separate build in `FM_FIX`, which must not be the one of an executable
+    used by measurements.
+  - Eleven mutations, one at a time, each of which must make its test
+    fail: four of the kept weights, three of the kept rotation matrices,
+    two of the line search of NewtonK0, two of the single material of the
+    polycrystal. `FM_MUTATIONS` selects them.
 - **`pred-ab.slurm`: the extrapolation measured on an RVE.**
   - `FM_GRAINS` grains, one material for all the grains, 20 s simulated,
     options `FM_COMMON` (the line search), without and with
