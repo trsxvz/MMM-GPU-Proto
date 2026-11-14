@@ -6878,3 +6878,84 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
 - `cases/polycrystal/adastra-fm/`: `ls-gpu-tests.slurm`, `pred-tests.slurm`,
   `pred-ab.slurm`; `ls-stats.py` also describes the first resolution of
   each time step.
+
+### 2026-11-14, linear extrapolation: fallback on the default prediction
+
+- Context: limit noted in the previous entry. With the strategy
+  `LINEAR_EXTRAPOLATION_PREDICTION`, when the behaviours could not be
+  integrated at the extrapolated estimate, the non linear solvers stopped at
+  their first integration, the resolution failed and the application
+  rejected the time step, although the same time step could be solved from
+  the default prediction. Not observed on the polycrystal (no failed time
+  step in the measured computations), but nothing prevented it.
+- mfem-mgis, patch 0293. The problem keeps the outcome of the first
+  integration of the behaviours which follows the extrapolation (state
+  written by `extrapolateUnknowns`, then by `integrate`; the computations of
+  the prediction operators, which do not integrate the behaviours, are
+  ignored). If it failed and the solver did not converge, `solve` restores
+  the default prediction (unknowns of the beginning of the time step, values
+  imposed at its end), prints a warning on the main process and calls the
+  non linear solver again, once. The reference of the relative criterion is
+  unchanged: it is already the norm of the residual of the default
+  prediction, so that the resolution is the one of the default strategy.
+  The failures of the integration at the following estimates of a
+  resolution are still handled by the non linear solver. No integration is
+  added when the extrapolated estimate is integrated; the decision is the
+  same on all the processes (`integrate` returns the same value on all of
+  them); the same code serves the `Newton`, `FixedPoint`, `KINSOL` and `SNES`
+  solvers (the last two not tested: unavailable on Adastra and on the CI).
+- Documentation of mfem-mgis: section of the strategy in
+  `nonlinear_algorithms.rst`, description of the enumeration, `CHANGELOG.md`.
+- Tests: `LinearExtrapolationPredictionTest`, with the
+  `FailingIsotropicLinearElasticity` behaviour (integration failure beyond a
+  trace of the strain of 1e-3) and the three solvers. An imposed displacement
+  increases then decreases: at the time step of the reversal, the behaviour
+  is integrated at the default prediction (trace -4.4e-4) and not at the
+  extrapolated estimate (-1.72e-3); the first estimate is the default
+  prediction, bit for bit, the warning is printed once, the reference, the
+  iterations and the solution are the ones of the default strategy; with
+  half of the time step, the extrapolated estimate is kept (ratio of its
+  residual to the reference 11/3); at the next time step, the extrapolation
+  is the solution. With an imposed stress beyond the limit of the behaviour,
+  the resolution fails without starting again. Eighteen mutations of the
+  library (the eight ones of the previous entry and ten of the fallback) all
+  make the test fail in at least one of its variants (job 5979634); three of
+  them are only seen by one variant (point by point in sequential, 2
+  processes, batches), which shows that the three are needed. On Adastra
+  (job 5979633): the 15 tests of the prediction and of the line search, and
+  84 other tests using the non linear solvers. On the CI (run 43560551512):
+  the whole suite on the CPU, in double (262 tests of mfem-mgis, 14 of
+  mm-opera-hpc) and in float (258 and 14), all passed. On one MI300A (job
+  5979655): 98 tests out of 98 with the kernels forced, 98 out of 98 with
+  the computations selected by each test, and the test selecting a device.
+- Options disabled, same outputs bit for bit as the executable preceding the
+  line search, on the four cases (job 5979653).
+- Option enabled, fallback not triggered: same outputs bit for bit as the
+  executable preceding the fallback (`.res`, averages per grain, lines of the
+  iterations) for 400 grains on 96 cores with the line search and the
+  extrapolation (job 5979654 against 5979328: 20 steps, 155 lines of
+  iterations, Slurm step 1308 s against 1307 s), for the four computations
+  of the polycrystal of 5 grains, and for the raw mesh of 100 grains below.
+  On 4 MI300A (job 5979656, 2 runs): 20 steps, no failure, 157 and 160 lines,
+  loop 103 and 102 s (102 and 101 s before the fallback).
+- Raw mesh of 100 grains (5 steps of 1 s, 96 cores, NewtonK0 with the first
+  choice from 0.01; `pred-raw.slurm`), the case whose behaviour fails to
+  integrate at some estimates of the resolutions:
+
+  | Options | Steps accepted | Failed resolutions | Lines of iterations | Estimates moved after an integration failure | Loop (s) |
+  |---|---|---|---|---|---|
+  | none (job 5979298) | 140 | 21 | 1307 | 139 | 1695 |
+  | extrapolation (job 5979782) | 7 | 2 | 145 | 16 | 304 |
+  | line search and extrapolation (job 5979781) | 5 | 0 | 85 | 0 | 216 |
+
+  With both options, the raw mesh is computed with steps of 1 s without any
+  failure. The extrapolation alone leaves two failed attempts: the line
+  search is needed there, whereas the extrapolation alone was enough on the
+  cleaned meshes (400 and 6,400 grains). The axial stress at 5 s differs by
+  2.1e-3 between the first and the last line: the time integration error of
+  5 steps of 1 s against 140 smaller ones. The fallback is not triggered in
+  any of these computations (the integration fails during the iterations,
+  not at the extrapolated estimate): it is only exercised by the unit test.
+- `cases/polycrystal/adastra-fm/`: `pred-mutations.slurm` (the eighteen
+  mutations), `pred-raw.slurm` (the raw mesh); `ls-stats.py` counts the
+  extrapolated estimates discarded.

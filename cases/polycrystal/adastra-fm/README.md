@@ -91,6 +91,15 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     each one must make `LinearExtrapolationPredictionTest` fail in at
     least one of its variants (sequential, 2 processes, batches and
     kernels on the host).
+- **`pred-raw.slurm`: the extrapolation on the raw mesh of 100 grains**
+  (5 steps of 1 s on all the cores, the case `i3-raw` of
+  `ls-identity.slurm`, whose behaviour fails to integrate at some
+  estimates).
+  - Options `FM_OPTIONS` (default: the line search and the extrapolation),
+    executable `FM_EXECUTABLE`, name of the computation `FM_LABEL`.
+  - Logged: the line of the computation, the extrapolated estimates
+    discarded, the estimates moved after an integration failure, the failed
+    resolutions.
 - **`pred-ab.slurm`: the extrapolation measured on an RVE.**
   - `FM_GRAINS` grains, one material for all the grains, 20 s simulated,
     options `FM_COMMON` (the line search), without and with

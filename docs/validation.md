@@ -636,6 +636,61 @@ iterations, 139 estimates moved after a failure of the behaviour, 21 failed
 resolutions). The refusal with the non linear solver of PETSc selected
 globally is not tested.
 
+Since the patch 0293 of 14/11/2026, a resolution of this strategy starts
+again from the default prediction when the behaviours can't be integrated at
+the extrapolated estimate (before, it failed and the time step was rejected).
+`LinearExtrapolationPredictionTest` checks it with the
+`FailingIsotropicLinearElasticity` behaviour, whose integration fails beyond
+a trace of the strain of 1e-3, on a cube whose imposed displacement increases
+then decreases: at the time step of the reversal, the behaviour is integrated
+at the default prediction (trace -4.4e-4) and not at the extrapolated
+estimate (-1.72e-3). The first estimate is then the default prediction, bit
+for bit, the warning is printed once, and the reference, the iterations and
+the solution are the ones of the default strategy; with half of the time
+step, the extrapolated estimate is integrated and kept (ratio of its residual
+to the reference 11/3, analytical); at the next time step, the extrapolation
+of the increment of the time step solved from the default prediction is the
+solution. With an imposed stress beyond the limit of the behaviour, the
+extrapolated estimate is integrated and the following ones are not: the
+resolution fails without starting again. Eighteen mutations of the library
+each make the test fail in at least one of its variants
+(`pred-mutations.slurm`, job 5979634): the eight ones of the extrapolation
+and ten of the fallback (no fallback, default prediction or imposed values
+not restored, prediction operators taken for an integration, fallback after
+any failure, no warning, failure not reported by each of the three
+integration paths, outcome of a later integration kept). On 14/11/2026:
+
+- on the CI (run 43560551512): the whole suite on the CPU, in double (262
+  tests of mfem-mgis, 14 of mm-opera-hpc) and in float (258 and 14), all
+  passed;
+- on Adastra (`pred-tests.slurm`, job 5979633): the 15 tests of the
+  prediction and of the line search, and 84 other tests using the non linear
+  solvers, all passed;
+- on one MI300A (`ls-gpu-tests.slurm`, job 5979655): the tests using the non
+  linear solvers, 98 out of 98 with the kernels forced, 98 out of 98 with the
+  computations selected by each test, and the test selecting a device;
+- without the option, the outputs of the polycrystal of 100 grains are the
+  ones of the executable preceding the line search, bit for bit, on the four
+  cases (`ls-identity.slurm`, job 5979653);
+- with the option, when the fallback is not triggered, the outputs are the
+  ones of the executable preceding the fallback, bit for bit (`.res`,
+  averages per grain, lines of the iterations): 400 grains on 96 cores, steps
+  of 1 s, line search and extrapolation (job 5979654 against job 5979328;
+  Slurm step 1308 s against 1307 s); the polycrystal of 5 grains of the tests
+  (four computations); and the raw mesh of 100 grains, with the extrapolation
+  alone and with the line search (`pred-raw.slurm`, jobs 5979781 and 5979782
+  against 5979784 and 5979785). On 4 MI300A (job 5979656, 2 runs), the loop
+  takes 103 and 102 s, against 102 and 101 s before the fallback.
+
+The fallback was not triggered in any computation of the polycrystal: it is
+only exercised by the unit test. On the raw mesh of 100 grains (5 steps of
+1 s, 96 cores), where the behaviour fails to integrate at some estimates of
+the resolutions, the line search and the extrapolation accept the 5 steps
+without any failure (85 lines of iterations, loop 216 s), against 140 steps,
+21 failed resolutions, 1307 lines and 1695 s without them; with the
+extrapolation alone, 2 attempts fail (7 steps, 145 lines, 16 estimates moved
+after an integration failure, 304 s).
+
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of
 mfem-mgis and to the builds of the examples and of mm-opera-hpc): each
