@@ -99,14 +99,37 @@ namespace mfem_mgis {
      * \param[in] r: rotation matrix
      * \note this call is only meaningful in 2D hypotheses for orthotropic
      * behaviours.
+     * \note a partial quadrature function giving the first direction of
+     * orthotropy is shared with the material: see
+     * `invalidateRotationMatrices` if its values are modified afterwards.
      */
     void setRotationMatrix(const RotationMatrix2D &r);
     /*!
      * \brief set the rotation matrix
      * \param[in] r: rotation matrix
      * \note this call is only meaningful in 3D for orthotropic behaviours
+     * \note the partial quadrature functions giving directions of orthotropy
+     * are shared with the material: see `invalidateRotationMatrices` if
+     * their values are modified afterwards.
      */
     void setRotationMatrix(const RotationMatrix3D &r);
+    /*!
+     * \brief states that the material axes given by partial quadrature
+     * functions (see `RotationMatrix2D` and `RotationMatrix3D`) were modified
+     * in place: the rotation matrices kept by `getRotationMatrices` are
+     * computed again, on the host, at its next call, and copied again on the
+     * device.
+     *
+     * Without this call, the integrations by batches and the rotations of
+     * the values in the global frame would go on with the matrices of the
+     * former axes, whereas the integration point by point reads the axes at
+     * each point (`getRotationMatrixAtIntegrationPoint`).
+     *
+     * \note `setRotationMatrix` makes this call: it is only required when
+     * the values of the functions are modified without setting the rotation
+     * matrix again.
+     */
+    void invalidateRotationMatrices() noexcept;
     /*!
      * \brief makes the copies of the arrays on the host valid at the
      * beginning of a phase of accesses on the host, and invalidates their
@@ -199,15 +222,17 @@ namespace mfem_mgis {
         mfem::Vector& r, const bool t = false) const;
     /*!
      * \brief rotation matrices of `computeRotationMatrices`, computed at the
-     * first call following `setRotationMatrix` and kept
+     * first call following `setRotationMatrix` or
+     * `invalidateRotationMatrices` and kept
      *
      * The integrations by batches and the rotations of the values in the
      * global frame use them: computing one matrix per point on the host at
      * each integration would cost as much as the integration on a GPU for
      * material axes given point by point. The material axes given by partial
-     * quadrature functions are read at the first call: they must not be
-     * modified afterwards without calling `setRotationMatrix` again. The
-     * kept array is copied on the device once, by its first `Read`.
+     * quadrature functions are read at the first call: if their values are
+     * modified afterwards, `invalidateRotationMatrices` must be called, the
+     * kept matrices being the ones of the former axes otherwise. The kept
+     * array is copied on the device once, by its first `Read`.
      *
      * \return the kept array of the matrices (9 values per matrix, one matrix
      * for a uniform rotation) and a view of the matrices of all the
@@ -296,7 +321,7 @@ namespace mfem_mgis {
     mutable std::array<mfem::Vector, 2u> kept_rotation_matrices;
     /*!
      * \brief if the kept rotation matrices are computed (reset by
-     * `setRotationMatrix`)
+     * `invalidateRotationMatrices`)
      */
     mutable std::array<bool, 2u> kept_rotation_matrices_computed = {false,
                                                                     false};

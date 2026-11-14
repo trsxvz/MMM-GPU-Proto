@@ -1,4 +1,4 @@
-From 0e949cd44167ed1170f5b98316fcf14c841f9009 Mon Sep 17 00:00:00 2001
+From 78e4b51f4c001b25fa537821e626cbbb941fbd3f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 13 Nov 2026 23:14:32 +0100
 Subject: [PATCH] Rotation matrices kept by the materials
@@ -12,17 +12,70 @@ and one small copy per material and per integration for a uniform rotation.
 
 Material::getRotationMatrices keeps the matrices of computeRotationMatrices,
 computed at the first call following setRotationMatrix; the kept array is
-copied once to the device. The material axes given by partial quadrature
-functions must not be modified afterwards without calling
-setRotationMatrix again. Same values: identical outputs of the
+copied once to the device. Same values: identical outputs of the
 polycrystal of mm-opera-hpc on the CPU.
----
- include/MFEMMGIS/BehaviourIntegratorBase.hxx |  4 +--
- include/MFEMMGIS/Material.hxx                | 32 ++++++++++++++++++++
- src/BehaviourIntegratorBase.cxx              |  9 +++---
- src/Material.cxx                             | 30 ++++++++++++++++--
- 4 files changed, 64 insertions(+), 11 deletions(-)
 
+Material axes given by partial quadrature functions are shared with the
+material. If their values are modified in place afterwards,
+Material::invalidateRotationMatrices must be called (setRotationMatrix
+calls it): the matrices are computed again at their next use. Otherwise,
+the integrations by batches go on with the matrices of the former axes,
+whereas the integration point by point reads the axes at each point.
+
+BatchIntegrationTest: material axes modified in place after a first
+integration, in 3D (two directions given by functions) and in plane strain
+(one direction). The integration by batches keeps the former matrices
+until their invalidation, then gives the stresses of the integration point
+by point; the kept matrices, transposed ones included, are the ones of the
+current axes; the gradients in the global frame do not change. With the
+behaviours of the generic and generic-parallel interfaces.
+---
+ CHANGELOG.md                                  |   4 +
+ docs/source/user_guide/batch_computations.rst |  10 +
+ include/MFEMMGIS/BehaviourIntegratorBase.hxx  |   4 +-
+ include/MFEMMGIS/Material.hxx                 |  57 +++++
+ include/MFEMMGIS/RotationMatrix.hxx           |  16 +-
+ src/BehaviourIntegratorBase.cxx               |   9 +-
+ src/Material.cxx                              |  34 ++-
+ tests/BatchIntegrationTest.cxx                | 220 +++++++++++++++++-
+ 8 files changed, 341 insertions(+), 13 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 82561a5912..35a104320b 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -59,6 +59,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION`, `MFEM_MGIS_*_COMPUTATION`
+   and `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`; FBar and Faltus
+   regularizations computed by kernels
++- `Material::getRotationMatrices`: rotation matrices of an orthotropic
++  material computed once and kept for the integrations by batches;
++  `Material::invalidateRotationMatrices`, to be called when material axes
++  given by partial quadrature functions are modified in place
+ - tangent operator applied without assembly (`TangentOperatorComputation`
+   set to `MatrixFree`) and preconditioner `AssembledOperator`
+ - post-processings computed by kernels (environment variable
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 8802066517..818d390f0b 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -112,6 +112,16 @@ interface), the thermodynamic forces in the global frame are also computed
+ at all the points after the integration. The behaviour integrators of
+ :code:`mfem-mgis` support the integration by batches.
+ 
++The rotation matrices are computed once, on the host, and kept by the
++material (:code:`Material::getRotationMatrices`), a GPU receiving one copy
++of them. They are computed again after each call to
++:code:`Material::setRotationMatrix`. Material axes given at each integration
++point by partial quadrature functions are shared with the material: if the
++values of these functions are modified in place afterwards,
++:code:`Material::invalidateRotationMatrices` must be called, otherwise the
++integrations by batches go on with the matrices of the former axes, whereas
++the integration point by point reads the axes at each point.
++
+ Layout of the data at the integration points
+ --------------------------------------------
+ 
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 index d33e65fb77..c6ab633ca0 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
@@ -46,7 +99,7 @@ index d33e65fb77..c6ab633ca0 100644
         * \brief copies on the device of the material properties, of the
         * external state variables and of the mass density, used by
 diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
-index 8114417d1b..5de2318ab3 100644
+index 8114417d1b..8e09903b79 100644
 --- a/include/MFEMMGIS/Material.hxx
 +++ b/include/MFEMMGIS/Material.hxx
 @@ -13,6 +13,7 @@
@@ -57,21 +110,61 @@ index 8114417d1b..5de2318ab3 100644
  #include <string_view>
  
  #ifdef MGIS_FUNCTION_SUPPORT
-@@ -196,6 +197,26 @@ namespace mfem_mgis {
+@@ -98,14 +99,37 @@ namespace mfem_mgis {
+      * \param[in] r: rotation matrix
+      * \note this call is only meaningful in 2D hypotheses for orthotropic
+      * behaviours.
++     * \note a partial quadrature function giving the first direction of
++     * orthotropy is shared with the material: see
++     * `invalidateRotationMatrices` if its values are modified afterwards.
+      */
+     void setRotationMatrix(const RotationMatrix2D &r);
+     /*!
+      * \brief set the rotation matrix
+      * \param[in] r: rotation matrix
+      * \note this call is only meaningful in 3D for orthotropic behaviours
++     * \note the partial quadrature functions giving directions of orthotropy
++     * are shared with the material: see `invalidateRotationMatrices` if
++     * their values are modified afterwards.
+      */
+     void setRotationMatrix(const RotationMatrix3D &r);
++    /*!
++     * \brief states that the material axes given by partial quadrature
++     * functions (see `RotationMatrix2D` and `RotationMatrix3D`) were modified
++     * in place: the rotation matrices kept by `getRotationMatrices` are
++     * computed again, on the host, at its next call, and copied again on the
++     * device.
++     *
++     * Without this call, the integrations by batches and the rotations of
++     * the values in the global frame would go on with the matrices of the
++     * former axes, whereas the integration point by point reads the axes at
++     * each point (`getRotationMatrixAtIntegrationPoint`).
++     *
++     * \note `setRotationMatrix` makes this call: it is only required when
++     * the values of the functions are modified without setting the rotation
++     * matrix again.
++     */
++    void invalidateRotationMatrices() noexcept;
+     /*!
+      * \brief makes the copies of the arrays on the host valid at the
+      * beginning of a phase of accesses on the host, and invalidates their
+@@ -196,6 +220,28 @@ namespace mfem_mgis {
       */
      [[nodiscard]] mgis::FieldView<const real> computeRotationMatrices(
          mfem::Vector& r, const bool t = false) const;
 +    /*!
 +     * \brief rotation matrices of `computeRotationMatrices`, computed at the
-+     * first call following `setRotationMatrix` and kept
++     * first call following `setRotationMatrix` or
++     * `invalidateRotationMatrices` and kept
 +     *
 +     * The integrations by batches and the rotations of the values in the
 +     * global frame use them: computing one matrix per point on the host at
 +     * each integration would cost as much as the integration on a GPU for
 +     * material axes given point by point. The material axes given by partial
-+     * quadrature functions are read at the first call: they must not be
-+     * modified afterwards without calling `setRotationMatrix` again. The
-+     * kept array is copied on the device once, by its first `Read`.
++     * quadrature functions are read at the first call: if their values are
++     * modified afterwards, `invalidateRotationMatrices` must be called, the
++     * kept matrices being the ones of the former axes otherwise. The kept
++     * array is copied on the device once, by its first `Read`.
 +     *
 +     * \return the kept array of the matrices (9 values per matrix, one matrix
 +     * for a uniform rotation) and a view of the matrices of all the
@@ -84,7 +177,7 @@ index 8114417d1b..5de2318ab3 100644
      /*!
       * \brief computes the gradients of a state in the global frame at all
       * the integration points (orthotropic behaviours), by one rotation of
-@@ -268,6 +289,17 @@ namespace mfem_mgis {
+@@ -268,6 +314,17 @@ namespace mfem_mgis {
      std::array<real, 9u> (*get_rotation_fct_ptr)(const RotationMatrix2D &,
                                                   const RotationMatrix3D &,
                                                   const size_type);
@@ -95,13 +188,52 @@ index 8114417d1b..5de2318ab3 100644
 +    mutable std::array<mfem::Vector, 2u> kept_rotation_matrices;
 +    /*!
 +     * \brief if the kept rotation matrices are computed (reset by
-+     * `setRotationMatrix`)
++     * `invalidateRotationMatrices`)
 +     */
 +    mutable std::array<bool, 2u> kept_rotation_matrices_computed = {false,
 +                                                                    false};
  
     private:
      /*!
+diff --git a/include/MFEMMGIS/RotationMatrix.hxx b/include/MFEMMGIS/RotationMatrix.hxx
+index dfc4e1fb7c..a8c16efdd6 100644
+--- a/include/MFEMMGIS/RotationMatrix.hxx
++++ b/include/MFEMMGIS/RotationMatrix.hxx
+@@ -23,12 +23,21 @@ namespace mfem_mgis {
+    * The rotation matrix is defined by:
+    * - a constant matrix, computed once for all
+    * - the definition of the first direction of orthotropy
++   *
++   * A direction given by a partial quadrature function is shared with the
++   * material (`Material::setRotationMatrix`), which keeps the rotation
++   * matrices computed from its values: if these values are modified
++   * afterwards, `Material::invalidateRotationMatrices` must be called.
+    */
+   using RotationMatrix2D =
+       std::variant<std::monostate,
+                    std::array<real, 9u>,
+                    std::shared_ptr<PartialQuadratureFunction>>;
+-  //! a simple alias
++  /*!
++   * \brief a direction of orthotropy in 3D, uniform or given at each
++   * integration point by a partial quadrature function (see
++   * `RotationMatrix3D`)
++   */
+   using MaterialAxis3D =
+       std::variant<std::array<real, 3u>,
+                    std::shared_ptr<PartialQuadratureFunction>>;
+@@ -39,6 +48,11 @@ namespace mfem_mgis {
+    * - a constant matrix, computed once for all
+    * - the two directions of orthotropy which can be given either as a
+    * partial quadrature function or as a fixed direction.
++   *
++   * A direction given by a partial quadrature function is shared with the
++   * material (`Material::setRotationMatrix`), which keeps the rotation
++   * matrices computed from its values: if these values are modified
++   * afterwards, `Material::invalidateRotationMatrices` must be called.
+    */
+   using RotationMatrix3D = std::variant<std::monostate,
+                                         std::array<real, 9u>,
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
 index 5944edd144..900bd565e6 100644
 --- a/src/BehaviourIntegratorBase.cxx
@@ -132,7 +264,7 @@ index 5944edd144..900bd565e6 100644
        if (orthotropic && !prediction) {
          const auto g = mgis::behaviour::getGradientsView(this->s1);
 diff --git a/src/Material.cxx b/src/Material.cxx
-index 37fa8d0a54..3af0827180 100644
+index 37fa8d0a54..a3d5ed4914 100644
 --- a/src/Material.cxx
 +++ b/src/Material.cxx
 @@ -7,6 +7,7 @@
@@ -147,19 +279,25 @@ index 37fa8d0a54..3af0827180 100644
        raise("Material::setRotationMatrix: unimplemented case yet");
      }
      this->r2D = r;
-+    this->kept_rotation_matrices_computed = {false, false};
++    this->invalidateRotationMatrices();
    }  // end of setRotationMatrix
  
    void Material::setRotationMatrix(const RotationMatrix3D &r) {
-@@ -240,6 +242,7 @@ namespace mfem_mgis {
+@@ -240,8 +242,13 @@ namespace mfem_mgis {
        raise("Material::setRotationMatrix: unimplemented case yet");
      }
      this->r3D = r;
-+    this->kept_rotation_matrices_computed = {false, false};
++    this->invalidateRotationMatrices();
    }  // end of setRotationMatrix
  
++  void Material::invalidateRotationMatrices() noexcept {
++    this->kept_rotation_matrices_computed = {false, false};
++  }  // end of invalidateRotationMatrices
++
    /*!
-@@ -303,6 +306,28 @@ namespace mfem_mgis {
+    * \brief resizes an array of the memory of MFEM
+    * \param[out] v: array
+@@ -303,6 +310,28 @@ namespace mfem_mgis {
      return mgis::makePointByPointFieldView(matrices, np, 9, 9);
    }  // end of computeRotationMatrices
  
@@ -174,8 +312,8 @@ index 37fa8d0a54..3af0827180 100644
 +    const auto np = static_cast<size_type>(this->n);
 +    const auto size = static_cast<std::size_t>(r.Size());
 +    if (size == 0) {
-+      return {&r,
-+              mgis::makePointByPointFieldView(std::span<const real>{}, 0, 9, 9)};
++      return {&r, mgis::makePointByPointFieldView(std::span<const real>{}, 0, 9,
++                                                  9)};
 +    }
 +    const auto matrices = std::span<const real>(r.HostRead(), size);
 +    // one matrix: uniform rotation (or a single point)
@@ -188,7 +326,7 @@ index 37fa8d0a54..3af0827180 100644
    void Material::computeValuesInGlobalFrame(mfem::Vector& v,
                                              const StateArray a,
                                              const StateSelection s,
-@@ -324,10 +349,9 @@ namespace mfem_mgis {
+@@ -324,10 +353,9 @@ namespace mfem_mgis {
      if (size == 0) {
        return;
      }
@@ -200,7 +338,7 @@ index 37fa8d0a54..3af0827180 100644
      const auto hsource = gradients
                               ? mgis::behaviour::getGradientsView(sm)
                               : mgis::behaviour::getThermodynamicForcesView(sm);
-@@ -346,7 +370,7 @@ namespace mfem_mgis {
+@@ -346,7 +374,7 @@ namespace mfem_mgis {
                               : relocate(mgis::FieldView<const real>(hsource),
                                          this->read(a, s), array.Size());
      const auto matrices =
@@ -209,6 +347,258 @@ index 37fa8d0a54..3af0827180 100644
      auto *const values = host ? v.HostWrite() : v.Write();
      const auto d =
          mgis::makeFieldView(std::span<real>(values, size), ol, np, nc);
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 8d7dda486d..db5e79f04d 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -8,7 +8,9 @@
+  * a behaviour with material properties given at the end of the time step
+  * only, with a spatial variation, and a behaviour with a thermal expansion
+  * whose temperature varies in time, with the behaviours generated by the
+- * generic and generic-parallel interfaces; states after an update or a
++ * generic and generic-parallel interfaces; material axes modified in place
++ * and seen by the integration by batches once the rotation matrices kept
++ * by the material are invalidated; states after an update or a
+  * revert; diagonal, action and nodal blocks of the tangent operator applied
+  * without assembly, and the Jacobi preconditioner by nodal blocks; FBar
+  * formulation (imposed pressure, springs, two materials,
+@@ -34,6 +36,7 @@
+  * \date   09/10/2026
+  */
+ 
++#include <array>
+ #include <cmath>
+ #include <algorithm>
+ #include <cstdlib>
+@@ -2030,6 +2033,206 @@ static void testFailure(mfem_mgis::Context& ctx,
+   check(ok, name + ": stresses where the integration succeeds");
+ }  // end of testFailure
+ 
++/*!
++ * \brief material axes given by partial quadrature functions and modified
++ * in place after a first integration of the behaviour. The integration
++ * point by point reads the axes at each point. The integration by batches
++ * uses the rotation matrices kept by the material
++ * (`Material::getRotationMatrices`): it goes on with the matrices of the
++ * former axes until `Material::invalidateRotationMatrices` is called, then
++ * gives the stresses of the integration point by point. The gradients in
++ * the global frame, rotated back by the transposed matrices, which are
++ * kept too, are then the ones computed with the former axes: they do not
++ * depend on the axes.
++ * \param[in, out] ctx: execution context
++ * \param[in] mesh: mesh of a cube or, in plane strain, of the unit square
++ * \param[in] library: library of the behaviour integrated by batches
++ * \param[in] reference_library: library of the behaviour integrated point
++ * by point (generic interface)
++ * \param[in] plane_strain: if true, the computations are made in plane
++ * strain, the first direction of orthotropy being given by one function;
++ * otherwise in 3D, the first two directions being given by two functions
++ * \param[in] name: name of the test
++ */
++static void testModifiedMaterialAxes(mfem_mgis::Context& ctx,
++                                     const char* const mesh,
++                                     const char* const library,
++                                     const char* const reference_library,
++                                     const bool plane_strain,
++                                     const std::string& name) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  const auto dim = plane_strain ? 2 : 3;
++  // results of two integrations at the same unknowns, the material axes
++  // being modified in place between them
++  struct Integrations {
++    // thermodynamic forces in the material frame
++    std::array<std::vector<real>, 2u> stresses;
++    // gradients in the global frame
++    std::array<std::vector<real>, 2u> gradients;
++    // if true, the rotation matrices and the transposed ones given by the
++    // material after the second integration are the ones of the modified
++    // axes
++    bool matrices = true;
++  };
++  auto integrate = [&](const char* const mode, const char* const l,
++                       const bool invalidate) {
++    // the integration point by point requires the point by point layout,
++    // whatever the layout given by the environment
++    auto parameters = Parameters{
++        {"MeshFileName", mesh},
++        {"FiniteElementFamily", "H1"},
++        {"FiniteElementOrder", 1},
++        {"UnknownsSize", dim},
++        {"NumberOfUniformRefinements", plane_strain ? 0 : 1},
++        {"Hypothesis", plane_strain ? "PlaneStrain" : "Tridimensional"},
++        {"BehaviourIntegration", mode},
++        {"Parallel", false}};
++    if (std::string_view{mode} == "PointByPoint") {
++      parameters.insert(throwing, {{"QuadratureDataLayout", "PointByPoint"}});
++    }
++    auto problem =
++        construct<NonLinearEvolutionProblem>(ctx, parameters) | or_die;
++    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, l,
++                                   "OrthotropicElasticity") |
++        or_die;
++    auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
++    for (auto* s : {&m.s0, &m.s1}) {
++      mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
++                                                293.15) |
++          or_die;
++    }
++    // material axes rotated around the z axis by an angle varying from one
++    // point to another, the functions being shared with the material
++    const auto np = static_cast<std::size_t>(m.n);
++    const auto qspace = m.getPartialQuadratureSpace();
++    auto a1 = std::make_shared<PartialQuadratureFunction>(qspace, dim);
++    auto a2 = std::make_shared<PartialQuadratureFunction>(qspace, dim);
++    auto set_axes = [&a1, &a2, np, dim](const real angle) {
++      auto v1 = a1->getValues();
++      auto v2 = a2->getValues();
++      const auto d = static_cast<std::size_t>(dim);
++      for (std::size_t i = 0; i != np; ++i) {
++        const auto theta = angle + real(0.2) * std::sin(real(i));
++        v1[d * i] = std::cos(theta);
++        v1[d * i + 1] = std::sin(theta);
++        v2[d * i] = -std::sin(theta);
++        v2[d * i + 1] = std::cos(theta);
++        if (d == 3) {
++          v1[d * i + 2] = 0;
++          v2[d * i + 2] = 0;
++        }
++      }
++    };
++    set_axes(real(0.3));
++    if (plane_strain) {
++      m.setRotationMatrix(RotationMatrix2D{a1});
++    } else {
++      m.setRotationMatrix(
++          RotationMatrix3D{std::array<MaterialAxis3D, 2u>{a1, a2}});
++    }
++    // unknowns with a non uniform gradient
++    auto& fespace =
++        problem.getFiniteElementDiscretization().getFiniteElementSpace<false>();
++    auto gf = mfem::GridFunction(&fespace);
++    auto c = mfem::VectorFunctionCoefficient(
++        dim, [dim](const mfem::Vector& x, mfem::Vector& v) {
++          v[0] = 1e-3 * (x[0] * x[0] + 0.3 * x[1]);
++          if (dim == 3) {
++            v[1] = 1e-3 * 0.5 * x[0] * x[2];
++            v[2] = -1e-3 * 0.2 * x[1] * x[1];
++          } else {
++            v[1] = 1e-3 * 0.5 * x[0] * x[1];
++          }
++        });
++    gf.ProjectCoefficient(c);
++    auto u = mfem::Vector{};
++    gf.GetTrueDofs(u);
++    auto r = Integrations{};
++    for (std::size_t step = 0; step != 2; ++step) {
++      if (step == 1) {
++        set_axes(real(0.9));
++        if (invalidate) {
++          m.invalidateRotationMatrices();
++        }
++      }
++      check(problem.integrate(
++                u, IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR, 1),
++            name + ": integration (" + mode + ")");
++      // the arrays are read through their views, in all the layouts
++      m.synchronizeOnHostForReading();
++      const auto sv =
++          mgis::behaviour::getThermodynamicForcesView(std::as_const(m.s1));
++      const auto nc = static_cast<size_type>(m.s1.thermodynamic_forces_stride);
++      for (size_type i = 0; i != static_cast<size_type>(np); ++i) {
++        for (size_type k = 0; k != nc; ++k) {
++          r.stresses[step].push_back(sv(i, k));
++        }
++      }
++      auto g = mfem::Vector{};
++      m.computeGradientsInGlobalFrame(g);
++      r.gradients[step].assign(g.HostRead(), g.HostRead() + g.Size());
++    }
++    // kept matrices, from the global frame to the material frame and
++    // transposed, compared to the ones computed from the current axes
++    for (const auto transposed : {false, true}) {
++      const auto matrices = m.getRotationMatrices(transposed).second;
++      for (std::size_t i = 0; i != np; ++i) {
++        const auto expected =
++            m.getRotationMatrixAtIntegrationPoint(static_cast<size_type>(i));
++        for (size_type j = 0; j != 3; ++j) {
++          for (size_type k = 0; k != 3; ++k) {
++            const auto v = matrices(static_cast<size_type>(i), 3 * j + k);
++            const auto e = expected[static_cast<std::size_t>(
++                transposed ? 3 * k + j : 3 * j + k)];
++            r.matrices = r.matrices && (v == e);
++          }
++        }
++      }
++    }
++    return r;
++  };
++  // in float, the rotations of the points one by one and of all the points
++  // at once differ by rounding errors
++  constexpr auto eps = mfem_mgis::unit_tests::tolerance(1e-12, 1e-4);
++  const auto reference = integrate("PointByPoint", reference_library, false);
++  const auto kept = integrate("Batch", library, false);
++  const auto invalidated = integrate("Batch", library, true);
++  const auto change =
++      getRelativeDifference(reference.stresses[0], reference.stresses[1]);
++  const auto d0 =
++      getRelativeDifference(reference.stresses[0], invalidated.stresses[0]);
++  const auto dk = getRelativeDifference(kept.stresses[0], kept.stresses[1]);
++  const auto d1 =
++      getRelativeDifference(reference.stresses[1], invalidated.stresses[1]);
++  const auto dg =
++      getRelativeDifference(invalidated.gradients[0], invalidated.gradients[1]);
++  std::cout << name << ": relative change of the stresses with the axes "
++            << change << ", relative differences between the integrations "
++            << "by batches and point by point " << d0 << " (first axes), " << d1
++            << " (modified axes, matrices invalidated), relative "
++            << "differences between the two integrations by batches " << dk
++            << " (stresses, matrices kept), " << dg
++            << " (gradients in the global frame, matrices invalidated)\n";
++  check(!reference.stresses[0].empty(), name + ": no result");
++  // the test is only meaningful if the stresses depend on the axes
++  check(change > 0.1, name + ": the stresses do not depend on the axes");
++  check(d0 <= eps, name + ": stresses with the first axes");
++  // without invalidation, the matrices of the former axes are kept
++  check((dk <= eps) && (!kept.matrices),
++        name + ": the rotation matrices are not kept");
++  check(d1 <= eps,
++        name +
++            ": stresses with the modified axes after the invalidation of "
++            "the rotation matrices");
++  check(invalidated.matrices,
++        name + ": rotation matrices after their invalidation");
++  check(dg <= eps,
++        name +
++            ": gradients in the global frame after the invalidation of "
++            "the rotation matrices");
++}  // end of testModifiedMaterialAxes
++
+ /*!
+  * \brief inner forces computed element by element just after the
+  * integration of the behaviour on the element, as by the assembly of the
+@@ -3132,6 +3335,21 @@ int main(int argc, char** argv) {
+       testFailure(ctx, mesh, l, "Batch", true);
+     }
+   }
++  // material axes modified in place, in 3D and in plane strain
++  for (const auto plane_strain : {false, true}) {
++    const auto* const m = plane_strain ? square_mesh : mesh;
++    const auto name = std::string{"modified material axes"} +
++                      (plane_strain ? ", plane strain" : "");
++    testModifiedMaterialAxes(ctx, m, library, library, plane_strain, name);
++    for (const auto& [backend, l] : {std::pair{"openmp", openmp_library},
++                                     std::pair{"stlpar", stlpar_library},
++                                     std::pair{"cuda", cuda_library}}) {
++      if (!std::string_view{l}.empty()) {
++        testModifiedMaterialAxes(ctx, m, l, library, plane_strain,
++                                 name + " (generic-parallel, " + backend + ")");
++      }
++    }
++  }
+   std::cout << (failures == 0 ? "success" : "failure") << '\n';
+   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }  // end of main
 -- 
 2.34.1
 

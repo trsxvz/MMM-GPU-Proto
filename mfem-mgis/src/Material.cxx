@@ -157,7 +157,7 @@ namespace mfem_mgis {
       raise("Material::setRotationMatrix: unimplemented case yet");
     }
     this->r2D = r;
-    this->kept_rotation_matrices_computed = {false, false};
+    this->invalidateRotationMatrices();
   }  // end of setRotationMatrix
 
   void Material::setRotationMatrix(const RotationMatrix3D &r) {
@@ -242,8 +242,12 @@ namespace mfem_mgis {
       raise("Material::setRotationMatrix: unimplemented case yet");
     }
     this->r3D = r;
-    this->kept_rotation_matrices_computed = {false, false};
+    this->invalidateRotationMatrices();
   }  // end of setRotationMatrix
+
+  void Material::invalidateRotationMatrices() noexcept {
+    this->kept_rotation_matrices_computed = {false, false};
+  }  // end of invalidateRotationMatrices
 
   /*!
    * \brief resizes an array of the memory of MFEM
@@ -317,8 +321,8 @@ namespace mfem_mgis {
     const auto np = static_cast<size_type>(this->n);
     const auto size = static_cast<std::size_t>(r.Size());
     if (size == 0) {
-      return {&r,
-              mgis::makePointByPointFieldView(std::span<const real>{}, 0, 9, 9)};
+      return {&r, mgis::makePointByPointFieldView(std::span<const real>{}, 0, 9,
+                                                  9)};
     }
     const auto matrices = std::span<const real>(r.HostRead(), size);
     // one matrix: uniform rotation (or a single point)

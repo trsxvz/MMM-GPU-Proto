@@ -112,6 +112,16 @@ interface), the thermodynamic forces in the global frame are also computed
 at all the points after the integration. The behaviour integrators of
 :code:`mfem-mgis` support the integration by batches.
 
+The rotation matrices are computed once, on the host, and kept by the
+material (:code:`Material::getRotationMatrices`), a GPU receiving one copy
+of them. They are computed again after each call to
+:code:`Material::setRotationMatrix`. Material axes given at each integration
+point by partial quadrature functions are shared with the material: if the
+values of these functions are modified in place afterwards,
+:code:`Material::invalidateRotationMatrices` must be called, otherwise the
+integrations by batches go on with the matrices of the former axes, whereas
+the integration point by point reads the axes at each point.
+
 Layout of the data at the integration points
 --------------------------------------------
 

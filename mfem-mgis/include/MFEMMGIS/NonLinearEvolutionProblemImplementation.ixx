@@ -271,9 +271,9 @@ namespace mfem_mgis {
             return ctx.registerErrorMessage("unknown exception");
           }
           thforces = mgis::makePointByPointFieldView(
-              std::span<const real>(
-                  rotated_thermodynamic_forces.HostRead(),
-                  static_cast<std::size_t>(rotated_thermodynamic_forces.Size())),
+              std::span<const real>(rotated_thermodynamic_forces.HostRead(),
+                                    static_cast<std::size_t>(
+                                        rotated_thermodynamic_forces.Size())),
               npoints, thsize, thsize);
         }
         for (mfem_mgis::size_type o = 0; o != npoints; ++o) {

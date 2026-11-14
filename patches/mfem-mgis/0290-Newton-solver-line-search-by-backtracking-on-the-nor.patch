@@ -1,4 +1,4 @@
-From 679ad03acb55dd19f54df2df3862b45f1ecf4e8e Mon Sep 17 00:00:00 2001
+From 9bdfd979d323af67669e1c94d1f67f0055b8e881 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 14 Nov 2026 02:34:58 +0100
 Subject: [PATCH] Newton solver: line search by backtracking on the norm of the
@@ -64,10 +64,10 @@ by the search; plastic cube; stagnation.
  create mode 100644 tests/SaturatingElasticity.mfront
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 82561a5912..13c733b04c 100644
+index 35a104320b..d27f229499 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -69,6 +69,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+@@ -73,6 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
    `Steffensen`, `Cast3M`...)
  - `AdaptiveLinearSolverTolerance` option (Eisenstat-Walker) of the Newton
    solver and of the `NewtonK0` method
@@ -956,7 +956,7 @@ index c3b0025100..4125542dc9 100644
    checkRefusals();
    std::cout << (failures == 0 ? "success" : "failure") << '\n';
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index d2db457155..1e078e4c3d 100644
+index adf3c45521..5542bdb49f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -79,7 +79,8 @@ if(MFEM_MGIS_HAVE_TFEL)
@@ -969,7 +969,7 @@ index d2db457155..1e078e4c3d 100644
  
    # TwoLayerCube executable
    add_test_executable(TwoLayerCube)
-@@ -1491,6 +1492,36 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1513,6 +1514,36 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endforeach()
  
@@ -1006,7 +1006,7 @@ index d2db457155..1e078e4c3d 100644
    # MaterialArraysTest executable: arrays of the materials in the memory of
    # MFEM, on the host, on the debug device of MFEM and on the GPU. The
    # point-wise model is also integrated by batches with the library
-@@ -1901,6 +1932,11 @@ if(MFEM_USE_MPI)
+@@ -1923,6 +1954,11 @@ if(MFEM_USE_MPI)
                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
  endif()
  

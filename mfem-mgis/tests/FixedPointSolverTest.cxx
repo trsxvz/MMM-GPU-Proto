@@ -24,6 +24,11 @@
  * whose stress saturates (see `NewtonLineSearchTest`), for which it does
  * not converge otherwise; the tolerance of Eisenstat and Walker which
  * follows a reduced step uses the norm of the linear model at this step.
+ * On a cube whose behaviour can't be integrated at the solution, the trials
+ * at which the integration fails are refused, and the resolution fails when
+ * no step is acceptable; with a second, elastic, material, such a trial is
+ * refused although the norm of its residual, computed from the stresses of
+ * the material which is integrated, would be accepted.
  * \date   10/10/2026
  */
 
@@ -104,13 +109,18 @@ struct Results {
     std::optional<mfem_mgis::real> linear_residual_norm;
     //! \brief step length of the line search, if any
     std::optional<mfem_mgis::real> step_length;
+    //! \brief number of reductions of the step by the line search
+    mfem_mgis::size_type reductions = 0;
     /*!
      * \brief norm of the linear model at the step retained by the line
      * search, if computed
      */
     std::optional<mfem_mgis::real> linear_model_residual_norm;
   };
-  //! \brief information on the iterations of each time step
+  /*!
+   * \brief information on the iterations of each time step, the last one
+   * being the one whose resolution failed, if any
+   */
   std::vector<std::vector<Iteration>> iterations_information;
 };
 
@@ -214,6 +224,14 @@ struct ComputationOptions {
    * pressure on the face `Xmax`, instead of the displacement of this face
    */
   std::vector<double> stresses = {};
+  /*!
+   * \brief if not null, mesh of a cube made of two materials replacing the
+   * mesh of the cube: the material 1 (x < 1/2) has the behaviour of the
+   * cube, the material 2 (x > 1/2, which holds the face `Xmax`) is elastic
+   * (`IsotropicLinearElasticity`, with the elastic properties of
+   * `FailingIsotropicLinearElasticity`)
+   */
+  const char* two_materials_mesh = nullptr;
 };
 
 /*!
@@ -232,13 +250,15 @@ static Results compute(mfem_mgis::Context& ctx,
                        const ComputationOptions& opts = {}) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
+  const auto two_materials = opts.two_materials_mesh != nullptr;
   auto params = Parameters{
-      {"MeshFileName", mesh},
+      {"MeshFileName", two_materials ? opts.two_materials_mesh : mesh},
       {"FiniteElementFamily", "H1"},
       {"FiniteElementOrder", 1},
       {"UnknownsSize", 3},
       {"NumberOfUniformRefinements", 1},
-      {"Materials", Parameters{{"Cube", 1}}},
+      {"Materials", two_materials ? Parameters{{"Cube", 1}, {"ElasticCube", 2}}
+                                  : Parameters{{"Cube", 1}}},
       {"Boundaries",
        Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
       {"Hypothesis", "Tridimensional"},
@@ -265,6 +285,22 @@ static Results compute(mfem_mgis::Context& ctx,
   for (auto* s : {&m.s0, &m.s1}) {
     mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
         or_die;
+  }
+  if (two_materials) {
+    problem.addBehaviourIntegrator(ctx, "Mechanics", "ElasticCube", library,
+                                   "IsotropicLinearElasticity") |
+        or_die;
+    auto& m2 = problem.getMaterial(ctx, "ElasticCube", 0) | or_die;
+    for (auto* s : {&m2.s0, &m2.s1}) {
+      mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
+                                                293.15) |
+          or_die;
+      mgis::behaviour::setMaterialProperty(ctx, *s, "FirstLameCoefficient",
+                                           1.2e11) |
+          or_die;
+      mgis::behaviour::setMaterialProperty(ctx, *s, "ShearModulus", 8e10) |
+          or_die;
+    }
   }
   for (const auto& [boundary, component] :
        {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
@@ -331,10 +367,6 @@ static Results compute(mfem_mgis::Context& ctx,
     }
     auto c = Context{};
     const auto o = problem.solve(c, t, dt);
-    if (!o.status) {
-      std::cerr << c.getErrorMessage() << '\n';
-      return r;
-    }
     r.iterations += o.iterations;
     r.iterations_per_step.push_back(o.iterations);
     r.norms.clear();
@@ -365,11 +397,18 @@ static Results compute(mfem_mgis::Context& ctx,
         const auto& line_search = get<Parameters>(throwing, p, "LineSearch");
         iteration.step_length =
             get<double>(throwing, line_search, "StepLength");
+        iteration.reductions =
+            get<int>(throwing, line_search, "NumberOfStepReductions");
         if (contains(line_search, "LinearModelResidualNorm")) {
           iteration.linear_model_residual_norm =
               get<double>(throwing, line_search, "LinearModelResidualNorm");
         }
       }
+    }
+    // the information on the iterations of a failed resolution is kept
+    if (!o.status) {
+      std::cerr << c.getErrorMessage() << '\n';
+      return r;
     }
     problem.update(ctx) | or_die;
     t += dt;
@@ -538,10 +577,15 @@ int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
   const char* mesh = "cube.mesh";
+  const char* two_materials_mesh = "cube-two-materials.mesh";
   const char* library = "src/libBehaviourTest.so";
   auto args = mfem::OptionsParser(argc, argv);
   declareDefaultOptions(args);
   args.AddOption(&mesh, "-m", "--mesh", "mesh of a cube");
+  args.AddOption(&two_materials_mesh, "-mm", "--two-materials-mesh",
+                 "mesh of a cube made of two materials (1 for x < 1/2, 2 for "
+                 "x > 1/2), whose boundaries are the ones of the mesh of a "
+                 "cube");
   args.AddOption(&library, "-l", "--library", "behaviour library");
   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
                  "parallel computations");
@@ -1147,6 +1191,133 @@ int main(int argc, char** argv) {
       checkLinearResidualNorms(r, true, name);
       checkAdaptiveTolerances(r, getAdaptiveTolerance("EisenstatWalker1"),
                               adaptive_goal, name);
+    }
+  }
+  // line search of the `NewtonK0` method when no step is acceptable: cube
+  // of `FailingIsotropicLinearElasticity` in uniaxial stress, the trace of
+  // the strain of the solution being 1.5 times the one above which the
+  // integration of the behaviour fails (see `NewtonLineSearchTest`). The
+  // trials at which the integration fails are refused, the estimates get
+  // closer to the limit, then a search fails: the resolution fails, its
+  // estimate and the norm of its residual being the last accepted ones.
+  {
+    constexpr auto maximum_trace = 1e-3;
+    constexpr auto stress = 7.8e8;
+    constexpr auto solution_trace = stress / (3 * 1.2e11 + 2 * 8e10);
+    // direct evaluation: the problem is linear, the trace of the strain of
+    // the trial of step length θ is t + θ (solution_trace - t)
+    auto expected = std::vector<size_type>{};
+    {
+      auto trace = 0.;
+      auto failed = false;
+      while (!failed) {
+        auto theta = 1.;
+        auto reductions = size_type{};
+        while (trace + theta * (solution_trace - trace) > maximum_trace) {
+          if (reductions == 10) {
+            failed = true;
+            break;
+          }
+          theta /= 2;
+          ++reductions;
+        }
+        expected.push_back(reductions);
+        trace += theta * (solution_trace - trace);
+      }
+    }
+    // With a second, elastic, material holding the loaded face (see
+    // `ComputationOptions::two_materials_mesh`), the strain is the same,
+    // and so are the reductions. By batches (tangent operator applied
+    // without assembly), all the materials are integrated even if one of
+    // them fails: at a refused trial, the stresses of the elastic material
+    // are the ones of the trial, the ones of the other material being
+    // unchanged. At the second iteration, the norm of the residual computed
+    // from these stresses at the trial of step length 1/2 is the one of the
+    // current estimate divided by the square root of two, which the
+    // criterion of the search would accept: the trial is refused because
+    // the integration failed, not because of its residual.
+    for (const auto two_materials : {false, true}) {
+      for (const auto matrix_free : {false, true}) {
+        const auto name =
+            std::string{"NewtonK0, integration failures, line search"} +
+            (two_materials ? ", two materials" : "") +
+            (matrix_free ? ", tangent operator applied without assembly" : "");
+        auto options = newton_k0("CGSolver");
+        options.insert(throwing, {{"LineSearch", "Backtracking"}});
+        const auto r =
+            compute(ctx, mesh, library, makeFixedPointSolver(options),
+                    {.matrix_free = matrix_free,
+                     .solver_parameters = {{"MaximumNumberOfIterations", 50}},
+                     .behaviour = "FailingIsotropicLinearElasticity",
+                     .stresses = {stress},
+                     .two_materials_mesh =
+                         two_materials ? two_materials_mesh : nullptr});
+        check((!r.status) && (r.iterations_information.size() == 1),
+              name + ": convergence beyond the limit of the behaviour");
+        if (r.iterations_information.empty()) {
+          continue;
+        }
+        const auto& iterations = r.iterations_information[0];
+        auto description = std::string{};
+        for (const auto& iteration : iterations) {
+          description += " " + std::to_string(iteration.reductions);
+        }
+        std::cout << name << ": reductions" << description << '\n';
+        // in float, the last reductions depend on the rounding errors: the
+        // first three ones are compared
+        const auto n =
+            sizeof(real) == sizeof(double) ? expected.size() : std::size_t{3};
+        check((iterations.size() >= n) &&
+                  ((n != expected.size()) || (iterations.size() == n)),
+              name + ": number of iterations");
+        for (std::size_t i = 0; i != std::min(n, iterations.size()); ++i) {
+          check(iterations[i].reductions == expected[i],
+                name + ": " + std::to_string(iterations[i].reductions) +
+                    " reductions at the iteration " + std::to_string(i + 1) +
+                    ", " + std::to_string(expected[i]) + " expected");
+        }
+        if (iterations.size() < 2) {
+          continue;
+        }
+        // the norms of the residual of the accepted estimates decrease
+        auto decreasing = true;
+        for (std::size_t i = 1; i + 1 < iterations.size(); ++i) {
+          decreasing =
+              decreasing && (iterations[i].norm < iterations[i - 1].norm);
+        }
+        check(decreasing, name + ": norms of the residual");
+        // the search which fails made the maximum number of reductions, and
+        // the estimate is not moved
+        const auto& last = iterations.back();
+        check((last.reductions == 10) &&
+                  (last.step_length.value_or(0) == std::ldexp(real{1}, -10)) &&
+                  (last.norm == iterations[iterations.size() - 2].norm),
+              name + ": failure of the last search");
+      }
+    }
+    // maximum number of reductions given by the option: the first iteration
+    // requires one reduction, the second one two reductions
+    {
+      const auto name = std::string{
+          "NewtonK0, integration failures, one reduction of the step at most"};
+      auto options = newton_k0("CGSolver");
+      options.insert(
+          throwing,
+          {{"LineSearch",
+            Parameters{{"Backtracking",
+                        Parameters{{"MaximumNumberOfStepReductions", 1}}}}}});
+      const auto r =
+          compute(ctx, mesh, library, makeFixedPointSolver(options),
+                  {.solver_parameters = {{"MaximumNumberOfIterations", 50}},
+                   .behaviour = "FailingIsotropicLinearElasticity",
+                   .stresses = {stress}});
+      check((!r.status) && (r.iterations_information.size() == 1) &&
+                (r.iterations_information[0].size() == 2) &&
+                (r.iterations_information[0][0].reductions == 1) &&
+                (r.iterations_information[0][1].reductions == 1) &&
+                (r.iterations_information[0][1].norm ==
+                 r.iterations_information[0][0].norm),
+            name + ": failure of the second search");
     }
   }
   // linear solver of the predictions: with the conjugate gradient

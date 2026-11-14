@@ -59,6 +59,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION`, `MFEM_MGIS_*_COMPUTATION`
   and `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`; FBar and Faltus
   regularizations computed by kernels
+- `Material::getRotationMatrices`: rotation matrices of an orthotropic
+  material computed once and kept for the integrations by batches;
+  `Material::invalidateRotationMatrices`, to be called when material axes
+  given by partial quadrature functions are modified in place
 - tangent operator applied without assembly (`TangentOperatorComputation`
   set to `MatrixFree`) and preconditioner `AssembledOperator`
 - post-processings computed by kernels (environment variable

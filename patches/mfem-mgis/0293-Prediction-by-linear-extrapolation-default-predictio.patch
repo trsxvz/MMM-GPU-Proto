@@ -1,4 +1,4 @@
-From e52cab215e04b0d831ade9ecd0f9b6f0a815066a Mon Sep 17 00:00:00 2001
+From 2bfd6464a63f7539ee945210a1c4106e37de8b99 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 14 Nov 2026 06:08:43 +0100
 Subject: [PATCH] Prediction by linear extrapolation: default prediction after
@@ -44,10 +44,10 @@ resolution fails without starting again from the default prediction.
  8 files changed, 426 insertions(+), 16 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 1202b02236..f2021c7fc1 100644
+index 3764e4760e..c40b927c22 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -75,7 +75,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+@@ -79,7 +79,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
  - `LINEAR_EXTRAPOLATION_PREDICTION` prediction strategy: linear
    extrapolation of the increment of the unknowns of the previous time step,
    made at the first resolution of each time step, the reference of the
@@ -283,10 +283,10 @@ index a0a8301ae2..ed5f2c5df1 100644
          this->solver->unsetContext();
          this->solver->unsetReferenceResidualNorm();
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 5a03464206..97e10304ea 100644
+index 1c1fe10cbc..ce7333c599 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1525,9 +1525,10 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1555,9 +1555,10 @@ if(MFEM_MGIS_HAVE_TFEL)
    # LinearExtrapolationPredictionTest executable: prediction by linear
    # extrapolation of the increment of the previous time step (values of the
    # prediction, reference of the relative criterion, first resolution of a

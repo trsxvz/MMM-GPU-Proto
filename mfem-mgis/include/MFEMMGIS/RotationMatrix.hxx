@@ -23,12 +23,21 @@ namespace mfem_mgis {
    * The rotation matrix is defined by:
    * - a constant matrix, computed once for all
    * - the definition of the first direction of orthotropy
+   *
+   * A direction given by a partial quadrature function is shared with the
+   * material (`Material::setRotationMatrix`), which keeps the rotation
+   * matrices computed from its values: if these values are modified
+   * afterwards, `Material::invalidateRotationMatrices` must be called.
    */
   using RotationMatrix2D =
       std::variant<std::monostate,
                    std::array<real, 9u>,
                    std::shared_ptr<PartialQuadratureFunction>>;
-  //! a simple alias
+  /*!
+   * \brief a direction of orthotropy in 3D, uniform or given at each
+   * integration point by a partial quadrature function (see
+   * `RotationMatrix3D`)
+   */
   using MaterialAxis3D =
       std::variant<std::array<real, 3u>,
                    std::shared_ptr<PartialQuadratureFunction>>;
@@ -39,6 +48,11 @@ namespace mfem_mgis {
    * - a constant matrix, computed once for all
    * - the two directions of orthotropy which can be given either as a
    * partial quadrature function or as a fixed direction.
+   *
+   * A direction given by a partial quadrature function is shared with the
+   * material (`Material::setRotationMatrix`), which keeps the rotation
+   * matrices computed from its values: if these values are modified
+   * afterwards, `Material::invalidateRotationMatrices` must be called.
    */
   using RotationMatrix3D = std::variant<std::monostate,
                                         std::array<real, 9u>,

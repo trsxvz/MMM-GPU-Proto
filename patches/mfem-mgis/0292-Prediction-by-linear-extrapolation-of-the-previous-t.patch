@@ -1,4 +1,4 @@
-From 511709ef97207eaefabd36eaec15526d7dbf3cb8 Mon Sep 17 00:00:00 2001
+From 040b5145b11bb9d5c5ea2bb5abf41f77a3153c37 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 14 Nov 2026 04:56:20 +0100
 Subject: [PATCH] Prediction by linear extrapolation of the previous time step
@@ -43,10 +43,10 @@ iterations on a plastic cube.
  create mode 100644 tests/LinearExtrapolationPredictionTest.cxx
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 061ec0d6c9..1202b02236 100644
+index 8981a28a43..3764e4760e 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -72,6 +72,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+@@ -76,6 +76,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
  - `LineSearch` option of the Newton solver and of the `NewtonK0` method:
    line search by backtracking on the norm of the residual
    (Eisenstat-Walker), disabled by default
@@ -483,10 +483,10 @@ index 238ba16cb1..a0a8301ae2 100644
          CatchTimeSection(ctx, "NLEPIB::computePrediction");
          return this->computePrediction(ctx, t, dt);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 1e078e4c3d..5a03464206 100644
+index 033cd81597..1c1fe10cbc 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1522,6 +1522,37 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1552,6 +1552,37 @@ if(MFEM_MGIS_HAVE_TFEL)
                           "${fixed_point_solver_test_kernels}")
    endforeach()
  

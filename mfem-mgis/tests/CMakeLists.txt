@@ -687,6 +687,28 @@ if(MFEM_MGIS_HAVE_TFEL)
 
   add_behaviour_integrators_selection_test()
 
+  # IntegrationPointsWeightsTest executable: weights of the integration
+  # points kept by the non linear evolution problems and mean values of the
+  # thermodynamic forces, which use them
+  add_test_executable(IntegrationPointsWeightsTest)
+
+  # Helper function for IntegrationPointsWeightsTest
+  function(add_integration_points_weights_test)
+    set(test "IntegrationPointsWeightsTest")
+    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh"
+               "--library" "$<TARGET_FILE:BehaviourTest>")
+    add_test(NAME ${test} COMMAND ./IntegrationPointsWeightsTest ${params})
+    set_property(TEST ${test} PROPERTY DEPENDS BehaviourTest)
+    if(MFEM_USE_MPI)
+      add_test(NAME ${test}P
+               COMMAND mpirun -n 2 ./IntegrationPointsWeightsTest ${params}
+                       "--parallel")
+      set_property(TEST ${test}P PROPERTY DEPENDS BehaviourTest)
+    endif(MFEM_USE_MPI)
+  endfunction()
+
+  add_integration_points_weights_test()
+
   # StateManagerTest executable
   add_tfel_test_executable(StateManagerTest)
 
@@ -1444,11 +1466,15 @@ if(MFEM_MGIS_HAVE_TFEL)
   add_test(NAME FixedPointSolverTest
            COMMAND FixedPointSolverTest
                    --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                   --two-materials-mesh
+                   ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
                    --library $<TARGET_FILE:BehaviourTest>)
   if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
     add_test(NAME FixedPointSolverTestP
              COMMAND mpirun -n 2 ./FixedPointSolverTest --parallel
                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --two-materials-mesh
+                     ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
                      --library $<TARGET_FILE:BehaviourTest>)
     set_tests_properties(FixedPointSolverTestP
                          PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
@@ -1464,6 +1490,8 @@ if(MFEM_MGIS_HAVE_TFEL)
     add_test(NAME FixedPointSolverTest-kernels-${_device}
              COMMAND FixedPointSolverTest --device ${_device}
                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --two-materials-mesh
+                     ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
                      --library $<TARGET_FILE:BehaviourTest>)
     set_tests_properties(FixedPointSolverTest-kernels-${_device}
                          PROPERTIES ENVIRONMENT
@@ -1482,6 +1510,8 @@ if(MFEM_MGIS_HAVE_TFEL)
     add_test(NAME FixedPointSolverTest-kernels-ordered-${_device}
              COMMAND FixedPointSolverTest --device ${_device}
                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --two-materials-mesh
+                     ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
                      --library $<TARGET_FILE:BehaviourTest>)
     set_tests_properties(FixedPointSolverTest-kernels-ordered-${_device}
                          PROPERTIES ENVIRONMENT
