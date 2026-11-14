@@ -40,8 +40,12 @@ partition() {
     fi
     mkdir -p "$d"
     start=$(date +%s)
-    srun -n "$np" --cpu-bind=cores "$S/partition-mesh" \
-      "$W/meshes/clean/v$n/${n}crystals.msh" 1 "$d/mesh." > "$d/partition.log" 2>&1
+    # FM_PARTITION_TASKS_PER_NODE: fewer processes per node for the large
+    # meshes (each process reads the whole serial mesh, about 9 GB for
+    # 12,800 grains)
+    srun -n "$np" ${FM_PARTITION_TASKS_PER_NODE:+--ntasks-per-node=$FM_PARTITION_TASKS_PER_NODE} \
+      --cpu-bind=cores "$S/partition-mesh" \
+        "$W/meshes/clean/v$n/${n}crystals.msh" 1 "$d/mesh." > "$d/partition.log" 2>&1
     log "v$n np$np: status $?, $(( $(date +%s) - start )) s, $(tail -1 "$d/partition.log"), $(du -sh "$d" | cut -f1)"
   done
 }
