@@ -102,6 +102,10 @@ if(MFEMMGIS_HAVE_AMGX AND (NOT TARGET AMGX::amgxsh))
   endif()
 endif()
 
+# true if the profiling sections are declared as ranges of roctx, the
+# annotation library of ROCm (option enable-roctx)
+set(MFEMMGIS_HAVE_ROCTX @MFEM_MGIS_HAVE_ROCTX@)
+
 # numerical type of mfem-mgis (double or float), the one of MFEM, of MGIS
 # and of the behaviours (given to mfront by mfem_mgis_add_behaviours_library)
 set(MFEMMGIS_REAL_TYPE @MFEM_MGIS_REAL_TYPE@)

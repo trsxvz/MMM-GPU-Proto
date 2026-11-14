@@ -1944,6 +1944,7 @@ PREDEFINED             = MFEM_USE_MPI \
                          MFEM_MGIS_HAVE_MKL_CPARDISO \
                          MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR \
                          MFEM_MGIS_HAVE_AMGX \
+                         MFEM_MGIS_HAVE_ROCTX \
                          MFEM_MGIS_HAVE_TRILINOS \
                          MFEM_MGIS_HAVE_TEKO \
                          MFEM_MGIS_HAVE_MAGMA_SPARSE \

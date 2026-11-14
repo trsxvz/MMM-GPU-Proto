@@ -99,6 +99,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - CMake module `MFEMMGISDeviceCode.cmake`, compiling the sources containing
   kernels of MFEM as CUDA or HIP code; MFEM compiled with HIP is supported
   (compiled and linked, not run on an AMD GPU yet)
+- CMake option `enable-roctx` (`OFF` by default, requires `MFEM` compiled
+  with `HIP`): on a GPU, the profiling sections are declared as ranges of
+  `roctx`, the annotation library of `ROCm`, and shown by its profilers
+  (`rocprofv3`) with the calls of the `HIP` runtime, the kernels and the
+  memory copies (see `mgis::setProfilingMarkers`). Without the option,
+  `roctx` is neither searched nor used.
 
 ### Changed
 

@@ -176,6 +176,11 @@ CMake options
 - ``enable-amgx`` (``OFF``): solvers of the ``AmgX`` library (requires
   ``MFEM`` compiled with ``CUDA``, ``AmgX`` being given by ``AMGX_DIR``,
   see :ref:`mfem_mgis_batch_computations_amgx`);
+- ``enable-roctx`` (``OFF``): profiling sections declared as ranges of
+  ``roctx``, the annotation library of ``ROCm``, and shown by its
+  profilers (requires ``MFEM`` compiled with ``HIP``, ``roctx`` being
+  searched in the ``ROCm`` of ``HIP`` or in the one given by
+  ``ROCTX_DIR``, see :ref:`mfem_mgis_profiling_tracing`);
 - ``enable-kokkos`` (``OFF``): initialization of ``Kokkos`` (see below);
 - ``enable-trilinos`` (``OFF``): solvers and preconditioners of
   ``Trilinos`` (requires ``enable-kokkos``, see below);

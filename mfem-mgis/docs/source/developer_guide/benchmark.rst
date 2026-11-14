@@ -91,6 +91,31 @@ You can instrument each of your functions using section timers. It's important t
 
 The macro ``CatchTimeSection`` is provided by ``MGIS`` (header ``MGIS/Profiling.hxx``). When a GPU is used, each section waits for the end of the kernels launched on the GPU before it is closed, so that their duration is counted in the section which launched them.
 
+.. _mfem_mgis_profiling_tracing:
+
+Timed sections in a trace of a GPU profiler
+-------------------------------------------
+
+The time table gives the time of each section, not what the GPU does during it. A tracing profiler shows, on a time line, the calls of the runtime of the GPU, the kernels and the memory copies; the timed sections give the context of these events if they are declared to the profiler as named ranges.
+
+For the AMD GPUs, ``mfem-mgis`` built with the CMake option ``enable-roctx`` (``OFF`` by default, ``MFEM`` being compiled with ``HIP``) declares each active section as a range of ``roctx``, the annotation library of ``ROCm`` (the equivalent of ``NVTX``), as soon as ``mfem_mgis::initialize`` creates a device using a GPU. The range of a section is the interval measured by its timer: it contains the kernels launched by the section. Nothing has to be changed in the sources: every section declared by ``CatchTimeSection`` or by a ``mgis::ProfilingSection`` object is reported (see ``mgis::setProfilingMarkers``). Without the option, ``roctx`` is neither searched nor used. With the option and without profiler, a range only costs two calls of ``roctx``.
+
+A program may add ranges which are only seen by the profiler, for the parts whose name changes at each call (time steps, iterations): unlike a section, a ``mgis::ProfilingRange`` object is neither timed nor added to the time table.
+
+.. code-block:: c++
+
+  const auto range = mgis::ProfilingRange{
+      ctx, [i] { return "time step " + std::to_string(i); }};
+
+The trace is recorded by ``rocprofv3``, the profiler of ``ROCm``, placed before the program. Each process writes its files in ``trace/<host>/``, their names beginning with its process identifier (``<pid>_results.pftrace``, ``<pid>_marker_api_trace.csv``...):
+
+.. code-block:: bash
+
+  mpirun -n 4 rocprofv3 --runtime-trace --marker-trace \
+    --output-format pftrace csv -d trace -- ./program --device hip
+
+``--runtime-trace`` records the calls of the ``HIP`` runtime, the kernels, the memory copies and the ranges, and ``--marker-trace`` asks for the ranges explicitly. The ``pftrace`` files are opened by `Perfetto <https://ui.perfetto.dev>`_, which shows the ranges, nested, with the calls of the ``HIP`` runtime, the kernels and the memory copies on a common time line. The ``csv`` files (``marker_api_trace.csv``, ``kernel_trace.csv``, ``hip_api_trace.csv``, ``memory_copy_trace.csv``) give the same events, with their names and their start and end times in nanoseconds, for an analysis by a script. The test ``ProfilingMarkersTest-rocprofv3-hip`` checks that the ranges are in the trace of ``rocprofv3``.
+
 Benchmarks RVE MOX
 ^^^^^^^^^^^^^^^^^^
 

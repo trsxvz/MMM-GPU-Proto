@@ -46,6 +46,14 @@
 #ifdef MFEM_MGIS_HAVE_KOKKOS
 #include "KokkosRuntime.hxx"
 #endif /* MFEM_MGIS_HAVE_KOKKOS */
+#ifdef MFEM_MGIS_HAVE_ROCTX
+// roctx of rocprofiler-sdk, or the one of roctracer which it replaces
+#if __has_include(<rocprofiler-sdk-roctx/roctx.h>)
+#include <rocprofiler-sdk-roctx/roctx.h>
+#else
+#include <roctracer/roctx.h>
+#endif
+#endif /* MFEM_MGIS_HAVE_ROCTX */
 #include "PostProcessingsComputation.hxx"
 #include "ExecutionSettings.hxx"
 #include "SolverOverrides.hxx"
@@ -532,6 +540,23 @@ namespace mfem_mgis {
 #endif /* defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) */
   }  // end of synchronizeDevice
 
+#ifdef MFEM_MGIS_HAVE_ROCTX
+  /*!
+   * \brief opens a range of roctx, the annotation library of ROCm, whose
+   * profilers show the ranges with the calls of the HIP runtime and the
+   * kernels
+   * \param[in] n: name of the range
+   */
+  static void beginRoctxRange(const char* const n) noexcept {
+    static_cast<void>(roctxRangePushA(n));
+  }  // end of beginRoctxRange
+
+  //! \brief closes the last range of roctx opened
+  static void endRoctxRange() noexcept {
+    static_cast<void>(roctxRangePop());
+  }  // end of endRoctxRange
+#endif /* MFEM_MGIS_HAVE_ROCTX */
+
   Finalizer::Finalizer() = default;
 
 #ifdef MFEM_MGIS_HAVE_PETSC
@@ -788,6 +813,10 @@ namespace mfem_mgis {
                                mfem::Backend::HIP_MASK)) {
         mgis::setProfilingSynchronization(&synchronizeDevice);
         gpu_identifier = identifier;
+#ifdef MFEM_MGIS_HAVE_ROCTX
+        // the profiling sections are declared to the profilers of ROCm
+        mgis::setProfilingMarkers({&beginRoctxRange, &endRoctxRange});
+#endif /* MFEM_MGIS_HAVE_ROCTX */
       }
     }
     // hypre on the host, after the configuration of the device by this

@@ -2420,6 +2420,40 @@ if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
   endif(MFEM_USE_MPI)
 endif()
 
+# ProfilingMarkersTest executable: the profiling sections are declared as
+# ranges of roctx, the annotation library of ROCm, if mfem-mgis is built
+# with the option enable-roctx and if the device uses a GPU, and only then.
+# The test on the GPU requires one. With roctx, the test also runs under
+# rocprofv3, the profiler of ROCm, if it is found next to roctx: the ranges
+# must be in its trace of the markers (ProfilingMarkersTest.cmake).
+add_test_executable(ProfilingMarkersTest)
+add_test(NAME ProfilingMarkersTest-cpu
+         COMMAND ProfilingMarkersTest --device cpu --expected no)
+if((MFEM_USE_HIP STREQUAL "YES") AND enable-gpu-tests)
+  if(MFEM_MGIS_HAVE_ROCTX)
+    set(profiling_markers_test_expected yes)
+  else()
+    set(profiling_markers_test_expected no)
+  endif()
+  add_test(NAME ProfilingMarkersTest-hip
+           COMMAND ProfilingMarkersTest --device hip
+                   --expected ${profiling_markers_test_expected})
+  if(MFEM_MGIS_HAVE_ROCTX)
+    get_filename_component(_roctx_directory "${ROCTX_LIBRARY}" DIRECTORY)
+    find_program(MFEM_MGIS_ROCPROFV3 rocprofv3
+                 HINTS "${_roctx_directory}/../bin"
+                 DOC "Profiler rocprofv3 of ROCm")
+    if(MFEM_MGIS_ROCPROFV3)
+      add_test(NAME ProfilingMarkersTest-rocprofv3-hip
+               COMMAND ${CMAKE_COMMAND}
+                       -DROCPROFV3=${MFEM_MGIS_ROCPROFV3}
+                       -DTEST=$<TARGET_FILE:ProfilingMarkersTest>
+                       -DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/ProfilingMarkersTest-rocprofv3
+                       -P ${CMAKE_CURRENT_SOURCE_DIR}/ProfilingMarkersTest.cmake)
+    endif()
+  endif()
+endif()
+
 # ElementsGeometryTest executable: jacobians of the element transformations
 # used by the kernels of the batch path, computed by a kernel for the meshes
 # without nodes, on the host, on the debug device, on the GPU and on two

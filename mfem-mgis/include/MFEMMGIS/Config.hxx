@@ -160,10 +160,13 @@ namespace mfem_mgis {
    * before the device: MFEM 4.10 creates them on the GPU 0, whatever the
    * GPU of the device (mfem/mfem#5696). With a GPU, the profiling
    * sections wait for the end of the kernels launched on the GPU (see
-   * `mgis::setProfilingSynchronization`). An application which uses
-   * this option must neither create its own `mfem::Device` (MFEM refuses a
-   * second configuration of the device) nor declare its own `--device`,
-   * `-dev` options. Without this option, the configuration may be given by
+   * `mgis::setProfilingSynchronization`) and, if mfem-mgis is built with
+   * the option `enable-roctx`, they are declared as ranges of roctx, shown
+   * by the profilers of ROCm (see `mgis::setProfilingMarkers`). An
+   * application which uses this option must neither create its own
+   * `mfem::Device` (MFEM refuses a second configuration of the device) nor
+   * declare its own `--device`, `-dev` options. Without this option, the
+   * configuration may be given by
    * the environment variable `MFEM_MGIS_DEVICE`, ignored if the device is
    * already configured or if the option `--execution` is given (to run a
    * whole test suite on a GPU, for instance).
@@ -171,8 +174,8 @@ namespace mfem_mgis {
    * The variable `MFEM_DEVICE` of MFEM configures the device as soon as
    * MFEM is loaded: it takes precedence over `MFEM_MGIS_DEVICE` and makes
    * the option `--device` fail, and the device is then configured before
-   * hypre, without the choice of the GPUs by process nor the
-   * synchronisation of the profiling sections.
+   * hypre, without the choice of the GPUs by process, the
+   * synchronisation of the profiling sections nor their ranges of roctx.
    *
    * The option `--hypre-device-pool-size <size>` (or `-hdps`), or else the
    * environment variable `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`, gives the size
