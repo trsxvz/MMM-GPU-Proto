@@ -68,3 +68,21 @@ edges of a tessellation.
 5. **Result.** The total volume is kept and the volume of the grains changes
    by 9e-4 at most (100 grains, `grain_volumes.py`). The nodes are
    renumbered.
+
+## Partitioned meshes and binary meshes
+
+In the mode "FromScratch" of mfem-mgis, each process reads the whole mesh,
+builds the parallel mesh (METIS) and refines it: 74 s on 64 MI300A and
+104 s on 1536 cores for 6,400 grains (14/11/2026). `partition/` builds the
+same refined parallel mesh once (`partition-mesh`, MFEM, same calls as
+mfem-mgis) and writes the part of each process (`ParPrint`, 17 digits),
+read by the computation with `--mesh_mode Restart` and no refinement
+(`adastra-fm/partition.slurm`, `FM_MESH_GPU` and `FM_MESH_CPU` of
+`adastra-fm/series.slurm`): 7.7 s and 1.2 s for 6,400 grains. The
+vertices are numbered again at the reading: the axial stress differs by
+7e-9 relatively from the one of "FromScratch" (100 grains, CPU).
+
+`msh22_binary.py` writes the same mesh in binary Gmsh 2.2 (read by MFEM
+4.10, identical outputs on the CPU), but the reading is hardly faster
+(2.67 s against 2.29 s for 400 grains): the cost is the construction of
+the mesh, not the parsing of the file.

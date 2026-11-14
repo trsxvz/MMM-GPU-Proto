@@ -6,6 +6,10 @@
 # allocation, with the solvers FM_SOLVER_GPU and FM_SOLVER_CPU (the best of
 # each side in the study of the solvers). Time of each step in
 # <computation>.steps, energy of each computation in series.txt.
+# FM_MESH_GPU, FM_MESH_CPU: other meshes for the GPU and the CPU, for
+# instance meshes partitioned for their numbers of processes
+# (meshes/partition/, read with --mesh_mode Restart and
+# FM_SERIES_REFINEMENT=0).
 #SBATCH --constraint=MI300
 #SBATCH --exclusive
 #SBATCH --ntasks-per-node=96
@@ -29,11 +33,13 @@ export run_timeout_gpu=${FM_TIMEOUT_GPU:-2400}
 export run_timeout_cpu=${FM_TIMEOUT_CPU:-10800}
 export cpu_environment=${FM_CPU_ENVIRONMENT:-}
 for i in $(seq "${FM_GPU_REPS:-1}"); do
-  label=g${n}c-rep$i modes=gpu "$P/cases/measure-polycrystal-grains.sh" "$out"
+  mesh=${FM_MESH_GPU:-$mesh} label=g${n}c-rep$i modes=gpu \
+    "$P/cases/measure-polycrystal-grains.sh" "$out"
   log "gpu rep $i: $(tail -1 "$out/series.txt")"
 done
 for i in $(seq "${FM_CPU_REPS:-1}"); do
-  label=g${n}c-rep$i modes=cpu "$P/cases/measure-polycrystal-grains.sh" "$out"
+  mesh=${FM_MESH_CPU:-$mesh} label=g${n}c-rep$i modes=cpu \
+    "$P/cases/measure-polycrystal-grains.sh" "$out"
   log "cpu rep $i: $(tail -1 "$out/series.txt")"
 done
 energy "$out/energy.txt"
