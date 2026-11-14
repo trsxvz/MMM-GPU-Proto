@@ -88,4 +88,32 @@ add_test(NAME UniaxialPolycrystalTest-LineSearch-Invalid
           --line-search Unknown)
 set_tests_properties(UniaxialPolycrystalTest-LineSearch-Invalid PROPERTIES
   PASS_REGULAR_EXPRESSION "error: invalid line search")
+# prediction by linear extrapolation of the previous time step (NewtonK0,
+# tolerance of Eisenstat and Walker, line search), 4 time steps of 0.05 s:
+# same axial stress. From the second time step, the first resolution starts
+# from the extrapolation, whose residual is lower than the one of the default
+# prediction, the reference of the relative criterion: the ratio written at
+# the iteration 0 is lower than one, whereas it is always one without
+# prediction (expected in the output, which reveals an ignored option; a
+# mismatch of the axial stress or a failure of the command is reported by
+# cmake/run-and-check.py)
+mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-LinearExtrapolation
+  FILE polycrystal-test-linear-extrapolation.res ${_polycrystal_checks}
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal>
+          --disable-post-processing --nstep 4 --duration 0.2
+          --macroscopic-stress-output-file polycrystal-test-linear-extrapolation.res
+          --non-linear-solver NewtonK0
+          --adaptive-linear-solver-tolerance EisenstatWalker1
+          --line-search Backtracking
+          --prediction LinearExtrapolation)
+set_tests_properties(UniaxialPolycrystalTest-LinearExtrapolation PROPERTIES
+  PASS_REGULAR_EXPRESSION "iteration  0 : \\|\\|r\\|\\| = [^,]+, \\|\\|r\\|\\|/\\|\\|r_0\\|\\| = (0\\.[0-9]|[0-9.]+e-)"
+  FAIL_REGULAR_EXPRESSION "MISMATCH;run-and-check.py: ;no row ")
+# an unknown prediction is refused
+add_test(NAME UniaxialPolycrystalTest-Prediction-Invalid
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-prediction-invalid.res
+          --prediction Unknown)
+set_tests_properties(UniaxialPolycrystalTest-Prediction-Invalid PROPERTIES
+  PASS_REGULAR_EXPRESSION "error: invalid prediction")
 add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)

@@ -316,7 +316,7 @@ be rebuilt from the final state, by pieces of files.
 ## mfem-mgis-examples and mm-opera-hpc
 
 The changes of the examples (39 patches since `f256bd8`) and of
-mm-opera-hpc (49 patches since `f3fc124`) follow the contributions of
+mm-opera-hpc (50 patches since `f3fc124`) follow the contributions of
 mfem-mgis that they use. They will be proposed after them, by topic:
 
 - options of mfem-mgis and of the behaviour in each example and each case
@@ -325,8 +325,8 @@ mfem-mgis that they use. They will be proposed after them, by topic:
   11);
 - synchronisations on the host before the host reads (contribution 5);
 - choice of the non linear solver (Newton, NewtonK0), of the adapted
-  tolerance, of the line search and of the maximum number of iterations
-  (contributions 2 and 9), direct solvers and reuse of the
+  tolerance, of the line search, of the maximum number of iterations and
+  of the prediction (contributions 2 and 9), direct solvers and reuse of the
   analysis (contributions 2 and 3), AmgX (contribution 13);
 - examples and cases in float: MPI types, typed options, adapted criteria
   and tolerances (contribution 12);

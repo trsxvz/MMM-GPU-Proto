@@ -96,6 +96,14 @@ struct NumericalParameters {
    */
   const char *line_search = "None";
   /*!
+   * \brief prediction of the unknowns at the first resolution of each time
+   * step: `Default` (the unknowns at the beginning of the time step) or
+   * `LinearExtrapolation` (the increment of the unknowns of the previous
+   * time step is extrapolated, see `LINEAR_EXTRAPOLATION_PREDICTION` in
+   * mfem-mgis)
+   */
+  const char *prediction = "Default";
+  /*!
    * \brief relative tolerance of the linear solver of the non linear solver
    * adapted to the decrease of the residual: `None`, `EisenstatWalker1` or
    * `EisenstatWalker2` (see `AdaptiveLinearSolverTolerance` in mfem-mgis)
@@ -361,6 +369,21 @@ int main(int argc, char *argv[]) {
         "error: invalid line search (expected None or Backtracking)");
     std::exit(EXIT_FAILURE);
   }
+  // prediction of the unknowns at the first resolution of each time step
+  const auto linear_extrapolation =
+      std::string_view{p.prediction} == "LinearExtrapolation";
+  if ((!linear_extrapolation) &&
+      (std::string_view{p.prediction} != "Default")) {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: invalid prediction (expected Default or LinearExtrapolation)");
+    std::exit(EXIT_FAILURE);
+  }
+  if (linear_extrapolation && mfem_mgis::usePETSc()) {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: the prediction by linear extrapolation is not supported with "
+        "PETSc");
+    std::exit(EXIT_FAILURE);
+  }
   if (std::string_view{p.non_linear_solver} == "NewtonK0") {
     // the behaviour does not provide its prediction operator: the elastic
     // operator is given by an integration
@@ -397,6 +420,11 @@ int main(int argc, char *argv[]) {
           ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters) |
       or_die;
   mm_opera_hpc::printMeshInformation(ctx, problem);
+  if (linear_extrapolation) {
+    problem.setPredictionPolicy(
+        {.strategy =
+             mfem_mgis::PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION});
+  }
 
   // set problem
   mm_opera_hpc::MacroscropicElasticMaterialProperties mp;
@@ -505,6 +533,12 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "Backtracking (the step of an iteration is halved until the "
                  "norm of the residual decreases; a resolution fails if no "
                  "step is acceptable)");
+  args.AddOption(&p.prediction, "", "--prediction",
+                 "prediction of the unknowns at the first resolution of each "
+                 "time step: Default (default: the unknowns at the beginning "
+                 "of the time step) or LinearExtrapolation (the increment of "
+                 "the previous time step is extrapolated, weighted by the "
+                 "ratio of the time increments)");
   args.AddOption(&p.adaptive_linear_solver_tolerance, "",
                  "--adaptive-linear-solver-tolerance",
                  "relative tolerance of the linear solver adapted to the "

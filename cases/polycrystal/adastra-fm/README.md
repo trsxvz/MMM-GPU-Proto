@@ -62,6 +62,30 @@ All of them run `cases/measure-polycrystal-grains.sh`.
 - **`ls-stats.py <log>...`: counters of a computation**: attempts of time
   steps by time increment, Newton corrections, iterations whose step was
   reduced by the line search, refused trials, failed searches.
+  - For the first resolution of each attempt, which starts from the
+    prediction: corrections, steps reduced at the first correction, and
+    ratio `||r||/||r_0||` at the iteration 0 (below 1 when the prediction
+    by linear extrapolation is better than the default one).
+- **`ls-gpu-tests.slurm`: tests of the non linear solvers on a GPU.**
+  - Tests of mfem-mgis which use the non linear solvers (`FM_TESTS`), with
+    the mfem-mgis of the separate build of `FM_FIX`, on one MI300A.
+  - Settings of `scripts/mfem-mgis-gpu-suite.sh`, one test at a time:
+    kernels forced, computations selected by each test, then the tests
+    whose name selects a device (`FM_MODES`).
+- **`pred-tests.slurm`: tests of the prediction by linear extrapolation**
+  (strategy `LINEAR_EXTRAPOLATION_PREDICTION` of mfem-mgis, option
+  `--prediction` of the polycrystal, 14/11/2026).
+  - Separate build in `FM_FIX`, unit tests of mfem-mgis.
+  - Then the polycrystal of the tests of mm-opera-hpc in four time steps,
+    with and without the extrapolation: axial stresses, lines of
+    iterations, ratios at the iteration 0.
+- **`pred-ab.slurm`: the extrapolation measured on an RVE.**
+  - `FM_GRAINS` grains, one material for all the grains, 20 s simulated,
+    options `FM_COMMON` (the line search), without and with
+    `--prediction LinearExtrapolation`, one after the other at each
+    repetition, on the same nodes.
+  - `FM_GPU_REPS` repetitions on all the GPUs, `FM_CPU_REPS` on all the
+    cores; `FM_VARIANTS` selects the variants (`ls`, `ls-pred`).
 
 ## The report
 

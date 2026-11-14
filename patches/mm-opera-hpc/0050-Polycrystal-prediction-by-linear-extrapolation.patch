@@ -1,0 +1,154 @@
+From 0767e5ebd2b07f62fe60be72767c192acfa95751 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 14 Nov 2026 05:00:39 +0100
+Subject: [PATCH] Polycrystal: prediction by linear extrapolation
+
+Option --prediction (Default by default, LinearExtrapolation): strategy
+LINEAR_EXTRAPOLATION_PREDICTION of mfem-mgis. At the first resolution of
+each time step, the increment of the unknowns of the previous time step is
+extrapolated, weighted by the ratio of the time increments, as the
+macroscopic displacement gradient already is. The following resolutions of
+the time step (fixed point on the lateral stresses) start from the previous
+one. The reference of the relative criterion remains the residual of the
+default prediction. An unknown value is refused, and the extrapolation is
+refused with PETSc.
+
+Tests: UniaxialPolycrystalTest-LinearExtrapolation (four time steps,
+NewtonK0, first choice of Eisenstat and Walker, line search and
+extrapolation: axial stress of Cast3M within 1 %, and a ratio
+||r||/||r_0|| lower than one at the iteration 0 of a resolution, which
+only happens with the extrapolation) and
+UniaxialPolycrystalTest-Prediction-Invalid (unknown prediction refused).
+---
+ polycrystal/CMakeLists.txt          | 28 ++++++++++++++++++++++++
+ polycrystal/README.md               |  3 ++-
+ polycrystal/UniaxialPolycrystal.cxx | 34 +++++++++++++++++++++++++++++
+ 3 files changed, 64 insertions(+), 1 deletion(-)
+
+diff --git a/polycrystal/CMakeLists.txt b/polycrystal/CMakeLists.txt
+index c06af1c..88bb664 100755
+--- a/polycrystal/CMakeLists.txt
++++ b/polycrystal/CMakeLists.txt
+@@ -88,4 +88,32 @@ add_test(NAME UniaxialPolycrystalTest-LineSearch-Invalid
+           --line-search Unknown)
+ set_tests_properties(UniaxialPolycrystalTest-LineSearch-Invalid PROPERTIES
+   PASS_REGULAR_EXPRESSION "error: invalid line search")
++# prediction by linear extrapolation of the previous time step (NewtonK0,
++# tolerance of Eisenstat and Walker, line search), 4 time steps of 0.05 s:
++# same axial stress. From the second time step, the first resolution starts
++# from the extrapolation, whose residual is lower than the one of the default
++# prediction, the reference of the relative criterion: the ratio written at
++# the iteration 0 is lower than one, whereas it is always one without
++# prediction (expected in the output, which reveals an ignored option; a
++# mismatch of the axial stress or a failure of the command is reported by
++# cmake/run-and-check.py)
++mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-LinearExtrapolation
++  FILE polycrystal-test-linear-extrapolation.res ${_polycrystal_checks}
++  COMMAND $<TARGET_FILE:uniaxial-polycrystal>
++          --disable-post-processing --nstep 4 --duration 0.2
++          --macroscopic-stress-output-file polycrystal-test-linear-extrapolation.res
++          --non-linear-solver NewtonK0
++          --adaptive-linear-solver-tolerance EisenstatWalker1
++          --line-search Backtracking
++          --prediction LinearExtrapolation)
++set_tests_properties(UniaxialPolycrystalTest-LinearExtrapolation PROPERTIES
++  PASS_REGULAR_EXPRESSION "iteration  0 : \\|\\|r\\|\\| = [^,]+, \\|\\|r\\|\\|/\\|\\|r_0\\|\\| = (0\\.[0-9]|[0-9.]+e-)"
++  FAIL_REGULAR_EXPRESSION "MISMATCH;run-and-check.py: ;no row ")
++# an unknown prediction is refused
++add_test(NAME UniaxialPolycrystalTest-Prediction-Invalid
++  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
++          --macroscopic-stress-output-file polycrystal-test-prediction-invalid.res
++          --prediction Unknown)
++set_tests_properties(UniaxialPolycrystalTest-Prediction-Invalid PROPERTIES
++  PASS_REGULAR_EXPRESSION "error: invalid prediction")
+ add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index bb7f208..4be206a 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -91,6 +91,7 @@ Usage: ./uniaxial-polycrystal --help
+ | `--non-linear-solver <string>`              | string | `Newton`                     | Non linear solver: `Newton` or `NewtonK0` (tangent systems solved by a conjugate gradient preconditioned by the elastic operator).            |
+ | `--non-linear-solver-maximum-iterations <int>` | int  | `20`                         | Maximum number of iterations of the non linear solver for each resolution of the microscopic equilibrium. A resolution which does not converge within this number of iterations fails, and the time step is divided by two (ten times at most per temporal sequence). |
+ | `--line-search <string>`                    | string | `None`                       | Line search of the non linear solver (`Newton` or `NewtonK0`): `None`, or `Backtracking` (option `LineSearch` of mfem-mgis). With `Backtracking`, the step of an iteration is halved, ten times at most, until the norm of the residual decreases; an estimate at which the integration of the behaviour fails is refused; a resolution fails, and the time step is divided by two, if no step is acceptable. Recommended with `--adaptive-linear-solver-tolerance EisenstatWalker1`. |
++| `--prediction <string>`                     | string | `Default`                    | Prediction of the unknowns at the first resolution of each time step: `Default` (the unknowns at the beginning of the time step), or `LinearExtrapolation` (strategy `LINEAR_EXTRAPOLATION_PREDICTION` of mfem-mgis): the increment of the unknowns of the previous time step is extrapolated, weighted by the ratio of the time increments, as the macroscopic displacement gradient already is. The following resolutions of the time step (fixed point on the lateral stresses) start from the previous one. The reference of the relative criterion remains the residual of the default prediction, computed by one integration of the behaviour without tangent operator per time step: the ratio `\|\|r\|\|/\|\|r_0\|\|` written at the iteration 0 is lower than one when the extrapolation is better than the default prediction. Not supported with PETSc. |
+ | `--adaptive-linear-solver-tolerance <string>` | string | `None`                       | Relative tolerance of the linear solver adapted to the decrease of the residual: `None`, `EisenstatWalker1` or `EisenstatWalker2`; requires an iterative linear solver. |
+ | `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if `-1`. Giving it without `--adaptive-linear-solver-tolerance` is an error.                      |
+ | `--adaptive-linear-solver-maximum-tolerance <double>` | double | `-1` | Maximum adaptive tolerance, the default one (0.9) if `-1`: the tolerance of Eisenstat and Walker rises to it when the residual increases, for instance after a failure of the integration of the behaviour. Giving it without `--adaptive-linear-solver-tolerance` is an error. |
+@@ -176,7 +177,7 @@ This table shows the comparison between the simulated Cauchy stress values and t
+ 
+ ## Tests
+ 
+-`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.2 s without post-processing, whose axial stress `Szz` is compared to the one computed by Cast3M, `results/polycrystal_cast3m.csv`, with a relative tolerance of 1 %, by `cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `UniaxialPolycrystalTest-DisplacementGradient` (the same with `--displacement-gradient`), `UniaxialPolycrystalTestPar` (the same on 2 processes), `UniaxialPolycrystalTest-MaximumIterations` (the first test with `--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --non-linear-solver-maximum-iterations 1`: a resolution of this time step takes four iterations, so the first one fails; the test expects the division of the time step, and no second iteration), `UniaxialPolycrystalTest-LineSearch` (the first test with `--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --line-search Backtracking`), `UniaxialPolycrystalTest-LineSearch-Invalid` (an unknown line search is refused) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours-execution cpu`.
++`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.2 s without post-processing, whose axial stress `Szz` is compared to the one computed by Cast3M, `results/polycrystal_cast3m.csv`, with a relative tolerance of 1 %, by `cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `UniaxialPolycrystalTest-DisplacementGradient` (the same with `--displacement-gradient`), `UniaxialPolycrystalTestPar` (the same on 2 processes), `UniaxialPolycrystalTest-MaximumIterations` (the first test with `--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --non-linear-solver-maximum-iterations 1`: a resolution of this time step takes four iterations, so the first one fails; the test expects the division of the time step, and no second iteration), `UniaxialPolycrystalTest-LineSearch` (the first test with `--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --line-search Backtracking`), `UniaxialPolycrystalTest-LineSearch-Invalid` (an unknown line search is refused), `UniaxialPolycrystalTest-LinearExtrapolation` (the same time of 0.2 s in four time steps, with `--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --line-search Backtracking --prediction LinearExtrapolation`: same axial stress, and a ratio `||r||/||r_0||` lower than one at the iteration 0 of a resolution, which only happens with the extrapolation), `UniaxialPolycrystalTest-Prediction-Invalid` (an unknown prediction is refused) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours-execution cpu`.
+ 
+ ## References
+ 
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 6084743..cc931a7 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -95,6 +95,14 @@ struct NumericalParameters {
+    * decreases, see `LineSearch` in mfem-mgis)
+    */
+   const char *line_search = "None";
++  /*!
++   * \brief prediction of the unknowns at the first resolution of each time
++   * step: `Default` (the unknowns at the beginning of the time step) or
++   * `LinearExtrapolation` (the increment of the unknowns of the previous
++   * time step is extrapolated, see `LINEAR_EXTRAPOLATION_PREDICTION` in
++   * mfem-mgis)
++   */
++  const char *prediction = "Default";
+   /*!
+    * \brief relative tolerance of the linear solver of the non linear solver
+    * adapted to the decrease of the residual: `None`, `EisenstatWalker1` or
+@@ -361,6 +369,21 @@ int main(int argc, char *argv[]) {
+         "error: invalid line search (expected None or Backtracking)");
+     std::exit(EXIT_FAILURE);
+   }
++  // prediction of the unknowns at the first resolution of each time step
++  const auto linear_extrapolation =
++      std::string_view{p.prediction} == "LinearExtrapolation";
++  if ((!linear_extrapolation) &&
++      (std::string_view{p.prediction} != "Default")) {
++    mfem_mgis::Profiler::Utils::Message(
++        "error: invalid prediction (expected Default or LinearExtrapolation)");
++    std::exit(EXIT_FAILURE);
++  }
++  if (linear_extrapolation && mfem_mgis::usePETSc()) {
++    mfem_mgis::Profiler::Utils::Message(
++        "error: the prediction by linear extrapolation is not supported with "
++        "PETSc");
++    std::exit(EXIT_FAILURE);
++  }
+   if (std::string_view{p.non_linear_solver} == "NewtonK0") {
+     // the behaviour does not provide its prediction operator: the elastic
+     // operator is given by an integration
+@@ -397,6 +420,11 @@ int main(int argc, char *argv[]) {
+           ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters) |
+       or_die;
+   mm_opera_hpc::printMeshInformation(ctx, problem);
++  if (linear_extrapolation) {
++    problem.setPredictionPolicy(
++        {.strategy =
++             mfem_mgis::PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION});
++  }
+ 
+   // set problem
+   mm_opera_hpc::MacroscropicElasticMaterialProperties mp;
+@@ -505,6 +533,12 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+                  "Backtracking (the step of an iteration is halved until the "
+                  "norm of the residual decreases; a resolution fails if no "
+                  "step is acceptable)");
++  args.AddOption(&p.prediction, "", "--prediction",
++                 "prediction of the unknowns at the first resolution of each "
++                 "time step: Default (default: the unknowns at the beginning "
++                 "of the time step) or LinearExtrapolation (the increment of "
++                 "the previous time step is extrapolated, weighted by the "
++                 "ratio of the time increments)");
+   args.AddOption(&p.adaptive_linear_solver_tolerance, "",
+                  "--adaptive-linear-solver-tolerance",
+                  "relative tolerance of the linear solver adapted to the "
+-- 
+2.34.1
+
