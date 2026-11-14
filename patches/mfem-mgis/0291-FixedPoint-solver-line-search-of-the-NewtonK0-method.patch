@@ -1,4 +1,4 @@
-From 4a1ff8f7a7ef39d2c7c21bcfac12a7596a0f9d52 Mon Sep 17 00:00:00 2001
+From 7ce5c524df7cb6272e3befd531ae3a694599fa25 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 14 Nov 2026 02:40:22 +0100
 Subject: [PATCH] FixedPoint solver: line search of the NewtonK0 method

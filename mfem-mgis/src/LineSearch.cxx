@@ -13,8 +13,8 @@
 
 namespace mfem_mgis {
 
-  std::optional<LineSearch> LineSearch::read(Context& ctx,
-                                             const Parameters& params) noexcept {
+  std::optional<LineSearch> LineSearch::read(
+      Context& ctx, const Parameters& params) noexcept {
     const auto* const option = "LineSearch";
     const auto oa = getFactoryArgument(ctx, params, option);
     if (isInvalid(oa)) {
@@ -73,8 +73,8 @@ namespace mfem_mgis {
     while (true) {
       const auto v = evaluate(xn);
       if (v.has_value() && std::isfinite(*v) &&
-          (*v <=
-           (1 - this->sufficient_decrease * r.step_length * (1 - eta)) * norm)) {
+          (*v <= (1 - this->sufficient_decrease * r.step_length * (1 - eta)) *
+                     norm)) {
         r.success = true;
         r.norm = *v;
         return r;

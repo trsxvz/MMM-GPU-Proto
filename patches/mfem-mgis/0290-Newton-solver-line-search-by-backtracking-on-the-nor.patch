@@ -1,4 +1,4 @@
-From 6b041ea08231689f9a830dec82c8d6d5f0b86dd2 Mon Sep 17 00:00:00 2001
+From 679ad03acb55dd19f54df2df3862b45f1ecf4e8e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 14 Nov 2026 02:34:58 +0100
 Subject: [PATCH] Newton solver: line search by backtracking on the norm of the
@@ -54,9 +54,9 @@ by the search; plastic cube; stagnation.
  tests/AdaptiveLinearSolverToleranceTest.cxx   |  93 +-
  tests/CMakeLists.txt                          |  38 +-
  tests/LineSearchTest.cxx                      | 340 +++++++
- tests/NewtonLineSearchTest.cxx                | 849 ++++++++++++++++++
+ tests/NewtonLineSearchTest.cxx                | 850 ++++++++++++++++++
  tests/SaturatingElasticity.mfront             |  54 ++
- 17 files changed, 1930 insertions(+), 9 deletions(-)
+ 17 files changed, 1931 insertions(+), 9 deletions(-)
  create mode 100644 include/MFEMMGIS/NonLinearSolvers/LineSearch.hxx
  create mode 100644 src/LineSearch.cxx
  create mode 100644 tests/LineSearchTest.cxx
@@ -575,7 +575,7 @@ index db4ea3f30a..d47c03d4f7 100644
    IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
 diff --git a/src/LineSearch.cxx b/src/LineSearch.cxx
 new file mode 100644
-index 0000000000..076453936c
+index 0000000000..7540594e6e
 --- /dev/null
 +++ b/src/LineSearch.cxx
 @@ -0,0 +1,93 @@
@@ -594,8 +594,8 @@ index 0000000000..076453936c
 +
 +namespace mfem_mgis {
 +
-+  std::optional<LineSearch> LineSearch::read(Context& ctx,
-+                                             const Parameters& params) noexcept {
++  std::optional<LineSearch> LineSearch::read(
++      Context& ctx, const Parameters& params) noexcept {
 +    const auto* const option = "LineSearch";
 +    const auto oa = getFactoryArgument(ctx, params, option);
 +    if (isInvalid(oa)) {
@@ -654,8 +654,8 @@ index 0000000000..076453936c
 +    while (true) {
 +      const auto v = evaluate(xn);
 +      if (v.has_value() && std::isfinite(*v) &&
-+          (*v <=
-+           (1 - this->sufficient_decrease * r.step_length * (1 - eta)) * norm)) {
++          (*v <= (1 - this->sufficient_decrease * r.step_length * (1 - eta)) *
++                     norm)) {
 +        r.success = true;
 +        r.norm = *v;
 +        return r;
@@ -1366,10 +1366,10 @@ index 0000000000..0fe3bde977
 +}  // end of main
 diff --git a/tests/NewtonLineSearchTest.cxx b/tests/NewtonLineSearchTest.cxx
 new file mode 100644
-index 0000000000..4360eca711
+index 0000000000..f4d5c954c7
 --- /dev/null
 +++ b/tests/NewtonLineSearchTest.cxx
-@@ -0,0 +1,849 @@
+@@ -0,0 +1,850 @@
 +/*!
 + * \file   NewtonLineSearchTest.cxx
 + * \brief  Test of the line search of the Newton solver (option
@@ -2062,8 +2062,9 @@ index 0000000000..4360eca711
 +       .stresses = {stress},
 +       .solver = makeNewtonSolver(
 +           {{"LineSearch",
-+             Parameters{{"Backtracking",
-+                         Parameters{{"MaximumNumberOfStepReductions", 1}}}}}})});
++             Parameters{
++                 {"Backtracking",
++                  Parameters{{"MaximumNumberOfStepReductions", 1}}}}}})});
 +  check((!bounded.status) && (bounded.resolutions.size() == 1) &&
 +            (bounded.resolutions[0].iterations.size() == 2) &&
 +            (bounded.resolutions[0].iterations[1].reductions == 1) &&

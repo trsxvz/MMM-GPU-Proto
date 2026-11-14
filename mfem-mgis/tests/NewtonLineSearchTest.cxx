@@ -690,8 +690,9 @@ static void checkIntegrationFailures(const char* const mesh,
        .stresses = {stress},
        .solver = makeNewtonSolver(
            {{"LineSearch",
-             Parameters{{"Backtracking",
-                         Parameters{{"MaximumNumberOfStepReductions", 1}}}}}})});
+             Parameters{
+                 {"Backtracking",
+                  Parameters{{"MaximumNumberOfStepReductions", 1}}}}}})});
   check((!bounded.status) && (bounded.resolutions.size() == 1) &&
             (bounded.resolutions[0].iterations.size() == 2) &&
             (bounded.resolutions[0].iterations[1].reductions == 1) &&
