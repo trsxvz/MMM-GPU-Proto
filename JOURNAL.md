@@ -6959,3 +6959,153 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
 - `cases/polycrystal/adastra-fm/`: `pred-mutations.slurm` (the eighteen
   mutations), `pred-raw.slurm` (the raw mesh); `ls-stats.py` counts the
   extrapolated estimates discarded.
+
+### 2026-11-14, corrections after the review of the patches of the night
+
+- Context: an independent review of the twelve patches of the night of 13 to
+  14/11 (mfem-mgis 0288 to 0293, mm-opera-hpc 0045 to 0050), made by reading
+  only. No blocking remark; six important ones, all risks or missing tests.
+  Four patches are corrected here, in place: the local histories of
+  `gpu-proto` and `proto` are rewritten (`amend!` commits squashed by
+  `git rebase --autosquash`) and the patches 0288 to 0293 and 0046 to 0050
+  are generated again, so that each patch keeps its tests and its fix, and
+  the series their numbers of patches (293 and 50). The former heads are
+  `e52cab215e` and `0767e5e`.
+- mm-opera-hpc, patch 0046 (option `--single-material`).
+  - Latent out of bounds read: with a behaviour which is not orthotropic,
+    `setupMaterials` returned before filling the grain of each integration
+    point, which the averages of the stresses per grain read. The grains of
+    the points are now filled whatever the symmetry of the behaviour; only
+    the orientations are specific to the orthotropic behaviours (same values
+    for them). It could not be reached: an isotropic behaviour fails before,
+    on the material property `YoungModulus1`.
+  - Tests: `UniaxialPolycrystalTest-SingleMaterial` (axial stress of
+    Cast3M), `UniaxialPolycrystalTest-SingleMaterial-Comparison` and
+    `UniaxialPolycrystalTestPar-SingleMaterial-Comparison` (2 processes). The
+    comparisons run two time steps of 0.2 s with and without the option,
+    each run in its own directory (the file `avgStressPolycrystal` has a
+    fixed name, also written by another test), then compare the main output
+    files and the averages per grain by ranges of columns of the same
+    nature, relatively to the largest value of the range in the row
+    (`cmake/run-and-compare.py`, CMake function
+    `mm_opera_hpc_add_compared_test`). The three tests expect the line of
+    the number of grains, written when the option is taken into account: an
+    ignored option would give twice the same computation.
+  - Tolerances: 1e-9 on the main output file (14 digits) and 2e-5 on the
+    averages per grain (6 digits), 1 % in single precision. Measured in
+    double on the 5 grains of the test: 1e-16 on the stresses (4e-17 on one
+    process, 1e-16 on two), identical averages; on 100 grains and 96
+    processes: 3e-13 (job 5977359).
+- mfem-mgis, patch 0288 (weights of the integration points kept by the
+  problems). New test `IntegrationPointsWeightsTest`, on one process and on
+  two: unit cube made of two materials, refined once, whose vertices are
+  moved so that the elements are boxes of different sizes (volumes 3/8 and
+  5/8). For each material: the sum of the weights is the volume; each weight
+  is the one computed from the transformation of its element; a second call
+  returns the same array; the integrals of thermodynamic forces which are
+  uniform, then linear in x (9/128 and 55/128 for x), are the analytical
+  ones, so that the mean values follow the states; and, once the vertices
+  are moved again, the weights and the volumes are still the ones of the
+  former mesh, which is how the test sees that nothing is computed again
+  (the documentation forbids to modify the mesh after the first call).
+- mfem-mgis, patch 0291 (line search of NewtonK0). `FixedPointSolverTest`
+  now runs the branch where the search fails: cube of
+  `FailingIsotropicLinearElasticity` loaded at 1.5 times the trace of the
+  strain beyond which the integration fails, with an assembled tangent
+  operator and without assembly. The trials at which the integration fails
+  are refused, the reductions are 1, 2, 4, 5, 6, 8 and 10, then a search
+  fails after 10 reductions and the resolution fails, the norm of the
+  residual being the one of the last accepted estimate; with one reduction
+  at most, the second search fails.
+- mfem-mgis, patch 0289 (rotation matrices kept by the materials). The
+  invalidation is now explicit: `Material::invalidateRotationMatrices`,
+  called by `setRotationMatrix`, to be called by the application when
+  material axes given by partial quadrature functions are modified in
+  place. Without it, the integrations by batches go on with the matrices of
+  the former axes, whereas the integration point by point reads the axes at
+  each point: two paths, two results, without any message.
+  - A method was preferred to an automatic detection: the values of a
+    partial quadrature function are exposed as a span, so that a write
+    can't be tracked, and comparing the values at each integration would
+    cost what the patch saves. It was preferred to "call `setRotationMatrix`
+    again", which reads as a new definition and which nothing suggests,
+    since the integration point by point does not need it.
+  - Documented in `getRotationMatrices`, `setRotationMatrix`,
+    `RotationMatrix.hxx` (definition of the axes by functions), the user
+    guide (`batch_computations.rst`) and `CHANGELOG.md`.
+  - Test `testModifiedMaterialAxes` of `BatchIntegrationTest`, in 3D (two
+    directions given by functions) and in plane strain (one direction), with
+    the behaviours of the generic and generic-parallel interfaces: after a
+    modification of the axes in place, the integration by batches keeps the
+    former matrices until the invalidation, then gives the stresses of the
+    integration point by point; the kept matrices, transposed ones
+    included, are the ones of the current axes; the gradients in the global
+    frame, which do not depend on the axes, check the transposed matrices.
+- Style: the lines of 81 and 82 columns of these patches noted by the
+  review are formatted by clang-format (no change of the code).
+- Mutations (`review-mutations.slurm`, jobs 5980689 and 5980798): eleven
+  mutations of the library or of the polycrystal, applied one at a time,
+  all make the new tests fail.
+  - Weights: doubled; the ones of another element (a permutation, which
+    keeps their sum: seen by the weights compared one by one and by the
+    integral of the linear field); computed again at each call (only seen
+    through the modification of the mesh and the address of the values);
+    ignored by the integrals.
+  - Rotation matrices: invalidation without effect; transposed matrices
+    not invalidated; matrices computed at each call. The last two are only
+    seen by the new test of `BatchIntegrationTest`.
+  - Line search of NewtonK0: resolution going on after a failed search (the
+    scenario of the review: the resolution was then declared converged);
+    integration failure of a trial ignored.
+  - Polycrystal: all the points in the first grain (the computation with
+    the option then fails); averages of the next grain (the main output
+    file is unchanged, the averages differ by 15 %).
+  - The integration failure ignored was not detected at first: with one
+    material whose strain is uniform, the stresses are not modified when the
+    integration fails, so that the residual of the trial is the one of the
+    current estimate, and the trial is refused anyway. Hence the second,
+    elastic, material of the test: by batches, it is integrated even when
+    the first one fails, and the norm of the residual of the trial of step
+    length 1/2 of the second iteration is the one of the current estimate
+    divided by the square root of two, which the criterion would accept.
+    Computed by hand before writing the test: one reduction instead of
+    two, which is what the mutated library gives.
+- Validation on Adastra (separate build `fix-review` on the scratch, whose
+  sources are the ones of the new heads: 748 and 129 files compared by
+  sha256), one node per job:
+  - `review-tests.slurm` (jobs 5980637 and 5980787): the 10 tests of
+    `IntegrationPointsWeightsTest`, `BatchIntegrationTest`,
+    `FixedPointSolverTest` and `MaterialArraysTest`; 118 other tests using
+    the materials, the rotations and the non linear solvers; the 11 tests
+    of the polycrystal by ctest, with the behaviours built there.
+  - Options disabled, one material for all the grains (100 grains, 96
+    cores): same outputs bit for bit as the executable preceding the line
+    search, on the four cases, the raw mesh included (`ls-identity.slurm`,
+    job 5980664).
+  - One material for all the grains, line search and extrapolation (the
+    options of the measurements; 3 steps): same outputs bit for bit as the
+    executable of the measurements, `.res` of 274 bytes, averages per
+    grain, 120 lines of iterations (job 5980665). The correction of the
+    grains of the points changes nothing for an orthotropic behaviour.
+  - One material per grain: same outputs bit for bit as the executable of
+    the measurements (job 5980666, 138 lines of iterations). This path had
+    not been checked since the patch 0289.
+  - On one MI300A (`ls-gpu-tests.slurm`, job 5980897): the tests using the
+    non linear solvers, with `IntegrationPointsWeightsTest` and
+    `MaterialArraysTest`, 101 out of 101 with the kernels forced, 101 out of
+    101 with the computations selected by each test, and the test selecting
+    a device.
+  - CI (run 43571405244): the whole suite on the CPU, in double (264 tests of
+    mfem-mgis, 17 of mm-opera-hpc) and in float (260 and 17), all passed;
+    the new tests pass in float at the first run, with MUMPS on 2 processes
+    for `BatchIntegrationTestP` and `FixedPointSolverTestP`, which Adastra
+    can't run. The differences of the comparisons of the single material
+    in float are not known (within their tolerance of 1 %): ctest only
+    prints the outputs of the failed tests.
+- Not done: the computation of 1,600 grains with one material per grain,
+  which hung twice on 13/11 (job 5977190, hypothesis of a defective node, not
+  proved), was not run again: it needs 4 nodes. The minor remarks of the
+  review are not addressed, except the long lines.
+- `cases/polycrystal/adastra-fm/`: `review-tests.slurm`,
+  `review-mutations.slurm`; `ls-identity.slurm` takes the options of the
+  computations (`FM_EXTRA_OPTIONS`).

@@ -691,6 +691,70 @@ without any failure (85 lines of iterations, loop 216 s), against 140 steps,
 extrapolation alone, 2 attempts fail (7 steps, 145 lines, 16 estimates moved
 after an integration failure, 304 s).
 
+After the review of the patches of 13 and 14/11/2026, tests were added to
+three of them, and to the option `--single-material` of the polycrystal of
+mm-opera-hpc:
+
+- `IntegrationPointsWeightsTest` (patch 0288): on a cube made of two
+  materials whose elements have different sizes, the sum of the weights of
+  the integration points kept by the problem is the volume of each material
+  (3/8 and 5/8), each weight is the one computed from the transformation of
+  its element, a second call returns the same array, the integrals of
+  thermodynamic forces which are uniform, then linear in x, are the
+  analytical ones, and the weights are not computed again once the mesh is
+  modified;
+- `BatchIntegrationTest` (patch 0289): material axes given by partial
+  quadrature functions are modified in place, in 3D and in plane strain;
+  the integration by batches keeps the rotation matrices of the former axes
+  until `Material::invalidateRotationMatrices` is called, then gives the
+  stresses of the integration point by point (the stresses change by 136 %
+  with the axes in 3D and by 61 % in plane strain, the two integrations
+  then differ by 0); the kept matrices, transposed ones included, are the
+  ones of the current axes;
+- `FixedPointSolverTest` (patch 0291): a line search of NewtonK0 which finds
+  no acceptable step makes the resolution fail (reductions 1, 2, 4, 5, 6, 8
+  and 10 of the steps, then a search failing after 10 reductions); with a
+  second, elastic, material integrated by batches even when the first one
+  fails, a trial is refused although the norm of its residual would be
+  accepted;
+- `UniaxialPolycrystalTest-SingleMaterial` and the two tests
+  `-SingleMaterial-Comparison` of mm-opera-hpc (patch 0046): one material
+  for all the grains gives the main output file and the averages of the
+  stresses per grain of one material per grain (differences of 1e-16 on the
+  stresses on one and two processes, identical averages; tolerances of 1e-9
+  and 2e-5, 1 % in single precision).
+
+Eleven mutations of the library and of the polycrystal each make these
+tests fail (`review-mutations.slurm`, jobs 5980689 and 5980798): four of
+the kept weights (doubled, of another element, computed again at each call,
+ignored by the integrals), three of the kept rotation matrices
+(invalidation without effect, transposed matrices not invalidated, matrices
+computed at each call), two of the line search of NewtonK0 (resolution
+going on after a failed search, integration failure of a trial ignored),
+two of the single material of the polycrystal (all the points in the first
+grain, averages of the next grain). On 14/11/2026:
+
+- on Adastra (`review-tests.slurm`, jobs 5980637 and 5980787, sources of the
+  heads of the local repositories): the 10 tests of these executables and
+  of `MaterialArraysTest`, 118 other tests using the materials, the
+  rotations and the non linear solvers, and the 11 tests of the polycrystal
+  by ctest, all passed;
+- on one MI300A (`ls-gpu-tests.slurm`, job 5980897): the tests using the non
+  linear solvers, with `IntegrationPointsWeightsTest` and
+  `MaterialArraysTest`, 101 out of 101 with the kernels forced, 101 out of
+  101 with the computations selected by each test, and the test selecting a
+  device;
+- on the CI (run 43571405244): the whole suite on the CPU, in double (264
+  tests of mfem-mgis, 17 of mm-opera-hpc) and in float (260 and 17), all
+  passed;
+- without the options, the outputs of the polycrystal of 100 grains are the
+  ones of the executable preceding the line search, bit for bit, on the four
+  cases (`ls-identity.slurm`, job 5980664);
+- with one material for all the grains, the line search and the
+  extrapolation, and with one material per grain, the outputs are the ones
+  of the executable of the measurements, bit for bit (jobs 5980665 and
+  5980666; 100 grains, 96 cores, 3 steps).
+
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of
 mfem-mgis and to the builds of the examples and of mm-opera-hpc): each
