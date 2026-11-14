@@ -755,6 +755,66 @@ grain, averages of the next grain). On 14/11/2026:
   of the executable of the measurements, bit for bit (jobs 5980665 and
   5980666; 100 grains, 96 cores, 3 steps).
 
+With the option `enable-roctx` (patch 0294 of 14/11/2026), the profiling
+sections are declared as ranges of roctx to the profilers of ROCm, through
+the markers of MGIS (`setProfilingMarkers`, patch 0104). On Adastra, MGIS,
+mfem-mgis and the polycrystal are built without the option, with it, and
+with the roctx of roctracer instead of the one of rocprofiler-sdk
+(`roctx-tests.slurm`, job 5982989, sources of the commits):
+
+- `ProfilingMarkersTest`: no marker on the host; on a MI300A, markers with
+  the option and none without it; same profiling tree in every case;
+- `ProfilingMarkersTest-rocprofv3-hip`: under `rocprofv3 --marker-trace`,
+  the three steps and the nine sections of the test are in the trace of the
+  markers, with both libraries of roctx;
+- the tests of the polycrystal of mm-opera-hpc (11 out of 11) and nine other
+  tests of mfem-mgis on the host (42 out of 42; the executables of 4 other
+  tests, matched by the names of the list, were not built), without the
+  option;
+- without the option, the outputs of the polycrystal of 100 grains (96
+  cores, 3 steps, one material, line search and extrapolation) are the ones
+  of the executable of the measurements, bit for bit: `.res` of 274 bytes,
+  averages per grain, 120 lines of iterations (`ls-identity.slurm`, job
+  5983076). The executable built with the option gives them too on the
+  cores, where it sets no marker (job 5982469, with the build preceding
+  the formatting of the sources of the commits; the same check of the
+  final build, job 5983077, was running when the connection to Adastra was
+  lost, and its result is not known here);
+- with the option and without profiler, on 4 MI300A (400 grains, 20 steps of
+  1 s, final configuration; `roctx-ab.slurm`, job 5982471, three executables
+  in turn, 3 runs each): loop of 100.96 s on average with the ranges,
+  101.74 s without the option and 101.60 s with the executable of the
+  measurements, for a dispersion of 0.3 to 0.9 % between the runs of one
+  executable. The whole computation opens about 1,100 ranges per process;
+- under `rocprofv3 --runtime-trace --marker-trace` (`profile-trace.slurm`,
+  jobs 5982472 and 5983078, the 4 processes traced): loop of 105.81 and
+  106.31 s, against 101.86 and 101.74 s without profiler on the same
+  node (+3.9 and +4.5 %); 2.0 GB of traces, written in 30 s at the end
+  of the program. The Perfetto trace of a process holds 1,451,795 slices,
+  the sum of the rows of its tables (`pftrace-tracks.py`): none was
+  discarded;
+- on the CI (run 43585510008): the whole suite on the CPU, in double (61
+  tests of MGIS, 265 of mfem-mgis, 17 of mm-opera-hpc) and in float (61,
+  261 and 17), all passed, with `ProfilingTest` and
+  `ProfilingMarkersTest-cpu`; the builds with CUDA and with HIP, without the
+  option.
+
+Two processes out of four are traced by `trace-ranks.sh` on the polycrystal
+of the tests, and one under `rocprof-sys-sample`, whose trace also holds
+the ranges of roctx, the calls of MPI and the sampled call stacks of the
+host. A buffer of 4 GB for the trace of Perfetto
+(`--perfetto-buffer-size 4194304`) is refused by Perfetto, and the program
+then hangs at its end: the default buffer of 1 GB is kept.
+
+In the trace of 400 grains (`trace-zones.py`, mean of the 4 processes), a
+kernel runs during 66.3 % of the loop over the time steps (74.2 % in the
+second half of the steps). The tangent operator (`NS::getJacobian`)
+and the linear solver (`MFEM::Mult(r,c)`) take 76.6 % of the loop and
+67.9 % of the time during which the GPU waits; the integration of
+the behaviour (`FPS::integrate`) keeps the GPU busy 92.1 % of its time;
+the macroscopic stresses, the post-processings and the end of the time
+step, computed on the host, take 9.0 % of the loop.
+
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of
 mfem-mgis and to the builds of the examples and of mm-opera-hpc): each

@@ -129,6 +129,62 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     repetition, on the same nodes.
   - `FM_GPU_REPS` repetitions on all the GPUs, `FM_CPU_REPS` on all the
     cores; `FM_VARIANTS` selects the variants (`ls`, `ls-pred`).
+- **`profile-trace.slurm`: trace of the final computation**, in the style
+  of Nsight Systems (14/11/2026).
+  - `FM_GRAINS` grains on all the GPUs of the allocation, final
+    configuration (one material, line search, extrapolation, mesh
+    partitioned beforehand), under `rocprofv3 --runtime-trace
+    --marker-trace --output-format pftrace csv`.
+  - The executable is built with the option `enable-roctx` of mfem-mgis
+    (`build-roctx.sh`): the timed sections, the time steps and the
+    resolutions are ranges of roctx, shown in the trace above the calls of
+    the HIP runtime, the kernels and the memory copies.
+  - `trace-ranks.sh` is the launcher placed before the executable: only
+    the processes `FM_TRACE_RANKS` run under the profiler (default
+    `node:0`, the processes of the first node; `all`; ranks `0-3,128`).
+    The other processes run directly.
+  - `FM_REFERENCE=1` runs the same computation without profiler first, for
+    the overhead of the trace.
+  - Results: one `trace_results.pftrace` per traced process, to open in
+    <https://ui.perfetto.dev>, the same events as `csv` tables, and
+    `trace-zones.txt`. Beyond 4 nodes, the analysis is left to the login
+    node (the command is written in `chain.log`).
+  - `FM_TRACE_TOOL=rocprof-sys` runs the traced processes under
+    `rocprof-sys-sample` instead (formerly Omnitrace): one
+    `perfetto-trace-<rank>.proto` per process, with the ranges of roctx,
+    the calls of HIP and of MPI, the kernels, the sampled call stacks of
+    the host and counters of the node, without `csv` tables.
+  - The trace of Perfetto is limited by its buffer (1 GB per process by
+    default, 0.3 GB for 20 steps); `--perfetto-buffer-size 4194304` is
+    refused by Perfetto and the program hangs at its end.
+- **`trace-zones.py <directory of the traces>`: what the GPU does in each
+  zone.**
+  - Tree of the zones of the loop over the time steps (ranges of roctx):
+    calls, time, share of the loop, time during which a kernel runs and
+    occupancy of the GPU.
+  - Innermost zones (each instant counted once), calls of the HIP runtime
+    and memory copies in the loop; `--steps` adds the time steps.
+- **`pftrace-tracks.py <file.pftrace>`: tracks of a Perfetto trace**, with
+  their numbers of slices, decoded without library: what Perfetto will
+  show, and whether events were discarded (the number of slices must be
+  the number of rows of the tables).
+- **`roctx-tests.slurm`: tests of the ranges of roctx.**
+  - Separate build by `build-roctx.sh` of MGIS, mfem-mgis and the
+    polycrystal from the archive `FM_FIX/src.tgz`, on the local disk of the
+    node (the quota of files of the project on `/lus/scratch` was nearly
+    reached): variants without the option `enable-roctx` (`off`), with it
+    (`on`) and with the roctx of roctracer (`legacy`). Only the executables
+    and the library of MGIS are kept, in `FM_FIX/bin` and `FM_FIX/lib`.
+  - `ProfilingTest` of MGIS, `ProfilingMarkersTest` of mfem-mgis on the
+    host, on a GPU and under `rocprofv3` (the ranges must be in the trace),
+    the polycrystal of the tests with two traced processes out of four
+    (and one under `rocprof-sys-sample` with `FM_ROCPROF_SYS=1`), the
+    tests of the polycrystal by `ctest`, other tests of mfem-mgis
+    (`FM_OTHER_TESTS`).
+- **`roctx-ab.slurm`: cost of the ranges without profiler.**
+  - The final computation with the executables `FM_EXECUTABLES`
+    (`<name>=<path>`), one after the other at each repetition, on the same
+    nodes.
 
 ## The report
 

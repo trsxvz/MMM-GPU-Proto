@@ -7109,3 +7109,96 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
 - `cases/polycrystal/adastra-fm/`: `review-tests.slurm`,
   `review-mutations.slurm`; `ls-identity.slurm` takes the options of the
   computations (`FM_EXTRA_OPTIONS`).
+
+### 2026-11-14, timed sections in the traces of the GPU profilers (roctx, rocprofv3)
+
+- Context: the time table of the profiling gives the time of each section,
+  not what the GPU does during it. For the final computation of the
+  polycrystal on Adastra, a trace in the style of Nsight Systems was wanted:
+  the calls of the HIP runtime, the kernels and the memory copies on a time
+  line, under the names of the sections. On the AMD GPUs, the annotation
+  library is roctx (the equivalent of NVTX), the profiler is `rocprofv3`
+  (ROCm 6.4.3), and its traces are read by Perfetto.
+- Where the sections are opened: the `CatchTimeSection` macro and the
+  `ProfilingSection` class are in MGIS, and about half of the sections of
+  mfem-mgis are `ProfilingSection` objects created without the macro
+  (`NS::Mult`, `FPS::integrate`, `MFEM::Mult(r,c)`...). A wrapper of the
+  macro in mfem-mgis would have missed them. MGIS itself knows neither HIP
+  nor ROCm.
+- MGIS, patch 0104: `setProfilingMarkers` sets two functions called at the
+  beginning, with its name, and at the end of each active section, as
+  `setProfilingSynchronization` does for the synchronization. No function
+  by default: a section then tests a pointer.
+  - The range of a section is the interval measured by its timer. The
+    synchronization of the beginning is made before the node of the section
+    is pushed, which does not change the measured time.
+  - A section keeps the function reporting its end: a section which began
+    before the markers were set is not reported.
+  - `ProfilingRange`: a range only reported by the markers, neither timed
+    nor added to the profiling tree, for the time steps and the iterations.
+    Adding a timed section per time step would have moved `NLEP::solve` one
+    level down in the time table, which the measurement scripts read.
+- mfem-mgis, patch 0294: CMake option `enable-roctx` (`OFF` by default,
+  MFEM compiled with HIP, module `FindROCTX.cmake`). With it,
+  `mfem_mgis::initialize` sets the functions of roctx as markers when it
+  creates a device using a GPU. Without it, roctx is neither searched nor
+  used and no code is compiled.
+  - `OFF` by default rather than automatic: an executable used for
+    measurements does not change unless asked, and roctx adds a library
+    loaded at run time.
+  - The roctx of rocprofiler-sdk is preferred, the one of roctracer is
+    accepted: `rocprofv3` replaces its functions by preloading.
+- mm-opera-hpc, patch 0051: each attempt of a time step and each resolution
+  of the fixed point on the lateral stresses of the polycrystal is a
+  `ProfilingRange` (`time step from 3 to 4`, `resolution 0`).
+- `cases/polycrystal/adastra-fm/`:
+  - `profile-trace.slurm`: the final computation under `rocprofv3
+    --runtime-trace --marker-trace --output-format pftrace csv`;
+  - `trace-ranks.sh`: launcher running only some processes under the
+    profiler (the ones of a node, or given ranks), the others directly;
+  - `trace-zones.py`: time and occupancy of the GPU per zone, from the
+    tables of the trace;
+  - `pftrace-tracks.py`: tracks and numbers of events of a Perfetto trace,
+    decoded without library;
+  - `build-roctx.sh`, `roctx-tests.slurm`, `roctx-ab.slurm`: separate
+    build, tests and cost of the ranges without profiler.
+- The quota of files of the project on `/lus/scratch` was nearly reached
+  (1,498,975 files for a limit of 1,500,000): the first build failed at the
+  configuration of MGIS. The build is now made on the local disk of the
+  node, from one archive of the sources; only the executables and the
+  library of MGIS are kept.
+- Validation (details in `docs/validation.md`):
+  - tests: `ProfilingTest` of MGIS; `ProfilingMarkersTest` of mfem-mgis on
+    the host, on a MI300A and under `rocprofv3`, with the roctx of
+    rocprofiler-sdk and with the one of roctracer; the tests of the
+    polycrystal (job 5982989); CI run 43585510008, in double (61 tests of
+    MGIS, 265 of mfem-mgis, 17 of mm-opera-hpc) and in float (61, 261, 17);
+  - without the option, same outputs bit for bit as the executable of the
+    measurements (100 grains, 96 cores, 3 steps, options of the
+    measurements; job 5983076); with the option, on the cores, the same
+    outputs too (job 5982469, first build; the check of the final build,
+    job 5983077, was running when the connection to Adastra was lost);
+  - with the option and without profiler, no measurable cost: loop of
+    100.96 s on 4 MI300A, against 101.74 s without the option and 101.60 s
+    with the executable of the measurements (400 grains, 3 runs each, job
+    5982471; dispersion of 0.3 to 0.9 %);
+  - under `rocprofv3`, the 4 processes traced: +3.9 and +4.5 % on the loop
+    (jobs 5982472 and 5983078), 0.5 GB of traces per process for 20 steps,
+    written in 30 s at the end.
+- Trace of 400 grains (job 5983078, mean of the 4 processes): a kernel runs
+  during 66.3 % of the loop over the time steps, 74.2 % in the second half
+  of the steps. `NS::getJacobian` and `MFEM::Mult(r,c)` take 76.6 % of the
+  loop and 67.9 % of the time during which the GPU waits; the first call of
+  `NS::getJacobian` takes 10.9 s with a kernel running 2.8 % of the time;
+  the macroscopic stresses, the post-processings and the end of the time
+  step take 9.0 % of the loop on the host.
+- Traps met:
+  - `--perfetto-buffer-size 4194304` (4 GB) is refused by Perfetto: no
+    trace, and the program hangs at its end;
+  - a job script which sources `scripts/env.sh` must restore `P`
+    afterwards: the scripts of the deployed prototype ignore `executable`,
+    `extra_options` and `profiler`.
+- Not done: the trace was not opened in the interface of Perfetto (its
+  tracks and its numbers of events are read by `pftrace-tracks.py`); the
+  suite of mfem-mgis on the GPU was not run again with the option; NVTX is
+  not connected to the markers.
