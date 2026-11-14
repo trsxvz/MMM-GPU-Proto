@@ -7,7 +7,10 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
+#include <sstream>
 #include <algorithm>
+#include "MGIS/Profiling.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/MPI.hxx"
@@ -183,6 +186,15 @@ namespace mm_opera_hpc {
     using namespace mfem_mgis::Profiler::Utils;
     auto or_die = ctx.getFatalFailureHandler();
     Message("Solving time step from ", bts, " to ", ets);
+    // the time step, then each resolution, are declared to the tracing
+    // profilers, if any (see `mgis::setProfilingMarkers`): these ranges are
+    // not timed
+    const auto time_step_range = mgis::ProfilingRange{
+        ctx, [bts, ets] {
+          auto name = std::ostringstream{};
+          name << "time step from " << bts << " to " << ets;
+          return name.str();
+        }};
     // --- fixed-point param
     const auto tolFP = np.macroscopic_stress_absolute_tolerance;
     const int maxitFP = np.macroscopic_stress_maximum_number_of_iterations;
@@ -213,6 +225,8 @@ namespace mm_opera_hpc {
     auto previous_lateral_state =
         std::optional<std::array<mfem_mgis::real, 4u>>{};
     while ((!converged) && (itFP < maxitFP)) {
+      const auto resolution_range = mgis::ProfilingRange{
+          ctx, [itFP] { return "resolution " + std::to_string(itFP); }};
       const auto &mp = np.macroscopic_elastic_material_properties;
       // -- compute correction -- //
       // -- note that S[0] and S[1] are updated at the end of this loop section,

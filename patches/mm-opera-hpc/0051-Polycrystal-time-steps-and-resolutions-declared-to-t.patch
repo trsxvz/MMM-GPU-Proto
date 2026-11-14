@@ -1,0 +1,62 @@
+From 4cf7414d86adfe72791314db2e81e8ff12a28217 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 14 Nov 2026 11:27:16 +0100
+Subject: [PATCH] Polycrystal: time steps and resolutions declared to the
+ tracing profilers
+
+In the trace of a tracing profiler, the timed sections of a computation
+are ranges (see `mgis::setProfilingMarkers`, set by mfem-mgis built with
+the option `enable-roctx` for the profilers of ROCm), but nothing tells
+which time step they belong to. Each attempt of a time step (`time step
+from 3 to 4`, as in the log) and each resolution of the fixed point on the
+lateral stresses (`resolution 0`) is now a range enclosing them
+(`mgis::ProfilingRange`). These ranges are only seen by the profilers:
+they are neither timed nor added to the time table, which the measurement
+scripts read, and do nothing without markers.
+---
+ ...UniaxialMacroscopicStressPeriodicSimulation.cxx | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+index 2e97742..3a6e22e 100644
+--- a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
++++ b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+@@ -7,7 +7,10 @@
+ 
+ #include <cmath>
+ #include <limits>
++#include <string>
++#include <sstream>
+ #include <algorithm>
++#include "MGIS/Profiling.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Profiler.hxx"
+ #include "MFEMMGIS/MPI.hxx"
+@@ -183,6 +186,15 @@ namespace mm_opera_hpc {
+     using namespace mfem_mgis::Profiler::Utils;
+     auto or_die = ctx.getFatalFailureHandler();
+     Message("Solving time step from ", bts, " to ", ets);
++    // the time step, then each resolution, are declared to the tracing
++    // profilers, if any (see `mgis::setProfilingMarkers`): these ranges are
++    // not timed
++    const auto time_step_range = mgis::ProfilingRange{
++        ctx, [bts, ets] {
++          auto name = std::ostringstream{};
++          name << "time step from " << bts << " to " << ets;
++          return name.str();
++        }};
+     // --- fixed-point param
+     const auto tolFP = np.macroscopic_stress_absolute_tolerance;
+     const int maxitFP = np.macroscopic_stress_maximum_number_of_iterations;
+@@ -213,6 +225,8 @@ namespace mm_opera_hpc {
+     auto previous_lateral_state =
+         std::optional<std::array<mfem_mgis::real, 4u>>{};
+     while ((!converged) && (itFP < maxitFP)) {
++      const auto resolution_range = mgis::ProfilingRange{
++          ctx, [itFP] { return "resolution " + std::to_string(itFP); }};
+       const auto &mp = np.macroscopic_elastic_material_properties;
+       // -- compute correction -- //
+       // -- note that S[0] and S[1] are updated at the end of this loop section,
+-- 
+2.34.1
+
