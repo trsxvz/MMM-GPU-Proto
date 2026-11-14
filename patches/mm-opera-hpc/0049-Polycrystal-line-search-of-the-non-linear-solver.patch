@@ -1,0 +1,117 @@
+From e9bdadcfbf4133a1537910278e8b49b10fac87ff Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 14 Nov 2026 03:12:11 +0100
+Subject: [PATCH] Polycrystal: line search of the non linear solver
+
+Option --line-search (None by default, Backtracking): option LineSearch of
+the Newton solver and of the NewtonK0 method of mfem-mgis, the line search
+by backtracking on the norm of the residual of Eisenstat and Walker. The
+step of an iteration is halved until the norm of the residual decreases, an
+estimate at which the integration of the behaviour fails being refused; a
+resolution fails, and the time step is divided by two, if no step is
+acceptable.
+
+Tests: UniaxialPolycrystalTest-LineSearch (NewtonK0, first choice of
+Eisenstat and Walker, line search: axial stress of Cast3M within 1 %) and
+UniaxialPolycrystalTest-LineSearch-Invalid (unknown line search refused).
+---
+ polycrystal/CMakeLists.txt          | 16 ++++++++++++++++
+ polycrystal/README.md               |  3 ++-
+ polycrystal/UniaxialPolycrystal.cxx | 21 +++++++++++++++++++++
+ 3 files changed, 39 insertions(+), 1 deletion(-)
+
+diff --git a/polycrystal/CMakeLists.txt b/polycrystal/CMakeLists.txt
+index 6b56c50..c06af1c 100755
+--- a/polycrystal/CMakeLists.txt
++++ b/polycrystal/CMakeLists.txt
+@@ -72,4 +72,20 @@ add_test(NAME UniaxialPolycrystalTest-MaximumIterations
+ set_tests_properties(UniaxialPolycrystalTest-MaximumIterations PROPERTIES
+   PASS_REGULAR_EXPRESSION "dividing time step by 2"
+   FAIL_REGULAR_EXPRESSION "Fixed point iteration  2")
++# line search of the non linear solver (NewtonK0, tolerance of Eisenstat and
++# Walker): same axial stress
++mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-LineSearch
++  FILE polycrystal-test-line-search.res ${_polycrystal_checks}
++  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
++          --macroscopic-stress-output-file polycrystal-test-line-search.res
++          --non-linear-solver NewtonK0
++          --adaptive-linear-solver-tolerance EisenstatWalker1
++          --line-search Backtracking)
++# an unknown line search is refused
++add_test(NAME UniaxialPolycrystalTest-LineSearch-Invalid
++  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
++          --macroscopic-stress-output-file polycrystal-test-line-search-invalid.res
++          --line-search Unknown)
++set_tests_properties(UniaxialPolycrystalTest-LineSearch-Invalid PROPERTIES
++  PASS_REGULAR_EXPRESSION "error: invalid line search")
+ add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index 48e3af1..bb7f208 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -90,6 +90,7 @@ Usage: ./uniaxial-polycrystal --help
+ | `--reuse-analysis`, `--no-reuse-analysis`   | bool   | `false`                      | Reuse the analysis of the direct solver for the matrices of the same pattern (parameter `ReuseAnalysis` of mfem-mgis). Ignored, with a warning, without a direct solver, with `NewtonK0` or with PETSc. |
+ | `--non-linear-solver <string>`              | string | `Newton`                     | Non linear solver: `Newton` or `NewtonK0` (tangent systems solved by a conjugate gradient preconditioned by the elastic operator).            |
+ | `--non-linear-solver-maximum-iterations <int>` | int  | `20`                         | Maximum number of iterations of the non linear solver for each resolution of the microscopic equilibrium. A resolution which does not converge within this number of iterations fails, and the time step is divided by two (ten times at most per temporal sequence). |
++| `--line-search <string>`                    | string | `None`                       | Line search of the non linear solver (`Newton` or `NewtonK0`): `None`, or `Backtracking` (option `LineSearch` of mfem-mgis). With `Backtracking`, the step of an iteration is halved, ten times at most, until the norm of the residual decreases; an estimate at which the integration of the behaviour fails is refused; a resolution fails, and the time step is divided by two, if no step is acceptable. Recommended with `--adaptive-linear-solver-tolerance EisenstatWalker1`. |
+ | `--adaptive-linear-solver-tolerance <string>` | string | `None`                       | Relative tolerance of the linear solver adapted to the decrease of the residual: `None`, `EisenstatWalker1` or `EisenstatWalker2`; requires an iterative linear solver. |
+ | `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if `-1`. Giving it without `--adaptive-linear-solver-tolerance` is an error.                      |
+ | `--adaptive-linear-solver-maximum-tolerance <double>` | double | `-1` | Maximum adaptive tolerance, the default one (0.9) if `-1`: the tolerance of Eisenstat and Walker rises to it when the residual increases, for instance after a failure of the integration of the behaviour. Giving it without `--adaptive-linear-solver-tolerance` is an error. |
+@@ -175,7 +176,7 @@ This table shows the comparison between the simulated Cauchy stress values and t
+ 
+ ## Tests
+ 
+-`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.2 s without post-processing, whose axial stress `Szz` is compared to the one computed by Cast3M, `results/polycrystal_cast3m.csv`, with a relative tolerance of 1 %, by `cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `UniaxialPolycrystalTest-DisplacementGradient` (the same with `--displacement-gradient`), `UniaxialPolycrystalTestPar` (the same on 2 processes), `UniaxialPolycrystalTest-MaximumIterations` (the first test with `--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --non-linear-solver-maximum-iterations 1`: a resolution of this time step takes four iterations, so the first one fails; the test expects the division of the time step, and no second iteration) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours-execution cpu`.
++`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.2 s without post-processing, whose axial stress `Szz` is compared to the one computed by Cast3M, `results/polycrystal_cast3m.csv`, with a relative tolerance of 1 %, by `cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `UniaxialPolycrystalTest-DisplacementGradient` (the same with `--displacement-gradient`), `UniaxialPolycrystalTestPar` (the same on 2 processes), `UniaxialPolycrystalTest-MaximumIterations` (the first test with `--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --non-linear-solver-maximum-iterations 1`: a resolution of this time step takes four iterations, so the first one fails; the test expects the division of the time step, and no second iteration), `UniaxialPolycrystalTest-LineSearch` (the first test with `--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --line-search Backtracking`), `UniaxialPolycrystalTest-LineSearch-Invalid` (an unknown line search is refused) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours-execution cpu`.
+ 
+ ## References
+ 
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 8697d9f..6084743 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -89,6 +89,12 @@ struct NumericalParameters {
+    * divided by two
+    */
+   int non_linear_solver_maximum_iterations = 20;
++  /*!
++   * \brief line search of the non linear solver: `None`, or `Backtracking`
++   * (the step of an iteration is halved until the norm of the residual
++   * decreases, see `LineSearch` in mfem-mgis)
++   */
++  const char *line_search = "None";
+   /*!
+    * \brief relative tolerance of the linear solver of the non linear solver
+    * adapted to the decrease of the residual: `None`, `EisenstatWalker1` or
+@@ -345,6 +351,16 @@ int main(int argc, char *argv[]) {
+             {p.adaptive_linear_solver_tolerance, adaptive_options}}) |
+         or_die;
+   }
++  // line search of the non linear solver
++  if (std::string_view{p.line_search} == "Backtracking") {
++    non_linear_solver_options.insert(ctx, "LineSearch",
++                                     std::string{p.line_search}) |
++        or_die;
++  } else if (std::string_view{p.line_search} != "None") {
++    mfem_mgis::Profiler::Utils::Message(
++        "error: invalid line search (expected None or Backtracking)");
++    std::exit(EXIT_FAILURE);
++  }
+   if (std::string_view{p.non_linear_solver} == "NewtonK0") {
+     // the behaviour does not provide its prediction operator: the elastic
+     // operator is given by an integration
+@@ -484,6 +500,11 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+                  "each resolution of the microscopic equilibrium (a "
+                  "resolution which does not converge fails, and the time "
+                  "step is divided by two)");
++  args.AddOption(&p.line_search, "", "--line-search",
++                 "line search of the non linear solver: None (default) or "
++                 "Backtracking (the step of an iteration is halved until the "
++                 "norm of the residual decreases; a resolution fails if no "
++                 "step is acceptable)");
+   args.AddOption(&p.adaptive_linear_solver_tolerance, "",
+                  "--adaptive-linear-solver-tolerance",
+                  "relative tolerance of the linear solver adapted to the "
+-- 
+2.34.1
+

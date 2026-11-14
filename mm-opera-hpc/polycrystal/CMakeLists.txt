@@ -72,4 +72,20 @@ add_test(NAME UniaxialPolycrystalTest-MaximumIterations
 set_tests_properties(UniaxialPolycrystalTest-MaximumIterations PROPERTIES
   PASS_REGULAR_EXPRESSION "dividing time step by 2"
   FAIL_REGULAR_EXPRESSION "Fixed point iteration  2")
+# line search of the non linear solver (NewtonK0, tolerance of Eisenstat and
+# Walker): same axial stress
+mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-LineSearch
+  FILE polycrystal-test-line-search.res ${_polycrystal_checks}
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-line-search.res
+          --non-linear-solver NewtonK0
+          --adaptive-linear-solver-tolerance EisenstatWalker1
+          --line-search Backtracking)
+# an unknown line search is refused
+add_test(NAME UniaxialPolycrystalTest-LineSearch-Invalid
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-line-search-invalid.res
+          --line-search Unknown)
+set_tests_properties(UniaxialPolycrystalTest-LineSearch-Invalid PROPERTIES
+  PASS_REGULAR_EXPRESSION "error: invalid line search")
 add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)

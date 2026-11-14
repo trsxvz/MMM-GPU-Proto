@@ -90,6 +90,12 @@ struct NumericalParameters {
    */
   int non_linear_solver_maximum_iterations = 20;
   /*!
+   * \brief line search of the non linear solver: `None`, or `Backtracking`
+   * (the step of an iteration is halved until the norm of the residual
+   * decreases, see `LineSearch` in mfem-mgis)
+   */
+  const char *line_search = "None";
+  /*!
    * \brief relative tolerance of the linear solver of the non linear solver
    * adapted to the decrease of the residual: `None`, `EisenstatWalker1` or
    * `EisenstatWalker2` (see `AdaptiveLinearSolverTolerance` in mfem-mgis)
@@ -345,6 +351,16 @@ int main(int argc, char *argv[]) {
             {p.adaptive_linear_solver_tolerance, adaptive_options}}) |
         or_die;
   }
+  // line search of the non linear solver
+  if (std::string_view{p.line_search} == "Backtracking") {
+    non_linear_solver_options.insert(ctx, "LineSearch",
+                                     std::string{p.line_search}) |
+        or_die;
+  } else if (std::string_view{p.line_search} != "None") {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: invalid line search (expected None or Backtracking)");
+    std::exit(EXIT_FAILURE);
+  }
   if (std::string_view{p.non_linear_solver} == "NewtonK0") {
     // the behaviour does not provide its prediction operator: the elastic
     // operator is given by an integration
@@ -484,6 +500,11 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "each resolution of the microscopic equilibrium (a "
                  "resolution which does not converge fails, and the time "
                  "step is divided by two)");
+  args.AddOption(&p.line_search, "", "--line-search",
+                 "line search of the non linear solver: None (default) or "
+                 "Backtracking (the step of an iteration is halved until the "
+                 "norm of the residual decreases; a resolution fails if no "
+                 "step is acceptable)");
   args.AddOption(&p.adaptive_linear_solver_tolerance, "",
                  "--adaptive-linear-solver-tolerance",
                  "relative tolerance of the linear solver adapted to the "

@@ -40,6 +40,24 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   - The best solvers of each side: `FM_SOLVER_GPU`, `FM_SOLVER_CPU`.
   - `FM_GPU_REPS` computations on all the GPUs, then `FM_CPU_REPS` on all
     the cores.
+- **`ls-tests.slurm`: tests of the line search** (option `LineSearch` of
+  mfem-mgis, 14/11/2026).
+  - Separate build in `FM_FIX` (`build-fix.sh`), then the unit tests of
+    mfem-mgis on the line search (`FM_TESTS`) and other tests which use
+    the non linear solvers (`FM_OTHER_TESTS`).
+  - Then the commands of the tests of the polycrystal
+    (`polycrystal/CMakeLists.txt` of mm-opera-hpc), run by hand with the
+    behaviour library of the deployed prototype.
+- **`ls-identity.slurm`: options disabled, same outputs.**
+  - CPU, 100 grains, 96 processes, one material for all the grains:
+    executable `FM_EXECUTABLE_B` against `FM_EXECUTABLE_A`, cases
+    `FM_CASES` (NewtonK0 with the two choices of Eisenstat and Walker,
+    Newton solver, raw mesh with integration failures).
+  - Compares the `.res` files, the averages per grain and the lines of the
+    iterations of the logs.
+- **`ls-stats.py <log>...`: counters of a computation**: attempts of time
+  steps by time increment, Newton corrections, iterations whose step was
+  reduced by the line search, refused trials, failed searches.
 
 ## The report
 
