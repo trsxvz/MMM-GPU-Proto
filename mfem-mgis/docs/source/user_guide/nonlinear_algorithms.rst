@@ -205,7 +205,8 @@ Line search
 By default, the correction is always applied, whatever its effect on the
 residual. Far from the solution, the residual may then increase from one
 iteration to the next, and the iterations may oscillate or diverge. The
-option :cxx:`LineSearch` of the Newton solver, set to :cxx:`Backtracking`,
+option :cxx:`LineSearch` of the Newton solver and of the :cxx:`NewtonK0`
+method of the :cxx:`FixedPoint` solver, set to :cxx:`Backtracking`,
 globalizes the method by a line search on the norm of the residual, the
 backtracking of the inexact Newton methods of Eisenstat and Walker
 :cite:`eisenstat_globally_1994,eisenstat_choosing_1996`, also used by NITSOL
@@ -407,6 +408,16 @@ When the integration of the behaviours fails at a new estimate, this
 estimate is replaced by the middle of this estimate and of the previous
 one, ten times at most. The iterations stop if the norm of the residual is
 not finite.
+
+The :cxx:`NewtonK0` method has the line search of the Newton solver (option
+:cxx:`LineSearch`, see :ref:`mfem_mgis_line_search`): the step is halved
+until the norm of the residual decreases sufficiently, an estimate at which
+the integration of the behaviours fails being a refused trial, and the
+resolution fails if no step is acceptable (also at the floor of the
+rounding errors: the :cxx:`FixedPoint` solver has no stagnation
+criterion). This option is refused by the other methods of the
+:cxx:`FixedPoint` solver: their corrections are not the ones of an inexact
+Newton method, and their accelerations do not give descent directions.
 
 The following options select the :cxx:`NewtonK0` method in a parallel
 computation:

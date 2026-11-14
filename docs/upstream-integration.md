@@ -257,8 +257,8 @@ The overall plan is in [plan-mfem-mgis.md](plan-mfem-mgis.md).
 8. **Other formulations by kernels**: stationary and transient thermal,
    micromorphic damage, FBar, regularisation of Faltus et al.
 9. **Fixed point solver** (`FixedPoint`): accelerations of MTest, NewtonK0
-   method (factorised elastic operator, adapted tolerance), elastic
-   prediction, iterative solvers of the factory.
+   method (factorised elastic operator, adapted tolerance, line search of
+   contribution 2), elastic prediction, iterative solvers of the factory.
 10. **Post-processings by kernels** (variable
     `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`): integrals, L2 projections,
     values at the nodes.

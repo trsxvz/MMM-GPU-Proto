@@ -923,12 +923,13 @@ at the end of each resolution (the predictions keep it).
 Line search (LineSearch)
 ------------------------
 
-The corrections of the Newton solver may be reduced by a line search by
-backtracking on the norm of the residual (Eisenstat and Walker, 1994 and
-1996): the step is halved until the norm of the residual decreases
-sufficiently, an estimate at which the integration of the behaviours fails
-being refused. The resolution fails if no step is acceptable (see
-:doc:`nonlinear_algorithms`).
+The corrections of the Newton solver, and of the ``NewtonK0`` method of the
+``FixedPoint`` solver, may be reduced by a line search by backtracking on
+the norm of the residual (Eisenstat and Walker, 1994 and 1996): the step is
+halved until the norm of the residual decreases sufficiently, an estimate at
+which the integration of the behaviours fails being refused. The resolution
+fails if no step is acceptable (see :doc:`nonlinear_algorithms`). The other
+methods of the ``FixedPoint`` solver refuse this option.
 
 - Option name: ``LineSearch``, with the value ``None`` (default) or
   ``Backtracking``, possibly with options.

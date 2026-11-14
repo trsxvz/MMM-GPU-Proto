@@ -762,8 +762,8 @@ waves, in the factories of mfem-mgis.
 - `FixedPoint` solver with Anderson acceleration;
 - inexact Newton (Eisenstat-Walker, done: option
   `AdaptiveLinearSolverTolerance` of the Newton and of `NewtonK0`) and
-  line search (done on 14/11/2026: option `LineSearch` of the Newton,
-  backtracking on the norm of the residual), written in the
+  line search (done on 14/11/2026: option `LineSearch` of the Newton and
+  of `NewtonK0`, backtracking on the norm of the residual), written in the
   Newton of mfem-mgis (the hooks of `mfem::NewtonSolver` do not apply
   there);
 - matrix free smoothers: `OperatorJacobi`, `OperatorChebyshev`,

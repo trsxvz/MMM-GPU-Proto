@@ -69,8 +69,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `Steffensen`, `Cast3M`...)
 - `AdaptiveLinearSolverTolerance` option (Eisenstat-Walker) of the Newton
   solver and of the `NewtonK0` method
-- `LineSearch` option of the Newton solver: line search by backtracking on
-  the norm of the residual (Eisenstat-Walker), disabled by default
+- `LineSearch` option of the Newton solver and of the `NewtonK0` method:
+  line search by backtracking on the norm of the residual
+  (Eisenstat-Walker), disabled by default
 - solvers of AmgX (`AmgX`, `AmgXPCG`, CMake option `enable-amgx`) and of
   cuDSS (`CuDSSSolver`); parameter `ReuseAnalysis` of `MUMPSSolver`;
   `AbsoluteTolerance` of the Krylov solvers of hypre; options of

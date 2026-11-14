@@ -136,7 +136,8 @@ namespace mfem_mgis {
                                  "Acceleration",
                                  "PredictionLinearSolver",
                                  "TangentLinearSolver",
-                                 "AdaptiveLinearSolverTolerance"};
+                                 "AdaptiveLinearSolverTolerance",
+                                 "LineSearch"};
     auto others = Parameters{};
     for (const auto& [k, v] : params) {
       if (std::find(options.begin(), options.end(), k) == options.end()) {
@@ -308,6 +309,20 @@ namespace mfem_mgis {
           "(option 'AdaptiveLinearSolverTolerance') is only used by the "
           "'NewtonK0' method (set it to 'None' to change the method)");
     }
+    auto new_line_search = this->line_search;
+    if (contains(params, "LineSearch")) {
+      const auto ol = LineSearch::read(ctx, params);
+      if (isInvalid(ol)) {
+        return false;
+      }
+      new_line_search = *ol;
+    }
+    if ((new_method != Method::NEWTON_K0) && (new_line_search.isEnabled())) {
+      return ctx.registerErrorMessage(
+          "FixedPointSolver: the line search (option 'LineSearch') is only "
+          "used by the 'NewtonK0' method (set it to 'None' to change the "
+          "method)");
+    }
     const auto has_linear_solver =
         (!remove_linear_solver) &&
         (new_linear_solver.has_value() ||
@@ -352,6 +367,7 @@ namespace mfem_mgis {
     }
     this->method = new_method;
     this->adaptive_linear_solver_tolerance = new_adaptive_tolerance;
+    this->line_search = new_line_search;
     this->elastic_operator_by_integration = new_by_integration;
     this->elastic_operator_assembled_once = new_once;
     if (new_linear_solver.has_value()) {
@@ -620,12 +636,17 @@ namespace mfem_mgis {
     // its residual, if computed (see `AdaptiveLinearSolverTolerance`)
     auto linear_solver_tolerance = std::optional<real>{};
     auto linear_residual_norm = std::optional<real>{};
-    // information on an iteration (see `NewtonSolver`)
-    auto add_iteration_information = [this, &solver, &linear_solver_tolerance,
-                                      &linear_residual_norm](const real nr,
-                                                             const bool ls_cv) {
+    // information on an iteration (see `NewtonSolver`), with the one on the
+    // line search, if any
+    auto add_iteration_information =
+        [this, &solver, &linear_solver_tolerance, &linear_residual_norm](
+            const real nr, const bool ls_cv,
+            const Parameters* const line_search_information = nullptr) {
       auto iteration = Parameters{};
       iteration.replaceOrInsert("Norm", nr);
+      if (line_search_information != nullptr) {
+        iteration.replaceOrInsert("LineSearch", *line_search_information);
+      }
       const auto ls_iterations = getNumberOfIterationsAtConvergence(solver);
       if (isValid(ls_iterations)) {
         auto ls = Parameters{};
@@ -703,7 +724,14 @@ namespace mfem_mgis {
               lr.UseDevice(true);
               J->Mult(c, lr);
               lr -= r;
-              adaptive_tolerance->setLinearResidualNorm(this->Norm(lr));
+              if (this->line_search.isEnabled()) {
+                // the scalar product with the residual gives the norm of
+                // the linear model at a reduced step
+                adaptive_tolerance->setLinearResidual(this->Norm(lr),
+                                                      this->Dot(lr, r));
+              } else {
+                adaptive_tolerance->setLinearResidualNorm(this->Norm(lr));
+              }
             }
             return true;
           });
@@ -719,6 +747,58 @@ namespace mfem_mgis {
       }
       if (it == 0) {
         unknowns_scale = this->rel_tol * this->Norm(c);
+      }
+      if (this->line_search.isEnabled()) {
+        // `NewtonK0` method with a line search by backtracking on the norm
+        // of the residual: an estimate at which the integration of the
+        // behaviours fails is a refused trial
+        const auto ls = this->line_search.search(
+            xn, x, c, norm, linear_solver_tolerance.value_or(real{0}),
+            [this, it_type,
+             &update_residual](const mfem::Vector& u) -> std::optional<real> {
+              if (!this->integrate(u, it_type)) {
+                return {};
+              }
+              return update_residual(u);
+            });
+        auto ls_information = Parameters{};
+        ls_information.replaceOrInsert("StepLength", ls.step_length);
+        ls_information.replaceOrInsert("NumberOfStepReductions",
+                                       ls.reductions);
+        if (!ls.success) {
+          // the behaviours are integrated at the last trial: the resolution
+          // fails
+          if (shall_print) {
+            log << "Fixed point iteration " << std::setw(2) << it
+                << " : line search failed after " << ls.reductions
+                << " reductions of the step\n";
+          }
+          add_iteration_information(norm, true, &ls_information);
+          break;
+        }
+        if (ls.reductions != 0) {
+          if (shall_print) {
+            log << "Fixed point iteration " << std::setw(2) << it
+                << " : line search, step length " << ls.step_length
+                << " after " << ls.reductions << " reductions\n";
+          }
+          if (adaptive_tolerance.has_value()) {
+            // the norm of the residual of the linear solve becomes the one
+            // of the linear model at the retained step
+            adaptive_tolerance->setStepLength(ls.step_length);
+            if (adaptive_tolerance->requiresLinearResidualNorm()) {
+              if (const auto lm = adaptive_tolerance->getLinearResidualNorm();
+                  lm.has_value()) {
+                ls_information.replaceOrInsert("LinearModelResidualNorm", *lm);
+              }
+            }
+          }
+        }
+        x = xn;
+        norm = ls.norm;
+        add_iteration_information(norm, true, &ls_information);
+        ++it;
+        continue;
       }
       subtract(x, c, xn);
       if (this->acceleration != nullptr) {

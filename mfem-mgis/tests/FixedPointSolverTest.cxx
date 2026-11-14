@@ -19,13 +19,18 @@
  * preconditioned by BoomerAMG. Newton's method with a relative tolerance of
  * the linear solver adapted to the decrease of the residual (Eisenstat and
  * Walker) gives the same solution with fewer iterations of the linear
- * solver.
+ * solver. With the line search by backtracking on the norm of the residual,
+ * the `NewtonK0` method makes the iterations of the Newton solver on a cube
+ * whose stress saturates (see `NewtonLineSearchTest`), for which it does
+ * not converge otherwise; the tolerance of Eisenstat and Walker which
+ * follows a reduced step uses the norm of the linear model at this step.
  * \date   10/10/2026
  */
 
 #include <cmath>
 #include <map>
 #include <cstdlib>
+#include <functional>
 #include <memory>
 #include <numeric>
 #include <cstddef>
@@ -44,6 +49,7 @@
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
 #include "SequentialLinearSolver.hxx"
 #include "Tolerance.hxx"
@@ -96,6 +102,13 @@ struct Results {
     std::optional<mfem_mgis::real> tolerance;
     //! \brief norm of the residual of the linear solve, if computed
     std::optional<mfem_mgis::real> linear_residual_norm;
+    //! \brief step length of the line search, if any
+    std::optional<mfem_mgis::real> step_length;
+    /*!
+     * \brief norm of the linear model at the step retained by the line
+     * search, if computed
+     */
+    std::optional<mfem_mgis::real> linear_model_residual_norm;
   };
   //! \brief information on the iterations of each time step
   std::vector<std::vector<Iteration>> iterations_information;
@@ -194,6 +207,13 @@ struct ComputationOptions {
   int number_of_steps = 2;
   //! \brief parameters of the non linear solver replacing the default ones
   mfem_mgis::Parameters solver_parameters = {};
+  //! \brief behaviour of the cube
+  const char* behaviour = "IsotropicLinearHardeningPlasticity";
+  /*!
+   * \brief uniaxial stresses imposed at the end of each time step, by a
+   * pressure on the face `Xmax`, instead of the displacement of this face
+   */
+  std::vector<double> stresses = {};
 };
 
 /*!
@@ -229,10 +249,17 @@ static Results compute(mfem_mgis::Context& ctx,
   if (opts.matrix_free) {
     params.insert(throwing, {{"BehaviourIntegration", "Batch"},
                              {"TangentOperatorComputation", "MatrixFree"}});
+    if (!opts.stresses.empty()) {
+      // with an imposed pressure, the tangent operator is only applied
+      // without assembly if the inner forces are computed by kernels (the
+      // pressure is then not an integrator of the non linear form)
+      params.insert(throwing, {{"GradientsComputation", "Kernels"},
+                               {"InnerForcesComputation", "Kernels"}});
+    }
   }
   auto problem = construct<NonLinearEvolutionProblem>(ctx, params) | or_die;
   problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
-                                 "IsotropicLinearHardeningPlasticity") |
+                                 opts.behaviour) |
       or_die;
   auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
   for (auto* s : {&m.s0, &m.s1}) {
@@ -245,12 +272,31 @@ static Results compute(mfem_mgis::Context& ctx,
         ctx, {{"Boundary", boundary}, {"Component", component}}) |
         or_die;
   }
-  problem.addUniformDirichletBoundaryCondition(
-      ctx,
-      {{"Boundary", "Xmax"},
-       {"Component", 0},
-       {"LoadingEvolution", [](const real t) noexcept { return 1e-2 * t; }}}) |
-      or_die;
+  if (opts.stresses.empty()) {
+    problem.addUniformDirichletBoundaryCondition(
+        ctx, {{"Boundary", "Xmax"},
+              {"Component", 0},
+              {"LoadingEvolution",
+               [](const real t) noexcept { return 1e-2 * t; }}}) |
+        or_die;
+  } else {
+    // the stress is linear over each time step; the pressure is its
+    // opposite
+    problem.addBoundaryCondition(
+        ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
+                 problem.getFiniteElementDiscretization(), "Xmax",
+                 [stresses = opts.stresses](const real t) {
+                   const auto n = static_cast<int>(stresses.size());
+                   // time in number of time steps
+                   const auto ts = static_cast<double>(t) * n;
+                   const auto i = std::clamp(
+                       static_cast<int>(std::ceil(ts - 1e-9)) - 1, 0, n - 1);
+                   const auto s0 = (i == 0) ? 0. : stresses[i - 1];
+                   const auto s1 = stresses[i];
+                   return static_cast<real>(-(s0 + (s1 - s0) * (ts - i)));
+                 })) |
+        or_die;
+  }
   const auto* const ls =
       (opts.linear_solver != nullptr)
           ? opts.linear_solver
@@ -274,7 +320,9 @@ static Results compute(mfem_mgis::Context& ctx,
   }
   problem.setSolverParameters(ctx, solver_parameters) | or_die;
   auto r = Results{};
-  const auto nsteps = opts.number_of_steps;
+  const auto nsteps = opts.stresses.empty()
+                          ? opts.number_of_steps
+                          : static_cast<int>(opts.stresses.size());
   const auto dt = real{1} / nsteps;
   auto t = real{0};
   for (int i = 0; i != nsteps; ++i) {
@@ -311,6 +359,15 @@ static Results compute(mfem_mgis::Context& ctx,
         if (contains(ls_information, "RelativeTolerance")) {
           iteration.tolerance =
               get<double>(throwing, ls_information, "RelativeTolerance");
+        }
+      }
+      if (contains(p, "LineSearch")) {
+        const auto& line_search = get<Parameters>(throwing, p, "LineSearch");
+        iteration.step_length =
+            get<double>(throwing, line_search, "StepLength");
+        if (contains(line_search, "LinearModelResidualNorm")) {
+          iteration.linear_model_residual_norm =
+              get<double>(throwing, line_search, "LinearModelResidualNorm");
         }
       }
     }
@@ -371,9 +428,11 @@ static void checkLinearResidualNorms(const Results& r,
  * decrease of the residual: the tolerance of the iteration `k >= 2` of each
  * time step is computed again from the norms of the residual of the
  * iterations `k - 1` and `k - 2`, the norm of the residual of the linear
- * solve and the tolerance of the iteration `k - 1` (formulas of Eisenstat
- * and Walker, safeguards); the norm of the residual of a linear solve is
- * lower than the norm of the residual of the non linear problem
+ * solve (or the norm of the linear model at the step retained by the line
+ * search, if reduced) and the tolerance of the iteration `k - 1` (formulas
+ * of Eisenstat and Walker, safeguards); the norm of the residual of a
+ * linear solve is lower than the norm of the residual of the non linear
+ * problem
  * \param[in] r: results
  * \param[in] t: adaptive tolerance
  * \param[in] goal: absolute convergence criterion of the non linear solver
@@ -412,8 +471,11 @@ static void checkAdaptiveTolerances(
       auto eta = 0.;
       auto safeguard = 0.;
       if (first_choice) {
-        eta =
-            std::abs(fk - step[k - 1].linear_residual_norm.value_or(-1)) / fkm1;
+        // after a step reduced by the line search, norm of the linear model
+        // at this step
+        const auto model = step[k - 1].linear_model_residual_norm.value_or(
+            step[k - 1].linear_residual_norm.value_or(-1));
+        eta = std::abs(fk - model) / fkm1;
         safeguard = std::pow(previous, golden_ratio);
       } else {
         eta = t.gamma * std::pow(fk / fkm1, t.alpha);
@@ -953,6 +1015,140 @@ int main(int argc, char** argv) {
             "Newton, adaptive tolerance with a direct solver: accepted");
     }
   }
+  // line search of the `NewtonK0` method by backtracking on the norm of the
+  // residual: cube of `SaturatingElasticity` loaded in uniaxial stress close
+  // to the saturation, then partly unloaded in one time step (see
+  // `NewtonLineSearchTest`). Without line search, the second resolution does
+  // not converge. With it, the iterations are the ones of the Newton solver:
+  // same reduced steps, same solution, with an assembled tangent operator or
+  // without assembly.
+  {
+    constexpr auto saturation_stress = 240e6;
+    const auto saturation = ComputationOptions{
+        .solver_parameters = {{"MaximumNumberOfIterations", 50}},
+        .behaviour = "SaturatingElasticity",
+        .stresses = {0.98 * saturation_stress, 0.4 * saturation_stress}};
+    // reduced steps of a computation: time step, iteration and step length.
+    // In float, the last iterations of a resolution, at the floor of the
+    // rounding errors, may be reduced: only the first two iterations of
+    // each time step are kept.
+    auto getReducedSteps = [](const Results& r) {
+      constexpr auto all = sizeof(real) == sizeof(double);
+      auto steps = std::vector<std::tuple<std::size_t, std::size_t, real>>{};
+      for (std::size_t i = 0; i != r.iterations_information.size(); ++i) {
+        const auto& step = r.iterations_information[i];
+        for (std::size_t k = 0; k != step.size(); ++k) {
+          if ((!all) && (k >= 2)) {
+            break;
+          }
+          if (step[k].step_length.value_or(1) != 1) {
+            steps.emplace_back(i, k, *(step[k].step_length));
+          }
+        }
+      }
+      return steps;
+    };
+    const auto newton = compute(
+        ctx, mesh, library,
+        Parameters{{"Newton", Parameters{{"LineSearch", "Backtracking"}}}},
+        saturation);
+    const auto newton_steps = getReducedSteps(newton);
+    check(newton.status && (!newton_steps.empty()),
+          "Newton, saturation, line search: resolution failed or no step "
+          "reduced");
+    {
+      const auto r =
+          compute(ctx, mesh, library,
+                  makeFixedPointSolver(newton_k0("CGSolver")), saturation);
+      check(!r.status,
+            "NewtonK0, saturation: convergence without line search");
+    }
+    for (const auto matrix_free : {false, true}) {
+      const auto name =
+          std::string{"NewtonK0, saturation, line search"} +
+          (matrix_free ? ", tangent operator applied without assembly" : "");
+      auto options = newton_k0("CGSolver");
+      options.insert(throwing, {{"LineSearch", "Backtracking"}});
+      auto computation = saturation;
+      computation.matrix_free = matrix_free;
+      const auto r = compute(ctx, mesh, library, makeFixedPointSolver(options),
+                             computation);
+      const auto du = getRelativeDifference(newton.u, r.u);
+      std::cout << name << ": " << r.iterations << " iterations ("
+                << newton.iterations
+                << " with the Newton solver), relative difference to Newton "
+                << du << '\n';
+      check(r.status, name + ": resolution failed");
+      check(du < solution_tolerance, name + ": solution");
+      check(getReducedSteps(r) == newton_steps,
+            name + ": reduced steps (" +
+                std::to_string(getReducedSteps(r).size()) + ", " +
+                std::to_string(newton_steps.size()) +
+                " with the Newton solver)");
+    }
+    // line search enabled before the second time step
+    {
+      const auto name =
+          std::string{"NewtonK0, saturation, then line search"};
+      auto computation = saturation;
+      computation.changes = {{"LineSearch", "Backtracking"}};
+      const auto r =
+          compute(ctx, mesh, library,
+                  makeFixedPointSolver(newton_k0("CGSolver")), computation);
+      check(r.status, name + ": resolution failed");
+      check(getRelativeDifference(newton.u, r.u) < solution_tolerance,
+            name + ": solution");
+    }
+    // with the first choice of Eisenstat and Walker, the tolerance which
+    // follows a reduced step uses the norm of the linear model at this
+    // step, given with the information on the line search (see
+    // `checkAdaptiveTolerances`)
+    {
+      const auto name =
+          std::string{"NewtonK0, saturation, line search, EisenstatWalker1"};
+      auto options = newton_k0("CGSolver");
+      options.insert(throwing,
+                     {{"LineSearch", "Backtracking"},
+                      {"AdaptiveLinearSolverTolerance", "EisenstatWalker1"}});
+      auto computation = saturation;
+      computation.solver_parameters = {{"MaximumNumberOfIterations", 50},
+                                       {"RelativeTolerance", 0.},
+                                       {"AbsoluteTolerance", adaptive_goal}};
+      const auto r = compute(ctx, mesh, library, makeFixedPointSolver(options),
+                             computation);
+      const auto du = getRelativeDifference(newton.u, r.u);
+      auto models = 0;
+      for (const auto& step : r.iterations_information) {
+        for (const auto& iteration : step) {
+          if (iteration.linear_model_residual_norm.has_value()) {
+            ++models;
+          }
+        }
+      }
+      std::cout << name << ": " << r.iterations << " iterations, "
+                << getReducedSteps(r).size()
+                << " reduced steps, relative difference to Newton " << du
+                << '\n';
+      check(r.status, name + ": resolution failed");
+      check(du < solution_tolerance, name + ": solution");
+      // each reduced step gives the norm of the linear model
+      auto reduced = 0;
+      for (const auto& step : r.iterations_information) {
+        for (const auto& iteration : step) {
+          if (iteration.step_length.value_or(1) != 1) {
+            ++reduced;
+          }
+        }
+      }
+      check((models > 0) && (models == reduced),
+            name + ": norms of the linear model of the reduced steps (" +
+                std::to_string(models) + " for " + std::to_string(reduced) +
+                " reduced steps)");
+      checkLinearResidualNorms(r, true, name);
+      checkAdaptiveTolerances(r, getAdaptiveTolerance("EisenstatWalker1"),
+                              adaptive_goal, name);
+    }
+  }
   // linear solver of the predictions: with the conjugate gradient
   // preconditioned by the linear solver of the elastic operator, the linear
   // solver of the problem only makes the first prediction (the elastic
@@ -1076,6 +1272,18 @@ int main(int argc, char** argv) {
                "an adaptive tolerance of the linear solver with the fixed "
                "point on the elastic operator",
                "only used by the 'NewtonK0' method");
+  checkRefusal(mesh, {{"LineSearch", "Backtracking"}},
+               "a line search with the fixed point on the elastic operator",
+               "only used by the 'NewtonK0' method");
+  checkRefusal(mesh,
+               {{"Method", "ModifiedNewton"}, {"LineSearch", "Backtracking"}},
+               "a line search with the modified Newton method",
+               "only used by the 'NewtonK0' method");
+  {
+    auto options = newton_k0("CGSolver");
+    options.insert(throwing, {{"LineSearch", "Bisection"}});
+    checkRefusal(mesh, options, "an invalid line search", "invalid method");
+  }
   checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},
                "an invalid update of the elastic operator");
   checkRefusal(mesh, {{"ElasticOperatorLinearSolver", "Unknown"}},

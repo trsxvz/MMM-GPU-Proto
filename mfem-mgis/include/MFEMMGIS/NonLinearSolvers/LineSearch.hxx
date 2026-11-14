@@ -41,11 +41,12 @@ namespace mfem_mgis {
    * an accepted step, the full one in most iterations, requires no other
    * integration nor residual than the ones of the next iteration.
    *
-   * Option `LineSearch` of the `Newton` solver: `None` (default, the
-   * correction is always applied) or `Backtracking`, given by a name, by a
-   * dictionary associating a name with its options, or by a dictionary
-   * with the entries `Name` and `Options`. Options: `SufficientDecrease`
-   * (1e-4, in ]0, 1[) and `MaximumNumberOfStepReductions` (10, at least 1).
+   * Option `LineSearch` of the `Newton` solver and of the `NewtonK0` method
+   * of the `FixedPoint` solver: `None` (default, the correction is always
+   * applied) or `Backtracking`, given by a name, by a dictionary
+   * associating a name with its options, or by a dictionary with the
+   * entries `Name` and `Options`. Options: `SufficientDecrease` (1e-4, in
+   * ]0, 1[) and `MaximumNumberOfStepReductions` (10, at least 1).
    */
   struct MFEM_MGIS_EXPORT LineSearch {
     //! \brief methods

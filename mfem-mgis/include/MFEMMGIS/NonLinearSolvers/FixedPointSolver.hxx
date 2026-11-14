@@ -17,6 +17,7 @@
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
+#include "MFEMMGIS/NonLinearSolvers/LineSearch.hxx"
 
 namespace mfem_mgis {
 
@@ -98,6 +99,14 @@ namespace mfem_mgis {
    * tolerance given by `TangentLinearSolver` is restored at the end of each
    * resolution.
    *
+   * Line search of the `NewtonK0` method by backtracking on the norm of the
+   * residual (option `LineSearch`, see `LineSearch`): refused with the other
+   * methods, whose corrections are not the ones of an inexact Newton method
+   * and whose accelerations do not give descent directions. An estimate at
+   * which the integration of the behaviours fails is then a refused trial,
+   * and the resolution fails if no step is acceptable: the behaviours are
+   * integrated at the last trial, and the time step shall be reverted.
+   *
    * Linear solver of the elastic prediction of the problem (option
    * `PredictionLinearSolver`): `Problem` (default), the linear solver of
    * the problem, or an iterative solver of MFEM preconditioned by the
@@ -120,7 +129,7 @@ namespace mfem_mgis {
    * if the norm of the residual is not finite. When the
    * integration of the behaviours fails at a new estimate, it is replaced
    * by the middle of this estimate and of the previous one, ten times at
-   * most.
+   * most (without line search).
    */
   struct MFEM_MGIS_EXPORT FixedPointSolver final : NonLinearSolverBase {
     //! \brief methods
@@ -209,6 +218,11 @@ namespace mfem_mgis {
      * `AdaptiveLinearSolverTolerance`), disabled by default
      */
     AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
+    /*!
+     * \brief settings of the line search of the `NewtonK0` method (option
+     * `LineSearch`), disabled by default
+     */
+    LineSearch line_search;
     //! \brief if true, the elastic operator is assembled once
     bool elastic_operator_assembled_once = false;
     /*!
