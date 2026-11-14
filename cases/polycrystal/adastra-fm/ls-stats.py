@@ -7,8 +7,10 @@ reduced, refused trials, failed searches, failed resolutions by cause.
 Then, for the first resolution of each attempt (the one which starts from
 the prediction): corrections, ratio ||r||/||r_0|| at the iteration 0 (1
 without prediction; with the prediction by linear extrapolation, below 1
-when the extrapolation is better than the default prediction), and steps
-reduced at the first correction.
+when the extrapolation is better than the default prediction), steps
+reduced at the first correction, and extrapolated estimates discarded
+because the behaviours could not be integrated at them (the resolution then
+starts again from the default prediction).
 """
 import re
 import statistics
@@ -20,16 +22,20 @@ it = re.compile(r"(?:Fixed point|Newton) iteration\s+(\d+)\s*: \|\|r\|\| = (\S+)
 ls = re.compile(r"iteration\s+(\d+)\s*: line search, step length (\S+) after (\d+) reductions")
 lsf = re.compile(r"iteration\s+(\d+)\s*: line search failed after (\d+) reductions")
 moved = re.compile(r"integration failure, the estimate is moved")
+fallback = "the resolution starts again from the default prediction"
 
 
 def analyse(path):
     attempts = []  # dt, ok, corrections, reduced, refused, lsfailed, maxit
     cur = None
-    corrections = reduced = refused = failed_searches = moves = 0
+    corrections = reduced = refused = failed_searches = moves = fallbacks = 0
     thetas = Counter()
     resolutions = 0
     last_k = 0
     for line in open(path, errors="replace"):
+        if fallback in line:
+            fallbacks += 1
+            continue
         m = step.search(line)
         if m:
             if cur is not None:
@@ -109,6 +115,7 @@ def analyse(path):
         print(f"  ratio ||r||/||r_0|| at their iteration 0: min {min(r):.3g},"
               f" median {statistics.median(r):.3g}, max {max(r):.3g},"
               f" below 1: {sum(1 for v in r if v < 1)}, above 1: {sum(1 for v in r if v > 1)}")
+        print(f"  extrapolated estimates discarded after an integration failure: {fallbacks}")
     for a in attempts:
         if not a["ok"]:
             print(f"    failed: t = {a['t']:g}, dt = {a['dt']:g}, {a['corrections']} corrections,"

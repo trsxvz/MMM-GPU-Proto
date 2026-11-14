@@ -192,6 +192,9 @@ the operators are there.
   first resolution of each time step, the reference of the relative
   criterion remaining the residual of the default prediction (one
   integration without tangent operator and one residual per time step).
+  If the behaviours can't be integrated at the extrapolated estimate, the
+  resolution starts again from the default prediction, with a warning
+  (patch 0293).
 - **Adaptive time step** (addition, interest 4): mfem-mgis has the framework
   (`AbstractTimeIncrementComputer`, substeps on failure), but the
   default computation goes directly to the end of the sequence. A computation of the

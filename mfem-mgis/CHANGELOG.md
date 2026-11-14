@@ -75,7 +75,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `LINEAR_EXTRAPOLATION_PREDICTION` prediction strategy: linear
   extrapolation of the increment of the unknowns of the previous time step,
   made at the first resolution of each time step, the reference of the
-  relative criterion being the residual of the default prediction
+  relative criterion being the residual of the default prediction; the
+  resolution starts again from the default prediction if the behaviours
+  can't be integrated at the extrapolated estimate
 - solvers of AmgX (`AmgX`, `AmgXPCG`, CMake option `enable-amgx`) and of
   cuDSS (`CuDSSSolver`); parameter `ReuseAnalysis` of `MUMPSSolver`;
   `AbsoluteTolerance` of the Krylov solvers of hypre; options of

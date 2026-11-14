@@ -419,13 +419,57 @@ namespace mfem_mgis {
      * step by the linear extrapolation of the increment of the last time
      * step accepted (see `previous_increment`), then apply the values
      * imposed by the Dirichlet boundary conditions at the end of the time
-     * step
+     * step. The outcome of the first integration of the behaviours which
+     * follows is kept (see `extrapolated_estimate_state`).
      * \param[in] t: time at the beginning of the time step
      * \param[in] dt: time increment
      * \note the increment of the last time step accepted must be available
      * (see `previous_time_increment`)
      */
     void extrapolateUnknowns(const real t, const real dt);
+    /*!
+     * \brief replace the estimate of the unknowns at the end of the time
+     * step by the default prediction: the unknowns at the beginning of the
+     * time step, with the values imposed by the Dirichlet boundary
+     * conditions at the end of the time step
+     * \param[in] t: time at the beginning of the time step
+     * \param[in] dt: time increment
+     */
+    void restoreDefaultPrediction(const real t, const real dt);
+    /*!
+     * \brief method called by `integrate` at the end of each integration of
+     * the behaviours: the outcome of the first integration which follows the
+     * extrapolation of the unknowns is kept (see
+     * `extrapolated_estimate_state`). The computations of the prediction
+     * operators, which do not integrate the behaviours, are ignored.
+     * \param[in] it: integration type
+     * \param[in] success: true if the integration succeeded (on all the
+     * processes)
+     */
+    void reportBehavioursIntegration(const IntegrationType it,
+                                     const bool success) noexcept;
+    /*!
+     * \brief state of the estimate of the unknowns extrapolated by the
+     * `LINEAR_EXTRAPOLATION_PREDICTION` strategy at the beginning of a
+     * resolution
+     */
+    enum struct ExtrapolatedEstimateState {
+      //! \brief the resolution does not start from an extrapolated estimate
+      NONE,
+      //! \brief the behaviours were not integrated since the extrapolation
+      NOT_INTEGRATED,
+      /*!
+       * \brief the first integration of the behaviours which followed the
+       * extrapolation succeeded
+       */
+      INTEGRATED,
+      /*!
+       * \brief the first integration of the behaviours which followed the
+       * extrapolation failed: the resolution is made again from the default
+       * prediction (see `solve`)
+       */
+      INTEGRATION_FAILURE
+    };
     //! \brief underlying finite element discretization
     FiniteElementDiscretization fe_discretization;
     //! \brief list of Dirichlet boundary conditions
@@ -464,6 +508,12 @@ namespace mfem_mgis {
      * to `solve` is the first resolution of a time step
      */
     bool first_resolution_of_time_step = true;
+    /*!
+     * \brief state of the extrapolated estimate of the current resolution,
+     * if any (see `solve`)
+     */
+    ExtrapolatedEstimateState extrapolated_estimate_state =
+        ExtrapolatedEstimateState::NONE;
     //! \brief nonlinear solver
     std::unique_ptr<AbstractNonLinearSolver> solver;
 #ifdef MFEM_MGIS_HAVE_PETSC

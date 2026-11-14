@@ -1525,9 +1525,10 @@ if(MFEM_MGIS_HAVE_TFEL)
   # LinearExtrapolationPredictionTest executable: prediction by linear
   # extrapolation of the increment of the previous time step (values of the
   # prediction, reference of the relative criterion, first resolution of a
-  # time step only), with the Newton and FixedPoint solvers, also with the
-  # integration by batches and the computations by kernels, on the host and
-  # on the debug device of MFEM
+  # time step only, default prediction used again if the behaviours can't be
+  # integrated at the extrapolated estimate), with the Newton and FixedPoint
+  # solvers, also with the integration by batches and the computations by
+  # kernels, on the host and on the debug device of MFEM
   add_test_executable(LinearExtrapolationPredictionTest)
   add_test(NAME LinearExtrapolationPredictionTest
            COMMAND LinearExtrapolationPredictionTest

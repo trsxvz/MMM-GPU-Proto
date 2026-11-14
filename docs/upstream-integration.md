@@ -188,8 +188,9 @@ The overall plan is in [plan-mfem-mgis.md](plan-mfem-mgis.md).
    - prediction by linear extrapolation of the increment of the previous
      time step (`LINEAR_EXTRAPOLATION_PREDICTION`, made at the first
      resolution of each time step, the reference of the relative criterion
-     being the residual of the default prediction; test
-     `LinearExtrapolationPredictionTest`);
+     being the residual of the default prediction, from which the
+     resolution starts again when the behaviours can't be integrated at the
+     extrapolated estimate; test `LinearExtrapolationPredictionTest`);
    - Jacobi and Chebyshev smoothers of MFEM as preconditioners;
    - analysis of MUMPS reused as long as the pattern of the matrix does not
      change on any process (`ReuseAnalysis`, number of analyses given by

@@ -137,6 +137,10 @@ namespace mfem_mgis {
      * computed, before the extrapolation, by an integration of the
      * behaviours without tangent operator and an evaluation of the residual.
      *
+     * If the integration of the behaviours fails at the extrapolated
+     * estimate, the resolution starts again from the default prediction,
+     * with the same reference, and a warning is printed.
+     *
      * \note this strategy is not supported when PETSc is used.
      */
     LINEAR_EXTRAPOLATION_PREDICTION

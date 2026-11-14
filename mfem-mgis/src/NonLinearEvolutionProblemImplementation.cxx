@@ -1519,6 +1519,7 @@ namespace mfem_mgis {
       this->hasStiffnessOperatorsBeenComputed = true;
     }
     this->mgis_integrator->setTimeIncrement(dt);
+    this->reportBehavioursIntegration(it, success);
     return success;
   }  // end of integrate
 
@@ -1946,6 +1947,7 @@ namespace mfem_mgis {
       if (!integrateByBatches(*(this->mgis_integrator), fespace, pu, it,
                               this->gradients_kernels)) {
         this->mgis_integrator->setTimeIncrement(dt);
+        this->reportBehavioursIntegration(it, false);
         return false;
       }
     } else {
@@ -1956,6 +1958,7 @@ namespace mfem_mgis {
         pu.GetSubVector(vdofs, ue);
         if (!this->mgis_integrator->integrate(e, tr, ue, it)) {
           this->mgis_integrator->setTimeIncrement(dt);
+          this->reportBehavioursIntegration(it, false);
           return false;
         }
       }
@@ -1964,6 +1967,7 @@ namespace mfem_mgis {
       this->hasStiffnessOperatorsBeenComputed = true;
     }
     this->mgis_integrator->setTimeIncrement(dt);
+    this->reportBehavioursIntegration(it, true);
     return true;
   }  // end of integrate
 

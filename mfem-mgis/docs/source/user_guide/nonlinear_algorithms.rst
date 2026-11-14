@@ -211,6 +211,17 @@ regime of the behaviours changes abruptly (first plastic time step, for
 instance). The extrapolation is then paid for in iterations, not in
 accuracy.
 
+If the integration of the behaviours fails at the extrapolated estimate,
+i.e. if the first integration of the behaviours requested by the nonlinear
+solver fails, the resolution starts again from the default prediction and
+a warning is printed. The reference of the relative criterion is
+unchanged: it is already the norm of the residual of the default
+prediction. The time step is thus not rejected because of the
+extrapolation, and only the failed integration is lost. The failures of
+the integration at the default prediction, or at the following estimates
+of the resolution, are handled by the nonlinear solver, as with the other
+strategies.
+
 .. note::
 
    This strategy is not supported when the nonlinear solver of PETSc is

@@ -863,7 +863,35 @@ namespace mfem_mgis {
     for (const auto& bc : this->dirichlet_boundary_conditions) {
       bc->updateImposedValues(this->u1, t + dt);
     }
+    this->extrapolated_estimate_state =
+        ExtrapolatedEstimateState::NOT_INTEGRATED;
   }  // end of extrapolateUnknowns
+
+  void NonLinearEvolutionProblemImplementationBase::restoreDefaultPrediction(
+      const real t, const real dt) {
+    this->u1 = this->u0;
+    for (const auto& bc : this->dirichlet_boundary_conditions) {
+      bc->updateImposedValues(this->u1, t + dt);
+    }
+  }  // end of restoreDefaultPrediction
+
+  void NonLinearEvolutionProblemImplementationBase::reportBehavioursIntegration(
+      const IntegrationType it, const bool success) noexcept {
+    if (this->extrapolated_estimate_state !=
+        ExtrapolatedEstimateState::NOT_INTEGRATED) {
+      return;
+    }
+    // the prediction operators are computed without integrating the
+    // behaviours at the estimate
+    if ((it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR)) {
+      return;
+    }
+    this->extrapolated_estimate_state =
+        success ? ExtrapolatedEstimateState::INTEGRATED
+                : ExtrapolatedEstimateState::INTEGRATION_FAILURE;
+  }  // end of reportBehavioursIntegration
 
   PredictionPolicy
   NonLinearEvolutionProblemImplementationBase::getPredictionPolicy()
@@ -879,6 +907,8 @@ namespace mfem_mgis {
     // time step, whatever the outcome of this one
     const auto first_resolution = this->first_resolution_of_time_step;
     this->first_resolution_of_time_step = false;
+    // no estimate is extrapolated yet (see `extrapolateUnknowns`)
+    this->extrapolated_estimate_state = ExtrapolatedEstimateState::NONE;
     // phase of accesses on the host at the beginning of the resolution, for
     // the behaviours integrated on the host, also by the assembly of the
     // residual when PETSc is used, which does not call `integrate`; the
@@ -965,6 +995,24 @@ namespace mfem_mgis {
       // their errors by exceptions (`Mult` and `GetGradient` of MFEM)
       try {
         this->solver->Mult(this->u0, this->u1);
+        if ((this->extrapolated_estimate_state ==
+             ExtrapolatedEstimateState::INTEGRATION_FAILURE) &&
+            (!this->solver->GetConverged())) {
+          // the behaviours can't be integrated at the extrapolated estimate:
+          // the resolution is made again from the default prediction, the
+          // norm of its residual being already the reference of the relative
+          // criterion
+          this->extrapolated_estimate_state = ExtrapolatedEstimateState::NONE;
+          if (isMPIMainProcess(this->fe_discretization)) {
+            warning(ctx.log(),
+                    "solve: the integration of the behaviours failed at the "
+                    "estimate of the unknowns extrapolated from the previous "
+                    "time step, the resolution starts again from the default "
+                    "prediction");
+          }
+          this->restoreDefaultPrediction(t, dt);
+          this->solver->Mult(this->u0, this->u1);
+        }
       } catch (...) {
         this->solver->unsetContext();
         this->solver->unsetReferenceResidualNorm();

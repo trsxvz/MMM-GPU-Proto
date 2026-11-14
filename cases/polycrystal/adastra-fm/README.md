@@ -66,6 +66,9 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     prediction: corrections, steps reduced at the first correction, and
     ratio `||r||/||r_0||` at the iteration 0 (below 1 when the prediction
     by linear extrapolation is better than the default one).
+  - Number of extrapolated estimates discarded because the behaviours
+    could not be integrated at them (the resolution then starts again from
+    the default prediction).
 - **`ls-gpu-tests.slurm`: tests of the non linear solvers on a GPU.**
   - Tests of mfem-mgis which use the non linear solvers (`FM_TESTS`), with
     the mfem-mgis of the separate build of `FM_FIX`, on one MI300A.
@@ -79,6 +82,15 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   - Then the polycrystal of the tests of mm-opera-hpc in four time steps,
     with and without the extrapolation: axial stresses, lines of
     iterations, ratios at the iteration 0.
+- **`pred-mutations.slurm`: mutations of the prediction by linear
+  extrapolation.**
+  - Separate build in `FM_FIX`, which must not be the one of an executable
+    used by measurements: the library built last is a mutated one.
+  - Eight mutations of the extrapolation and ten of its fallback on the
+    default prediction, applied one at a time to the sources of mfem-mgis:
+    each one must make `LinearExtrapolationPredictionTest` fail in at
+    least one of its variants (sequential, 2 processes, batches and
+    kernels on the host).
 - **`pred-ab.slurm`: the extrapolation measured on an RVE.**
   - `FM_GRAINS` grains, one material for all the grains, 20 s simulated,
     options `FM_COMMON` (the line search), without and with
