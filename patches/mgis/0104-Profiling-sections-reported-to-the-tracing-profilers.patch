@@ -1,0 +1,537 @@
+From 27204f725cd10160d2da3c3f1c0d3b7f28442512 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 14 Nov 2026 11:26:12 +0100
+Subject: [PATCH] Profiling: sections reported to the tracing profilers
+ (markers, ranges)
+
+A tracing profiler (Nsight Systems, the profilers of ROCm...) shows on a
+time line the ranges that a program declares through an annotation library
+(NVTX, roctx): declared as ranges, the timed sections give the context of
+the kernels of a GPU. `setProfilingMarkers` sets two functions called at
+the beginning, with its name, and at the end of each active section (none
+by default, shared by all the contexts, as the synchronization function).
+MGIS does not depend on any annotation library: the caller gives the
+functions.
+
+The range of a section is the interval measured by its timer: the
+synchronization of the beginning of a section is now made before its node
+is pushed in the profiling tree, which does not change the measured time
+(the clock is read after both, as before). A section keeps the function
+reporting its end: a section which began before the markers were set is
+not reported.
+
+A `ProfilingRange` object declares a range only reported by these
+functions, neither timed nor added to the profiling tree (time steps,
+iterations, whose names change at each call). Its name may be given by a
+function, only called if the range is reported.
+
+Tests (calls in order, nesting, inactive and forced sections, markers
+changed while sections are open, unchanged profiling tree) and
+documentation.
+---
+ docs/web/profiling.md         |  46 ++++++++++
+ docs/web/release-notes-3.2.md |  11 +++
+ include/MGIS/Profiling.hxx    |  97 ++++++++++++++++++++-
+ src/Profiling.cxx             |  74 +++++++++++++++-
+ tests/ProfilingTest.cxx       | 156 ++++++++++++++++++++++++++++++++++
+ 5 files changed, 379 insertions(+), 5 deletions(-)
+
+diff --git a/docs/web/profiling.md b/docs/web/profiling.md
+index 44932b8..01f30a6 100644
+--- a/docs/web/profiling.md
++++ b/docs/web/profiling.md
+@@ -88,6 +88,52 @@ asynchronously. `setProfilingSynchronization` returns the previous
+ function, which can be used to restore it. `getProfilingSynchronization`
+ returns the current function.
+ 
++# Tracing profilers
++
++A tracing profiler (`Nsight Systems`, the profilers of `ROCm`, ...) shows
++on a time line the ranges that a program declares through an annotation
++library (`NVTX`, `roctx`, ...). The function `setProfilingMarkers` sets
++two functions, called at the beginning of each active profiling section,
++with its name, and at its end:
++
++~~~~{.cxx}
++static void beginRange(const char* const n) noexcept { nvtxRangePushA(n); }
++static void endRange() noexcept { nvtxRangePop(); }
++
++mgis::setProfilingMarkers({&beginRange, &endRange});
++~~~~
++
++The sections are then seen in the trace, with their names and at each of
++their calls. The range of a section is the interval measured by its
++timer: it begins after the synchronization of the beginning of the
++section and ends after the one of its end (see above), so that it
++contains the computations launched asynchronously by the section. The
++functions are shared by all contexts. By default, none is set, and a
++section then only tests a pointer. `setProfilingMarkers` returns the
++previous functions, and `getProfilingMarkers` the current ones. A section
++which began before the call is not reported.
++
++A `ProfilingRange` object declares a range which is only reported by
++these functions: it is neither timed nor added to the profiling tree. It
++is meant for the parts of a computation which are worth seeing in a
++trace under a name changing at each call, such as the time steps or the
++iterations of an algorithm, which would add one node per call to the
++profiling tree:
++
++~~~~{.cxx}
++for (int i = 0; i != n; ++i) {
++  // the name is only built if the range is reported
++  mgis::ProfilingRange r(ctx, [i] { return "step " + std::to_string(i); });
++  CatchTimeSection(ctx, "Solve");
++  // ...
++}
++~~~~
++
++A range does nothing if no function is set or if the profiling of the
++context is disabled. Otherwise, it also waits for the computations
++launched asynchronously, at its beginning and at its end. Ranges and
++sections must be properly nested.
++
+ # Aggregation and Loops
+ 
+ To prevent the profiling tree from growing indefinitely and consuming too much memory, the system automatically aggregates repeated calls to the same section within the same parent scope. 
+diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
+index 910be78..85bc96b 100644
+--- a/docs/web/release-notes-3.2.md
++++ b/docs/web/release-notes-3.2.md
+@@ -473,6 +473,17 @@ the end of the kernels launched on a GPU, so that their duration is
+ counted in the section which launched them. `getProfilingSynchronization`
+ returns this function.
+ 
++# Profiling sections in tracing profilers
++
++`setProfilingMarkers` sets two functions called at the beginning, with
++its name, and at the end of each active profiling section, for instance
++to declare the sections as ranges of an annotation library (`NVTX`,
++`roctx`, ...), which a tracing profiler shows on a time line.
++`getProfilingMarkers` returns these functions. A `ProfilingRange` object
++declares a range only reported by these functions, which is neither
++timed nor added to the profiling tree (a time step, an iteration). See
++the [profiling](profiling.html) page.
++
+ # New features of the `MGIS/Behaviour` library
+ 
+ ## Save/restore operations in `MaterialStateManager` and `MaterialDataManager`
+diff --git a/include/MGIS/Profiling.hxx b/include/MGIS/Profiling.hxx
+index 93ec96e..0034298 100644
+--- a/include/MGIS/Profiling.hxx
++++ b/include/MGIS/Profiling.hxx
+@@ -1,8 +1,9 @@
+ /*!
+  * \file   include/MGIS/Profiling.hxx
+  * \brief  This file declares the `ProfilingSection` class, the
+- *         `CatchTimeSection` macros and the synchronization of the profiling
+- *         sections.
++ *         `CatchTimeSection` macros, the synchronization of the profiling
++ *         sections and their report to external tools (`ProfilingMarkers`,
++ *         `ProfilingRange`).
+  * \author Julien Rigal, Raphaël Prat
+  * \date   01/08/2026
+  * \copyright (C) Copyright Thomas Helfer 2018.
+@@ -19,6 +20,7 @@
+ 
+ #include <chrono>
+ #include <string>
++#include <concepts>
+ #include "MGIS/Config.hxx"
+ 
+ #define MGIS_CONCAT(a, b) MGIS_CONCAT_INNER(a, b)
+@@ -54,6 +56,38 @@ namespace mgis {
+   //! \return the function set by `setProfilingSynchronization`
+   MGIS_EXPORT ProfilingSynchronization getProfilingSynchronization() noexcept;
+ 
++  /*!
++   * \brief functions reporting the active profiling sections to an external
++   * tool, for instance to a tracing profiler which shows them as named
++   * ranges (NVTX, roctx, ...)
++   */
++  struct ProfilingMarkers {
++    /*!
++     * \brief function called at the beginning of each active profiling
++     * section, with its name (which shall not be kept after the call)
++     */
++    void (*begin)(const char*) noexcept = nullptr;
++    //! \brief function called at the end of each section given to `begin`
++    void (*end)() noexcept = nullptr;
++  };
++
++  /*!
++   * \brief sets the functions called at the beginning and at the end of each
++   * active profiling section, after the synchronization (see
++   * `setProfilingSynchronization`): the range reported for a section is the
++   * interval measured by its timer. The sections must be properly nested,
++   * which the `CatchTimeSection` macros guarantee. A section which began
++   * before the call is not reported, and a section reported at its beginning
++   * is reported at its end by the function set when it began. The functions
++   * are shared by all the contexts of the process.
++   * \param[in] m: functions, null by default (no report)
++   * \return the previous functions
++   */
++  MGIS_EXPORT ProfilingMarkers
++  setProfilingMarkers(const ProfilingMarkers&) noexcept;
++  //! \return the functions set by `setProfilingMarkers`
++  MGIS_EXPORT ProfilingMarkers getProfilingMarkers() noexcept;
++
+   /*!
+    * \brief a profiling section, which measures the time spent in its scope
+    * and updates the profiling tree of an execution context (see the
+@@ -79,6 +113,65 @@ namespace mgis {
+     Context* ctx_ptr;
+     bool active;
+     std::chrono::high_resolution_clock::time_point start;
++    //! \brief function reporting the end of the section, if its beginning
++    //! has been reported (see `ProfilingMarkers`)
++    void (*end_marker)() noexcept = nullptr;
++  };
++
++  /*!
++   * \brief a range only reported by the functions set by
++   * `setProfilingMarkers`: unlike a profiling section, it is neither timed
++   * nor added to the profiling tree of the context, which it leaves
++   * unchanged. Its name may thus change at each call (a time step, an
++   * iteration, ...). As for a section, the computations launched
++   * asynchronously are waited for at the beginning and at the end of a
++   * reported range (see `setProfilingSynchronization`). The range does
++   * nothing if no function is set or if the profiling of the context is
++   * disabled. The ranges and the profiling sections must be properly
++   * nested.
++   */
++  struct MGIS_EXPORT ProfilingRange {
++    /*!
++     * \param[in] ctx: execution context
++     * \param[in] n: name of the range
++     */
++    ProfilingRange(const Context&, const char* const) noexcept;
++    /*!
++     * \param[in] ctx: execution context
++     * \param[in] g: function returning the name of the range, only called
++     * if the range is reported
++     */
++    template <std::invocable NameGenerator>
++    ProfilingRange(const Context& ctx, NameGenerator&& g) {
++      if (ProfilingRange::isReported(ctx)) {
++        const std::string n = g();
++        this->begin(n.c_str());
++      }
++    }  // end of ProfilingRange
++
++    ~ProfilingRange() noexcept;
++
++    ProfilingRange(const ProfilingRange&) = delete;
++    ProfilingRange& operator=(const ProfilingRange&) = delete;
++
++    ProfilingRange(ProfilingRange&&) = delete;
++    ProfilingRange& operator=(ProfilingRange&&) = delete;
++
++   private:
++    /*!
++     * \return true if the ranges are reported: the profiling of the context
++     * is enabled and a function is set by `setProfilingMarkers`
++     * \param[in] ctx: execution context
++     */
++    [[nodiscard]] static bool isReported(const Context&) noexcept;
++    /*!
++     * \brief reports the beginning of the range
++     * \param[in] n: name of the range
++     */
++    void begin(const char* const) noexcept;
++    //! \brief function reporting the end of the range, if its beginning has
++    //! been reported
++    void (*end_marker)() noexcept = nullptr;
+   };
+ 
+ }  // end of namespace mgis
+diff --git a/src/Profiling.cxx b/src/Profiling.cxx
+index d730ab6..961c2ff 100644
+--- a/src/Profiling.cxx
++++ b/src/Profiling.cxx
+@@ -1,7 +1,8 @@
+ /*!
+  * \file   src/Profiling.cxx
+- * \brief  This file implements the `ProfilingSection` class and the
+- *         synchronization of the profiling sections
++ * \brief  This file implements the `ProfilingSection` class, the
++ *         synchronization of the profiling sections and their report to
++ *         external tools
+  */
+ 
+ #include <atomic>
+@@ -32,14 +33,55 @@ namespace mgis {
+     return getSynchronization().load();
+   }  // end of getProfilingSynchronization
+ 
++  //! \brief function reporting the beginning of a section
++  using BeginMarker = void (*)(const char*) noexcept;
++  //! \brief function reporting the end of a section
++  using EndMarker = void (*)() noexcept;
++
++  //! \return the `begin` function set by `setProfilingMarkers`
++  static std::atomic<BeginMarker>& getBeginMarker() noexcept {
++    static std::atomic<BeginMarker> f{nullptr};
++    return f;
++  }  // end of getBeginMarker
++
++  //! \return the `end` function set by `setProfilingMarkers`
++  static std::atomic<EndMarker>& getEndMarker() noexcept {
++    static std::atomic<EndMarker> f{nullptr};
++    return f;
++  }  // end of getEndMarker
++
++  /*!
++   * \brief reports the beginning of a section or of a range, if a function
++   * is set by `setProfilingMarkers`
++   * \param[in] n: name
++   * \return the function reporting the end, null if the beginning is not
++   * reported
++   */
++  static EndMarker beginMarker(const char* const n) noexcept {
++    if (const auto b = getBeginMarker().load(); b != nullptr) {
++      b(n);
++      return getEndMarker().load();
++    }
++    return nullptr;
++  }  // end of beginMarker
++
++  ProfilingMarkers setProfilingMarkers(const ProfilingMarkers& m) noexcept {
++    return {getBeginMarker().exchange(m.begin), getEndMarker().exchange(m.end)};
++  }  // end of setProfilingMarkers
++
++  ProfilingMarkers getProfilingMarkers() noexcept {
++    return {getBeginMarker().load(), getEndMarker().load()};
++  }  // end of getProfilingMarkers
++
+   ProfilingSection::ProfilingSection(Context& c,
+                                      std::string n,
+                                      bool enabled) MGIS_NOEXCEPT
+       : ctx_ptr(&c),
+         active(enabled) {
+     if (this->active && this->ctx_ptr != nullptr) {
+-      this->ctx_ptr->pushProfilingNode(std::move(n));
+       synchronize();
++      this->end_marker = beginMarker(n.c_str());
++      this->ctx_ptr->pushProfilingNode(std::move(n));
+       this->start = std::chrono::high_resolution_clock::now();
+     }
+   }  // end of ProfilingSection
+@@ -51,7 +93,33 @@ namespace mgis {
+       const std::chrono::duration<double> dt = end - this->start;
+ 
+       this->ctx_ptr->popProfilingNode(dt.count());
++      if (this->end_marker != nullptr) {
++        this->end_marker();
++      }
+     }
+   }  // end of ~ProfilingSection
+ 
++  ProfilingRange::ProfilingRange(const Context& ctx,
++                                 const char* const n) noexcept {
++    if (ProfilingRange::isReported(ctx)) {
++      this->begin(n);
++    }
++  }  // end of ProfilingRange
++
++  bool ProfilingRange::isReported(const Context& ctx) noexcept {
++    return ctx.isProfilingEnabled() && (getBeginMarker().load() != nullptr);
++  }  // end of isReported
++
++  void ProfilingRange::begin(const char* const n) noexcept {
++    synchronize();
++    this->end_marker = beginMarker(n);
++  }  // end of begin
++
++  ProfilingRange::~ProfilingRange() noexcept {
++    if (this->end_marker != nullptr) {
++      synchronize();
++      this->end_marker();
++    }
++  }  // end of ~ProfilingRange
++
+ }  // end of namespace mgis
+\ No newline at end of file
+diff --git a/tests/ProfilingTest.cxx b/tests/ProfilingTest.cxx
+index 4dc0ee7..d4a669e 100644
+--- a/tests/ProfilingTest.cxx
++++ b/tests/ProfilingTest.cxx
+@@ -7,6 +7,8 @@
+ 
+ #include <cstdlib>
+ #include <iostream>
++#include <string>
++#include <vector>
+ #include <thread>
+ #include <chrono>
+ 
+@@ -30,6 +32,8 @@ struct ProfilingTest final : public tfel::tests::TestCase {
+     this->testDisabledState();
+     this->testLocalForcedState();
+     this->testSynchronization();
++    this->testMarkers();
++    this->testRanges();
+     return this->result;
+   }
+ 
+@@ -67,6 +71,158 @@ struct ProfilingTest final : public tfel::tests::TestCase {
+     TFEL_TESTS_ASSERT(mgis::getProfilingSynchronization() == nullptr);
+   }
+ 
++  //! \brief calls of the functions of the markers and of the
++  //! synchronization, in order
++  static inline std::vector<std::string> events;
++  //! \brief marker recording the beginning of a section
++  static void recordBeginning(const char* const n) noexcept {
++    events.push_back(std::string{"begin "} + n);
++  }
++  //! \brief marker recording the end of a section
++  static void recordEnd() noexcept { events.push_back("end"); }
++  //! \brief other marker recording the end of a section
++  static void recordOtherEnd() noexcept { events.push_back("other end"); }
++  //! \brief synchronization function recording its calls
++  static void recordSynchronization() noexcept { events.push_back("sync"); }
++  //! \brief compares the recorded calls to the expected ones
++  void checkEvents(const std::vector<std::string>& expected) {
++    TFEL_TESTS_CHECK_EQUAL(events.size(), expected.size());
++    if (events.size() == expected.size()) {
++      for (std::size_t i = 0; i != events.size(); ++i) {
++        TFEL_TESTS_CHECK_EQUAL(events[i], expected[i]);
++      }
++    }
++    events.clear();
++  }
++
++  void testMarkers() {
++    const auto markers = mgis::ProfilingMarkers{&recordBeginning, &recordEnd};
++    // no marker by default
++    TFEL_TESTS_ASSERT(mgis::getProfilingMarkers().begin == nullptr);
++    TFEL_TESTS_ASSERT(mgis::getProfilingMarkers().end == nullptr);
++    auto previous = mgis::setProfilingMarkers(markers);
++    TFEL_TESTS_ASSERT(previous.begin == nullptr);
++    TFEL_TESTS_ASSERT(previous.end == nullptr);
++    TFEL_TESTS_ASSERT(mgis::getProfilingMarkers().begin == &recordBeginning);
++    TFEL_TESTS_ASSERT(mgis::getProfilingMarkers().end == &recordEnd);
++    events.clear();
++    mgis::Context ctx;
++    ctx.enableProfiling(true);
++    // each active section is reported with its name, at each call
++    {
++      CatchTimeSection(ctx, "Parent");
++      for (int i = 0; i != 2; ++i) {
++        CatchTimeSection(ctx, "Child");
++      }
++      auto s = ctx.startNewProfiling("Other child", true);
++    }
++    this->checkEvents({"begin Parent", "begin Child", "end", "begin Child",
++                       "end", "begin Other child", "end", "end"});
++    // the profiling tree is the one built without markers
++    const auto& root = ctx.getProfilingResultTree();
++    TFEL_TESTS_ASSERT(root.children.size() == 1);
++    if (root.children.size() == 1) {
++      const auto& parent = root.children[0];
++      TFEL_TESTS_CHECK_EQUAL(parent->name, "Parent");
++      TFEL_TESTS_CHECK_EQUAL(parent->calls, 1u);
++      TFEL_TESTS_ASSERT(parent->children.size() == 2);
++      if (parent->children.size() == 2) {
++        TFEL_TESTS_CHECK_EQUAL(parent->children[0]->name, "Child");
++        TFEL_TESTS_CHECK_EQUAL(parent->children[0]->calls, 2u);
++        TFEL_TESTS_CHECK_EQUAL(parent->children[1]->name, "Other child");
++      }
++    }
++    // an inactive section is not reported, a section forced locally is
++    ctx.enableProfiling(false);
++    { CatchTimeSection(ctx, "Inactive"); }
++    this->checkEvents({});
++    { CatchLocalTimeSection(ctx, "Forced", true); }
++    this->checkEvents({"begin Forced", "end"});
++    ctx.enableProfiling(true);
++    // the range reported is the interval measured by the timer: it begins
++    // after the first synchronization and ends after the second one
++    mgis::setProfilingSynchronization(&recordSynchronization);
++    { CatchTimeSection(ctx, "Synchronized"); }
++    this->checkEvents({"sync", "begin Synchronized", "sync", "end"});
++    mgis::setProfilingSynchronization(nullptr);
++    // a section which began before the markers were set is not reported,
++    // a section reported at its beginning is reported at its end by the
++    // function set at its beginning
++    mgis::setProfilingMarkers({});
++    {
++      CatchTimeSection(ctx, "Before");
++      mgis::setProfilingMarkers(markers);
++      {
++        CatchTimeSection(ctx, "After");
++        previous =
++            mgis::setProfilingMarkers({&recordBeginning, &recordOtherEnd});
++        TFEL_TESTS_ASSERT(previous.begin == &recordBeginning);
++        TFEL_TESTS_ASSERT(previous.end == &recordEnd);
++        { CatchTimeSection(ctx, "Other"); }
++        mgis::setProfilingMarkers({});
++        { CatchTimeSection(ctx, "Unreported"); }
++      }
++    }
++    this->checkEvents({"begin After", "begin Other", "other end", "end"});
++    TFEL_TESTS_ASSERT(mgis::getProfilingMarkers().begin == nullptr);
++    TFEL_TESTS_ASSERT(mgis::getProfilingMarkers().end == nullptr);
++  }
++
++  void testRanges() {
++    auto generated = 0;
++    const auto name = [&generated] {
++      ++generated;
++      return std::string{"Step "} + std::to_string(generated);
++    };
++    events.clear();
++    mgis::Context ctx;
++    ctx.enableProfiling(true);
++    // without markers, a range does nothing: its name is not built
++    {
++      mgis::ProfilingRange r1(ctx, "Range");
++      mgis::ProfilingRange r2(ctx, name);
++    }
++    this->checkEvents({});
++    TFEL_TESTS_CHECK_EQUAL(generated, 0);
++    mgis::setProfilingMarkers({&recordBeginning, &recordEnd});
++    // nor does it if the profiling is disabled
++    ctx.enableProfiling(false);
++    {
++      mgis::ProfilingRange r1(ctx, "Range");
++      mgis::ProfilingRange r2(ctx, name);
++    }
++    this->checkEvents({});
++    TFEL_TESTS_CHECK_EQUAL(generated, 0);
++    ctx.enableProfiling(true);
++    // ranges and sections reported in order
++    for (int i = 0; i != 2; ++i) {
++      mgis::ProfilingRange r(ctx, name);
++      CatchTimeSection(ctx, "Section");
++      mgis::ProfilingRange r2(ctx, "Range");
++    }
++    this->checkEvents({"begin Step 1", "begin Section", "begin Range", "end",
++                       "end", "end", "begin Step 2", "begin Section",
++                       "begin Range", "end", "end", "end"});
++    TFEL_TESTS_CHECK_EQUAL(generated, 2);
++    // the ranges are not added to the profiling tree
++    const auto& root = ctx.getProfilingResultTree();
++    TFEL_TESTS_ASSERT(root.children.size() == 1);
++    if (root.children.size() == 1) {
++      TFEL_TESTS_CHECK_EQUAL(root.children[0]->name, "Section");
++      TFEL_TESTS_CHECK_EQUAL(root.children[0]->calls, 2u);
++      TFEL_TESTS_ASSERT(root.children[0]->children.empty());
++    }
++    // a reported range waits for the asynchronous computations at its
++    // beginning and at its end, an unreported one does not
++    mgis::setProfilingSynchronization(&recordSynchronization);
++    { mgis::ProfilingRange r(ctx, "Synchronized"); }
++    this->checkEvents({"sync", "begin Synchronized", "sync", "end"});
++    mgis::setProfilingMarkers({});
++    { mgis::ProfilingRange r(ctx, "Unreported"); }
++    this->checkEvents({});
++    mgis::setProfilingSynchronization(nullptr);
++  }
++
+   void testToggle() {
+     mgis::Context ctx;
+ 
+-- 
+2.34.1
+

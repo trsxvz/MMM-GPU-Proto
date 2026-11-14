@@ -54,6 +54,15 @@ properties computed by batches, on CPU or on GPU.
   the time. The computations launched asynchronously, for example on a
   GPU, are then counted in the section that launches them. No default
   function.
+- Tracing profilers: `setProfilingMarkers` gives two functions called at
+  the beginning, with its name, and at the end of each active timed
+  section, for instance to declare it as a range of an annotation library
+  (NVTX, roctx), which a tracing profiler shows on a time line. The range
+  is the interval measured by the timer. A `ProfilingRange` object
+  declares a range only seen by these functions, neither timed nor added
+  to the profiling tree (a time step, an iteration). No default function:
+  MGIS does not depend on any annotation library, mfem-mgis sets the
+  functions of roctx on the AMD GPUs (option `enable-roctx`).
 
 ## Loading
 
