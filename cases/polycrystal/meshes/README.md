@@ -29,6 +29,34 @@ The aspect is the longest edge over the smallest height of a tetrahedron.
 For 6,400 grains, the seed 1 gave a geometry that gmsh could not build: 3
 plane surfaces were not created and 4 volumes were left without elements.
 
+## Plane surfaces that are not planar
+
+The geometries of many grains often have a few plane surfaces that
+OpenCASCADE refuses ("Could not add plane surface"), leaving the volumes
+they bound without elements (14/11/2026): seeds 1 to 5 of 12,800 grains,
+1 to 8 of 38,400 grains.
+
+- **Cause.** When a face of the Laguerre tessellation is tiny and seen by
+  one cell only, Merope merges its vertices into one point (warning "An
+  entire face should be merged", without checks). The faces around this
+  point are no longer planar: their vertices are up to 1e-4 from their
+  plane (edges of 1 to 8), above the tolerance of OpenCASCADE (1e-7).
+  - The number of these warnings grows with the number of grains: 0 to 5
+    for 12,800 grains, 8 to 16 for 38,400 grains (8 seeds each).
+- **Fix.** `fix_plane_surfaces.py in.geo out.geo` defines these surfaces
+  as `Surface` instead of `Plane Surface`: OpenCASCADE builds a surface
+  through the loop, as flat as the loop. The other lines are copied.
+  - A plane surface is rewritten when one of its vertices is farther than
+    1e-8 from the least squares plane of the vertices of its loop. This
+    needs no run of gmsh: 11 s for the 301,522 plane surfaces of 38,400
+    grains (17 rewritten, largest distance 7.75e-5), against 1712 s for
+    a parsing of the geometry of 12,800 grains by gmsh.
+  - `adastra-fm/mesh.slurm` applies it before gmsh.
+- **Check.** Seed 1 of 12,800 grains, refused before (4 plane surfaces):
+  with the 4 surfaces rewritten, gmsh gives no error and no volume without
+  elements, 32 warnings on ill-shaped tetrahedra (42 for the seed 6,
+  meshed as is).
+
 ## Short edges of the tessellation and flat tetrahedra
 
 The Laguerre tessellation has very short edges, and their length decreases
