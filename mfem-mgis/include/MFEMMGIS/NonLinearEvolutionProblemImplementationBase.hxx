@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <utility>
+#include <optional>
 #include <functional>
 #include <vector>
 #include "mfem/general/array.hpp"
@@ -406,10 +407,25 @@ namespace mfem_mgis {
      * \param[in, out] ctx: execution context
      * \param[in] t: time at the beginning of the time step
      * \param[in] dt: time increment
-     * \return the norm of the initial residual
+     * \return the norm of the initial residual. With the
+     * `LINEAR_EXTRAPOLATION_PREDICTION` strategy, this norm is the one of
+     * the residual of the default prediction, and the unknowns are only
+     * extrapolated if it is not null (see `extrapolateUnknowns`).
      */
     [[nodiscard]] virtual std::optional<real> computePrediction(
         Context& ctx, const real t, const real dt) noexcept = 0;
+    /*!
+     * \brief replace the estimate of the unknowns at the end of the time
+     * step by the linear extrapolation of the increment of the last time
+     * step accepted (see `previous_increment`), then apply the values
+     * imposed by the Dirichlet boundary conditions at the end of the time
+     * step
+     * \param[in] t: time at the beginning of the time step
+     * \param[in] dt: time increment
+     * \note the increment of the last time step accepted must be available
+     * (see `previous_time_increment`)
+     */
+    void extrapolateUnknowns(const real t, const real dt);
     //! \brief underlying finite element discretization
     FiniteElementDiscretization fe_discretization;
     //! \brief list of Dirichlet boundary conditions
@@ -429,6 +445,25 @@ namespace mfem_mgis {
     mfem::Vector u0;
     //! \brief unknowns at the end of the time step
     mfem::Vector u1;
+    /*!
+     * \brief increment of the unknowns over the last time step accepted
+     * (see `update`), kept by the `LINEAR_EXTRAPOLATION_PREDICTION` strategy
+     * only: the vector is empty otherwise
+     */
+    mfem::Vector previous_increment;
+    /*!
+     * \brief time increment of the last time step accepted, if
+     * `previous_increment` is available
+     */
+    std::optional<real> previous_time_increment;
+    //! \brief time increment of the current time step (see `setup`)
+    real time_increment = real{};
+    /*!
+     * \brief true if no resolution was made since the beginning of the
+     * computation or the last call to `update` or `revert`: the next call
+     * to `solve` is the first resolution of a time step
+     */
+    bool first_resolution_of_time_step = true;
     //! \brief nonlinear solver
     std::unique_ptr<AbstractNonLinearSolver> solver;
 #ifdef MFEM_MGIS_HAVE_PETSC

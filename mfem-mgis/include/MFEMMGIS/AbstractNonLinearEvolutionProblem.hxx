@@ -104,7 +104,42 @@ namespace mfem_mgis {
      * \note Although the wording explicitly refers to mechanics, this equation
      * applies to all physics.
      */
-    CONSTANT_GRADIENTS_INTEGRATION_PREDICTION
+    CONSTANT_GRADIENTS_INTEGRATION_PREDICTION,
+    /*!
+     * The `LINEAR_EXTRAPOLATION_PREDICTION` strategy extrapolates the
+     * increment of the unknowns of the previous time step, weighted by the
+     * ratio of the time increments:
+     *
+     * \f[
+     *   \ets{\mathbb{u}} = \bts{\mathbb{u}} +
+     *   \frac{\Delta\,t}{\Delta\,t_{p}}\,\Delta\,\mathbb{u}_{p}
+     * \f]
+     *
+     * where:
+     *
+     * - \f$\Delta\,t\f$ denotes the time increment.
+     * - \f$\Delta\,\mathbb{u}_{p}\f$ and \f$\Delta\,t_{p}\f$ denote the
+     *   increment of the unknowns and the time increment of the last time
+     *   step accepted (see `update`).
+     *
+     * The values imposed by the Dirichlet boundary conditions at the end of
+     * the time step are then applied. No linear system is solved.
+     *
+     * This prediction is only made at the first resolution of a time step,
+     * i.e. the first call to `solve` which follows `update` or `revert`: the
+     * following resolutions of the same time step, if any, start from the
+     * current estimate of the unknowns, as with the default prediction.
+     * Without previous time step, the default prediction is used.
+     *
+     * The reference of the relative convergence criterion of the non linear
+     * solver is the norm of the residual of the default prediction, so that
+     * this criterion does not depend on the prediction. This norm is
+     * computed, before the extrapolation, by an integration of the
+     * behaviours without tangent operator and an evaluation of the residual.
+     *
+     * \note this strategy is not supported when PETSc is used.
+     */
+    LINEAR_EXTRAPOLATION_PREDICTION
   };
 
   /*!

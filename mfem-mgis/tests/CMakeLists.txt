@@ -1522,6 +1522,37 @@ if(MFEM_MGIS_HAVE_TFEL)
                          "${fixed_point_solver_test_kernels}")
   endforeach()
 
+  # LinearExtrapolationPredictionTest executable: prediction by linear
+  # extrapolation of the increment of the previous time step (values of the
+  # prediction, reference of the relative criterion, first resolution of a
+  # time step only), with the Newton and FixedPoint solvers, also with the
+  # integration by batches and the computations by kernels, on the host and
+  # on the debug device of MFEM
+  add_test_executable(LinearExtrapolationPredictionTest)
+  add_test(NAME LinearExtrapolationPredictionTest
+           COMMAND LinearExtrapolationPredictionTest
+                   --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                   --library $<TARGET_FILE:BehaviourTest>)
+  # on 2 processes, with MUMPS if available, otherwise with the conjugate
+  # gradient of MFEM
+  if(MFEM_USE_MPI)
+    add_test(NAME LinearExtrapolationPredictionTestP
+             COMMAND mpirun -n 2 ./LinearExtrapolationPredictionTest --parallel
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    set_tests_properties(LinearExtrapolationPredictionTestP
+                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
+  foreach(_device cpu debug)
+    add_test(NAME LinearExtrapolationPredictionTest-kernels-${_device}
+             COMMAND LinearExtrapolationPredictionTest --device ${_device}
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    set_tests_properties(LinearExtrapolationPredictionTest-kernels-${_device}
+                         PROPERTIES ENVIRONMENT
+                         "${fixed_point_solver_test_kernels}")
+  endforeach()
+
   # MaterialArraysTest executable: arrays of the materials in the memory of
   # MFEM, on the host, on the debug device of MFEM and on the GPU. The
   # point-wise model is also integrated by batches with the library

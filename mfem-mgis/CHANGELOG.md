@@ -72,6 +72,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `LineSearch` option of the Newton solver and of the `NewtonK0` method:
   line search by backtracking on the norm of the residual
   (Eisenstat-Walker), disabled by default
+- `LINEAR_EXTRAPOLATION_PREDICTION` prediction strategy: linear
+  extrapolation of the increment of the unknowns of the previous time step,
+  made at the first resolution of each time step, the reference of the
+  relative criterion being the residual of the default prediction
 - solvers of AmgX (`AmgX`, `AmgXPCG`, CMake option `enable-amgx`) and of
   cuDSS (`CuDSSSolver`); parameter `ReuseAnalysis` of `MUMPSSolver`;
   `AbsoluteTolerance` of the Krylov solvers of hypre; options of

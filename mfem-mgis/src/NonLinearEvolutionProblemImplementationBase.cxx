@@ -309,6 +309,7 @@ namespace mfem_mgis {
     CatchTimeSection(ctx, "NLEPIB::revert");
     this->u1 = this->u0;
     this->hasStiffnessOperatorsBeenComputed = false;
+    this->first_resolution_of_time_step = true;
     if (this->mgis_integrator != nullptr) {
       try {
         this->mgis_integrator->revert();
@@ -322,7 +323,25 @@ namespace mfem_mgis {
   bool NonLinearEvolutionProblemImplementationBase::update(
       Context& ctx) noexcept {
     CatchTimeSection(ctx, "NLEPIB::update");
+    if (this->prediction_policy.strategy ==
+        PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
+      // increment of the unknowns over the time step, extrapolated by the
+      // prediction of the next one. A time step without duration can't be
+      // extrapolated.
+      if (this->time_increment > real{0}) {
+        if (this->previous_increment.Size() != this->u1.Size()) {
+          this->previous_increment.SetSize(this->u1.Size());
+          this->previous_increment.UseDevice(true);
+        }
+        // `subtract` and `add` are friends of `mfem::Vector`
+        subtract(this->u1, this->u0, this->previous_increment);
+        this->previous_time_increment = this->time_increment;
+      } else {
+        this->previous_time_increment.reset();
+      }
+    }
     this->u0 = this->u1;
+    this->first_resolution_of_time_step = true;
     if (this->mgis_integrator != nullptr) {
       try {
         this->mgis_integrator->update();
@@ -679,6 +698,7 @@ namespace mfem_mgis {
       Context& ctx, const real t, const real dt) noexcept {
     CatchTimeSection(ctx, "NLEPIB::setup");
     this->setTimeIncrement(dt);
+    this->time_increment = dt;
     this->selectOptionalComputations();
     const auto success = [this, &ctx, t, dt] {
       if (this->initialization_phase) {
@@ -822,8 +842,28 @@ namespace mfem_mgis {
 
   void NonLinearEvolutionProblemImplementationBase::setPredictionPolicy(
       const PredictionPolicy& p) noexcept {
+    if (p.strategy != PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
+      // the increment of the last time step is only kept for the linear
+      // extrapolation
+      this->previous_increment.Destroy();
+      this->previous_time_increment.reset();
+    }
     this->prediction_policy = p;
   }  // end of setPredictionPolicy
+
+  void NonLinearEvolutionProblemImplementationBase::extrapolateUnknowns(
+      const real t, const real dt) {
+    if (!this->previous_time_increment.has_value()) {
+      raise(
+          "NonLinearEvolutionProblemImplementationBase::extrapolateUnknowns: "
+          "no increment of the unknowns over a previous time step");
+    }
+    add(this->u0, dt / (*(this->previous_time_increment)),
+        this->previous_increment, this->u1);
+    for (const auto& bc : this->dirichlet_boundary_conditions) {
+      bc->updateImposedValues(this->u1, t + dt);
+    }
+  }  // end of extrapolateUnknowns
 
   PredictionPolicy
   NonLinearEvolutionProblemImplementationBase::getPredictionPolicy()
@@ -835,6 +875,10 @@ namespace mfem_mgis {
       Context& ctx, const real t, const real dt) noexcept {
     CatchTimeSection(ctx, "NLEPIB::solve");
     NonLinearResolutionOutput output;
+    // the resolutions which follow, if any, are not the first one of the
+    // time step, whatever the outcome of this one
+    const auto first_resolution = this->first_resolution_of_time_step;
+    this->first_resolution_of_time_step = false;
     // phase of accesses on the host at the beginning of the resolution, for
     // the behaviours integrated on the host, also by the assembly of the
     // residual when PETSc is used, which does not call `integrate`; the
@@ -851,8 +895,40 @@ namespace mfem_mgis {
         return output;
       }
     }
-    if (this->prediction_policy.strategy !=
-        PredictionStrategy::DEFAULT_PREDICTION) {
+    if (this->prediction_policy.strategy ==
+        PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
+      if (usePETSc()) {
+        // the reference of the relative criterion can't be given to PETSc
+        std::ignore = ctx.registerErrorMessage(
+            "solve: the prediction by linear extrapolation is not supported "
+            "with PETSc");
+        output.status = false;
+        return output;
+      }
+      // the extrapolation is only made at the first resolution of a time
+      // step, if the increment of the previous time step is known: the
+      // other resolutions start from the current estimate, as with the
+      // default prediction
+      if (first_resolution && this->previous_time_increment.has_value()) {
+        const auto onorm = [this, &ctx, t, dt] {
+          CatchTimeSection(ctx, "NLEPIB::computePrediction");
+          return this->computePrediction(ctx, t, dt);
+        }();
+        if (isInvalid(onorm)) {
+          output.status = false;
+          return output;
+        }
+        // the reference of the relative criterion is the norm of the
+        // residual of the default prediction. If this residual is null, the
+        // default prediction is the solution and was not replaced.
+        if ((*onorm > real{0}) &&
+            (!this->solver->setReferenceResidualNorm(ctx, *onorm))) {
+          output.status = false;
+          return output;
+        }
+      }
+    } else if (this->prediction_policy.strategy !=
+               PredictionStrategy::DEFAULT_PREDICTION) {
       const auto onorm = [this, &ctx, t, dt] {
         CatchTimeSection(ctx, "NLEPIB::computePrediction");
         return this->computePrediction(ctx, t, dt);

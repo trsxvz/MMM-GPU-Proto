@@ -724,7 +724,8 @@ Work:
   contribution of the boundary conditions (`addLinearFormIntegrators`),
   respect of `DiscardLinearSolverFailure`, and the four current axes
   kept. New strategy: extrapolation of the increment of the previous
-  step. Parameter `Prediction`. `getLinearizedOperators` (public API):
+  step (done on 14/11/2026: `LINEAR_EXTRAPOLATION_PREDICTION`). Parameter
+  `Prediction`. `getLinearizedOperators` (public API):
   returned by the kernels, or refused on the batch path with a message.
 - Sequential: option c gives a `SparseMatrix` (UMFPACK, Krylov of MFEM),
   the parallel case a `HypreParMatrix`.

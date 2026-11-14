@@ -9,6 +9,7 @@
 #include <tuple>
 #include <optional>
 #include <algorithm>
+#include <functional>
 #include <string>
 #include "mfem/fem/datacollection.hpp"
 
@@ -941,6 +942,63 @@ namespace mfem_mgis {
   }  // end of computePrediction
 
   /*!
+   * \brief prediction by linear extrapolation of the increment of the
+   * previous time step (see
+   * `PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION`). The current
+   * estimate of the unknowns at the end of the time step is the default
+   * prediction: the behaviours are integrated at this estimate, without
+   * tangent operator, and the norm of its residual is computed as the non
+   * linear solvers do (reference of their relative criterion). The unknowns
+   * are then extrapolated, unless this norm is null.
+   * \return the norm of the residual of the default prediction
+   * \param[in, out] ctx: execution context
+   * \param[in, out] p: non linear evolution problem
+   * \param[in] extrapolate: function extrapolating the unknowns
+   */
+  template <bool parallel>
+  [[nodiscard]] static std::optional<real> computeLinearExtrapolationPrediction(
+      Context& ctx,
+      NonLinearEvolutionProblemImplementation<parallel>& p,
+      const std::function<void()>& extrapolate) noexcept {
+    // the integration of the behaviours, the kernels of the residual and the
+    // boundary conditions report their errors by exceptions
+    try {
+      const auto& u1 = p.getUnknowns(mfem_mgis::ets);
+      {
+        CatchTimeSection(ctx, "PRED::integrate");
+        // the result is the same on all the processes
+        if (!p.integrate(u1, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR,
+                         {})) {
+          return ctx.registerErrorMessage("integration failure");
+        }
+      }
+      auto norm = real{};
+      {
+        CatchTimeSection(ctx, "PRED::residual");
+        auto r = mfem::Vector(p.Width());
+        r.UseDevice(true);
+        p.Mult(u1, r);
+        // as `mfem::IterativeSolver::Norm`: the residual is null for the
+        // essential degrees of freedom
+        if constexpr (parallel) {
+          auto fed = p.getFiniteElementDiscretization();
+          auto& fespace = fed.template getFiniteElementSpace<parallel>();
+          norm = std::sqrt(mfem::InnerProduct(fespace.GetComm(), r, r));
+        } else {
+          norm = std::sqrt(mfem::InnerProduct(r, r));
+        }
+      }
+      if (norm > real{0}) {
+        extrapolate();
+      }
+      return norm;
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
+    }
+    return {};
+  }  // end of computeLinearExtrapolationPrediction
+
+  /*!
    * \brief post-processing defined by an std::function
    * \tparam parallel: boolean stating if the computations are performed in
    * parallel.
@@ -1053,6 +1111,12 @@ namespace mfem_mgis {
   std::optional<real>
   NonLinearEvolutionProblemImplementation<true>::computePrediction(
       Context& ctx, const real t, const real dt) noexcept {
+    if (this->getPredictionPolicy().strategy ==
+        PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
+      // no linear system is solved
+      return computeLinearExtrapolationPrediction<true>(
+          ctx, *this, [this, t, dt] { this->extrapolateUnknowns(t, dt); });
+    }
     if (this->linear_solver.get() == nullptr) {
       return ctx.registerErrorMessage("linear solver not initialized");
     }
@@ -1523,6 +1587,12 @@ namespace mfem_mgis {
   std::optional<real>
   NonLinearEvolutionProblemImplementation<false>::computePrediction(
       Context& ctx, const real t, const real dt) noexcept {
+    if (this->getPredictionPolicy().strategy ==
+        PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
+      // no linear system is solved
+      return computeLinearExtrapolationPrediction<false>(
+          ctx, *this, [this, t, dt] { this->extrapolateUnknowns(t, dt); });
+    }
     if (this->linear_solver.get() == nullptr) {
       return ctx.registerErrorMessage("linear solver not initialized");
     }

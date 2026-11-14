@@ -61,7 +61,7 @@ rows.
 | Line search for Newton (hook `ComputeScalingFactor`) | both | 6 | done in mfem-mgis on 14/11/2026: option `LineSearch` of the Newton solver and of NewtonK0, backtracking on the norm of the residual (Eisenstat and Walker), disabled by default |
 | Elasticity AMG with rigid body modes on GPU: GAMG of PETSc with near null space (Kokkos), new block path on GPU (Adams, arXiv 2606.24748); requires repairing the PETSc path of mfem-mgis | both | 6 | PETSc 3.26 (`aijkokkos`; the block path of the paper is not there). Since 15/10/2026, the solvers of PETSc compute on the host when MFEM computes on a GPU: with MFEM 4.10, the vectors of MFEM placed in the vectors of PETSc of the GPU were seen as null, and these vectors made `PetscFinalize` abort; GAMG on the GPU needs this interoperability first |
 | KINSOL of SUNDIALS through MFEM (`KINSolver`: fixed point with Anderson, JFNK, line search) | both | 6 | SUNDIALS 7.9, MFEM; requires an operator whose `Mult` integrates the behaviour |
-| Addition: prediction by extrapolation of the displacement increment | both | 5 | mfem-mgis |
+| Addition: prediction by extrapolation of the displacement increment | both | 5 | done in mfem-mgis on 14/11/2026: strategy `LINEAR_EXTRAPOLATION_PREDICTION` (linear extrapolation of the previous increment, at the first resolution of each time step) |
 | AmgX through `AmgXSolver` of MFEM (comparison point with BoomerAMG, MPI modes) | NVIDIA GPU | 5 | done by a wrapper specific to mfem-mgis (`AmgX`, `AmgXPCG`, see [below](#amgx-nvidia)) |
 | cuDSS (NVIDIA direct solver, one or several GPUs, MPI, refactorization) | NVIDIA GPU | 5 | cuDSS; wrapper `CuDSSSolver` of MFEM 4.10; done: solver `CuDSSSolver` of mfem-mgis |
 | Addition: pipelined Krylov (pipelined CG of Ginkgo, `KSPPIPECG` of PETSc) | both | 5 | Ginkgo 1.10, PETSc |
@@ -187,7 +187,11 @@ the operators are there.
   from the increment of the previous step (linear), or of the two
   previous ones (quadratic). Cheaper than the prediction by the tangent
   operator of mfem-mgis: no solve. Reduces the number
-  of Newton iterations when the loading is regular.
+  of Newton iterations when the loading is regular. Done on 14/11/2026 for
+  the linear one: strategy `LINEAR_EXTRAPOLATION_PREDICTION`, made at the
+  first resolution of each time step, the reference of the relative
+  criterion remaining the residual of the default prediction (one
+  integration without tangent operator and one residual per time step).
 - **Adaptive time step** (addition, interest 4): mfem-mgis has the framework
   (`AbstractTimeIncrementComputer`, substeps on failure), but the
   default computation goes directly to the end of the sequence. A computation of the

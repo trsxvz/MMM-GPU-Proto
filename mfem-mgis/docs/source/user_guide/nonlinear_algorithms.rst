@@ -150,6 +150,75 @@ The following operators are available:
    :cxx:`NonLinearEvolutionProblemImplementation` classes compute the
    opposite of the prediction.
 
+Prediction by linear extrapolation of the previous time step (:cxx:`PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION`)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The :cxx:`LINEAR_EXTRAPOLATION_PREDICTION` strategy extrapolates the
+increment of the unknowns of the previous time step, weighted by the ratio
+of the time increments:
+
+.. math::
+
+   \ets{\mathbb{u}} = \bts{\mathbb{u}} +
+   \frac{\Delta\,t}{\Delta\,t_{p}}\,\Delta\,\mathbb{u}_{p}
+
+where:
+
+- :math:`\Delta\,t` denotes the time increment.
+- :math:`\Delta\,\mathbb{u}_{p}` and :math:`\Delta\,t_{p}` denote the
+  increment of the unknowns and the time increment of the last time step
+  accepted by the :cxx:`update` method.
+
+The values imposed by the Dirichlet boundary conditions at the end of the
+time step are then applied. No linear system is solved. This strategy is
+the default prediction of several finite element solvers in statics.
+
+.. code-block:: c++
+
+   mechanics.setPredictionPolicy(
+      {.strategy = PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION});
+
+Two rules distinguish this strategy from the previous ones:
+
+- The prediction is only made at the first resolution of a time step, i.e.
+  at the first call to the :cxx:`solve` method which follows a call to the
+  :cxx:`update` or :cxx:`revert` methods. The following resolutions of the
+  same time step, if any (staggered schemes, fixed point on a loading),
+  start from the current estimate of the unknowns, as with the default
+  prediction: an extrapolation would discard the solution of the previous
+  resolution. After a call to :cxx:`revert`, the extrapolation is made
+  again, with the new time increment.
+- The reference of the relative convergence criterion of the nonlinear
+  solver is the norm of the residual of the default prediction. The
+  criterion is thus the one of a resolution without prediction, up to the
+  rounding errors: the solutions and the numbers of iterations obtained
+  with and without the extrapolation can be compared. If the residual of
+  the default prediction is null, the default prediction is kept.
+
+The norm of the residual of the default prediction costs one integration
+of the behaviours, without tangent operator, and one evaluation of the
+residual per time step.
+
+At the first time step, and as long as no time step has been accepted
+since the strategy was selected, the default prediction is used, without
+this cost. Selecting another strategy releases the increment kept.
+
+The norm of the residual of the first estimate of a resolution, relative
+to the reference, is reported by the nonlinear solvers at the iteration 0:
+a value greater than one means that the extrapolation is worse than the
+default prediction. This happens when the evolution of the loading or the
+regime of the behaviours changes abruptly (first plastic time step, for
+instance). The extrapolation is then paid for in iterations, not in
+accuracy.
+
+.. note::
+
+   This strategy is not supported when the nonlinear solver of PETSc is
+   selected globally (option :code:`--use-petsc`): the reference of the
+   relative criterion can't be given to it. It is supported by the
+   :cxx:`Newton`, :cxx:`FixedPoint`, :cxx:`KINSOL` and :cxx:`SNES`
+   nonlinear solvers.
+
 Newton algorithm
 ================
 

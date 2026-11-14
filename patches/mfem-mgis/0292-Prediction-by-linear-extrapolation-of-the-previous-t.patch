@@ -1,0 +1,1191 @@
+From 511709ef97207eaefabd36eaec15526d7dbf3cb8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 14 Nov 2026 04:56:20 +0100
+Subject: [PATCH] Prediction by linear extrapolation of the previous time step
+
+New prediction strategy LINEAR_EXTRAPOLATION_PREDICTION: the increment of
+the unknowns of the last time step accepted is extrapolated, weighted by
+the ratio of the time increments, then the values imposed by the Dirichlet
+boundary conditions at the end of the time step are applied. No linear
+system is solved.
+
+The extrapolation is only made at the first resolution of a time step, the
+first call to solve which follows update or revert: the following
+resolutions of the same time step start from the current estimate, as
+with the default prediction. The reference of the relative criterion of the
+non linear solver remains the norm of the residual of the default
+prediction, computed by one integration of the behaviours without tangent
+operator and one evaluation of the residual per time step: the criterion
+does not depend on the prediction. Without previous time step, the default
+prediction is used, without this cost. The strategy is refused when the non
+linear solver of PETSc is selected globally: it can't receive this
+reference.
+
+With the other strategies, the resolutions are unchanged.
+
+Test LinearExtrapolationPredictionTest, with the Newton solver, the fixed
+point on the elastic operator and the NewtonK0 method: values of the
+prediction and ratio of its residual to the reference on a linear problem,
+first resolution of a time step only, extrapolation made again after
+revert, increment released by another strategy, no iteration when the
+displacement is proportional to the time, same solution with fewer
+iterations on a plastic cube.
+---
+ CHANGELOG.md                                  |   4 +
+ .../user_guide/nonlinear_algorithms.rst       |  69 ++
+ .../AbstractNonLinearEvolutionProblem.hxx     |  37 +-
+ ...nearEvolutionProblemImplementationBase.hxx |  37 +-
+ ...onLinearEvolutionProblemImplementation.cxx |  70 ++
+ ...nearEvolutionProblemImplementationBase.cxx |  80 ++-
+ tests/CMakeLists.txt                          |  31 +
+ tests/LinearExtrapolationPredictionTest.cxx   | 656 ++++++++++++++++++
+ 8 files changed, 980 insertions(+), 4 deletions(-)
+ create mode 100644 tests/LinearExtrapolationPredictionTest.cxx
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 061ec0d6c9..1202b02236 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -72,6 +72,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+ - `LineSearch` option of the Newton solver and of the `NewtonK0` method:
+   line search by backtracking on the norm of the residual
+   (Eisenstat-Walker), disabled by default
++- `LINEAR_EXTRAPOLATION_PREDICTION` prediction strategy: linear
++  extrapolation of the increment of the unknowns of the previous time step,
++  made at the first resolution of each time step, the reference of the
++  relative criterion being the residual of the default prediction
+ - solvers of AmgX (`AmgX`, `AmgXPCG`, CMake option `enable-amgx`) and of
+   cuDSS (`CuDSSSolver`); parameter `ReuseAnalysis` of `MUMPSSolver`;
+   `AbsoluteTolerance` of the Krylov solvers of hypre; options of
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index 990e80a950..a92e611a63 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -150,6 +150,75 @@ The following operators are available:
+    :cxx:`NonLinearEvolutionProblemImplementation` classes compute the
+    opposite of the prediction.
+ 
++Prediction by linear extrapolation of the previous time step (:cxx:`PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION`)
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++The :cxx:`LINEAR_EXTRAPOLATION_PREDICTION` strategy extrapolates the
++increment of the unknowns of the previous time step, weighted by the ratio
++of the time increments:
++
++.. math::
++
++   \ets{\mathbb{u}} = \bts{\mathbb{u}} +
++   \frac{\Delta\,t}{\Delta\,t_{p}}\,\Delta\,\mathbb{u}_{p}
++
++where:
++
++- :math:`\Delta\,t` denotes the time increment.
++- :math:`\Delta\,\mathbb{u}_{p}` and :math:`\Delta\,t_{p}` denote the
++  increment of the unknowns and the time increment of the last time step
++  accepted by the :cxx:`update` method.
++
++The values imposed by the Dirichlet boundary conditions at the end of the
++time step are then applied. No linear system is solved. This strategy is
++the default prediction of several finite element solvers in statics.
++
++.. code-block:: c++
++
++   mechanics.setPredictionPolicy(
++      {.strategy = PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION});
++
++Two rules distinguish this strategy from the previous ones:
++
++- The prediction is only made at the first resolution of a time step, i.e.
++  at the first call to the :cxx:`solve` method which follows a call to the
++  :cxx:`update` or :cxx:`revert` methods. The following resolutions of the
++  same time step, if any (staggered schemes, fixed point on a loading),
++  start from the current estimate of the unknowns, as with the default
++  prediction: an extrapolation would discard the solution of the previous
++  resolution. After a call to :cxx:`revert`, the extrapolation is made
++  again, with the new time increment.
++- The reference of the relative convergence criterion of the nonlinear
++  solver is the norm of the residual of the default prediction. The
++  criterion is thus the one of a resolution without prediction, up to the
++  rounding errors: the solutions and the numbers of iterations obtained
++  with and without the extrapolation can be compared. If the residual of
++  the default prediction is null, the default prediction is kept.
++
++The norm of the residual of the default prediction costs one integration
++of the behaviours, without tangent operator, and one evaluation of the
++residual per time step.
++
++At the first time step, and as long as no time step has been accepted
++since the strategy was selected, the default prediction is used, without
++this cost. Selecting another strategy releases the increment kept.
++
++The norm of the residual of the first estimate of a resolution, relative
++to the reference, is reported by the nonlinear solvers at the iteration 0:
++a value greater than one means that the extrapolation is worse than the
++default prediction. This happens when the evolution of the loading or the
++regime of the behaviours changes abruptly (first plastic time step, for
++instance). The extrapolation is then paid for in iterations, not in
++accuracy.
++
++.. note::
++
++   This strategy is not supported when the nonlinear solver of PETSc is
++   selected globally (option :code:`--use-petsc`): the reference of the
++   relative criterion can't be given to it. It is supported by the
++   :cxx:`Newton`, :cxx:`FixedPoint`, :cxx:`KINSOL` and :cxx:`SNES`
++   nonlinear solvers.
++
+ Newton algorithm
+ ================
+ 
+diff --git a/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx b/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx
+index 1891605aae..c138fc49c7 100644
+--- a/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx
++++ b/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx
+@@ -104,7 +104,42 @@ namespace mfem_mgis {
+      * \note Although the wording explicitly refers to mechanics, this equation
+      * applies to all physics.
+      */
+-    CONSTANT_GRADIENTS_INTEGRATION_PREDICTION
++    CONSTANT_GRADIENTS_INTEGRATION_PREDICTION,
++    /*!
++     * The `LINEAR_EXTRAPOLATION_PREDICTION` strategy extrapolates the
++     * increment of the unknowns of the previous time step, weighted by the
++     * ratio of the time increments:
++     *
++     * \f[
++     *   \ets{\mathbb{u}} = \bts{\mathbb{u}} +
++     *   \frac{\Delta\,t}{\Delta\,t_{p}}\,\Delta\,\mathbb{u}_{p}
++     * \f]
++     *
++     * where:
++     *
++     * - \f$\Delta\,t\f$ denotes the time increment.
++     * - \f$\Delta\,\mathbb{u}_{p}\f$ and \f$\Delta\,t_{p}\f$ denote the
++     *   increment of the unknowns and the time increment of the last time
++     *   step accepted (see `update`).
++     *
++     * The values imposed by the Dirichlet boundary conditions at the end of
++     * the time step are then applied. No linear system is solved.
++     *
++     * This prediction is only made at the first resolution of a time step,
++     * i.e. the first call to `solve` which follows `update` or `revert`: the
++     * following resolutions of the same time step, if any, start from the
++     * current estimate of the unknowns, as with the default prediction.
++     * Without previous time step, the default prediction is used.
++     *
++     * The reference of the relative convergence criterion of the non linear
++     * solver is the norm of the residual of the default prediction, so that
++     * this criterion does not depend on the prediction. This norm is
++     * computed, before the extrapolation, by an integration of the
++     * behaviours without tangent operator and an evaluation of the residual.
++     *
++     * \note this strategy is not supported when PETSc is used.
++     */
++    LINEAR_EXTRAPOLATION_PREDICTION
+   };
+ 
+   /*!
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index 800486e1e3..feb4a3af2c 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -12,6 +12,7 @@
+ #include <map>
+ #include <memory>
+ #include <utility>
++#include <optional>
+ #include <functional>
+ #include <vector>
+ #include "mfem/general/array.hpp"
+@@ -406,10 +407,25 @@ namespace mfem_mgis {
+      * \param[in, out] ctx: execution context
+      * \param[in] t: time at the beginning of the time step
+      * \param[in] dt: time increment
+-     * \return the norm of the initial residual
++     * \return the norm of the initial residual. With the
++     * `LINEAR_EXTRAPOLATION_PREDICTION` strategy, this norm is the one of
++     * the residual of the default prediction, and the unknowns are only
++     * extrapolated if it is not null (see `extrapolateUnknowns`).
+      */
+     [[nodiscard]] virtual std::optional<real> computePrediction(
+         Context& ctx, const real t, const real dt) noexcept = 0;
++    /*!
++     * \brief replace the estimate of the unknowns at the end of the time
++     * step by the linear extrapolation of the increment of the last time
++     * step accepted (see `previous_increment`), then apply the values
++     * imposed by the Dirichlet boundary conditions at the end of the time
++     * step
++     * \param[in] t: time at the beginning of the time step
++     * \param[in] dt: time increment
++     * \note the increment of the last time step accepted must be available
++     * (see `previous_time_increment`)
++     */
++    void extrapolateUnknowns(const real t, const real dt);
+     //! \brief underlying finite element discretization
+     FiniteElementDiscretization fe_discretization;
+     //! \brief list of Dirichlet boundary conditions
+@@ -429,6 +445,25 @@ namespace mfem_mgis {
+     mfem::Vector u0;
+     //! \brief unknowns at the end of the time step
+     mfem::Vector u1;
++    /*!
++     * \brief increment of the unknowns over the last time step accepted
++     * (see `update`), kept by the `LINEAR_EXTRAPOLATION_PREDICTION` strategy
++     * only: the vector is empty otherwise
++     */
++    mfem::Vector previous_increment;
++    /*!
++     * \brief time increment of the last time step accepted, if
++     * `previous_increment` is available
++     */
++    std::optional<real> previous_time_increment;
++    //! \brief time increment of the current time step (see `setup`)
++    real time_increment = real{};
++    /*!
++     * \brief true if no resolution was made since the beginning of the
++     * computation or the last call to `update` or `revert`: the next call
++     * to `solve` is the first resolution of a time step
++     */
++    bool first_resolution_of_time_step = true;
+     //! \brief nonlinear solver
+     std::unique_ptr<AbstractNonLinearSolver> solver;
+ #ifdef MFEM_MGIS_HAVE_PETSC
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 617281b871..d5dda83018 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -9,6 +9,7 @@
+ #include <tuple>
+ #include <optional>
+ #include <algorithm>
++#include <functional>
+ #include <string>
+ #include "mfem/fem/datacollection.hpp"
+ 
+@@ -940,6 +941,63 @@ namespace mfem_mgis {
+                                       .initial_residual_norm = norm};
+   }  // end of computePrediction
+ 
++  /*!
++   * \brief prediction by linear extrapolation of the increment of the
++   * previous time step (see
++   * `PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION`). The current
++   * estimate of the unknowns at the end of the time step is the default
++   * prediction: the behaviours are integrated at this estimate, without
++   * tangent operator, and the norm of its residual is computed as the non
++   * linear solvers do (reference of their relative criterion). The unknowns
++   * are then extrapolated, unless this norm is null.
++   * \return the norm of the residual of the default prediction
++   * \param[in, out] ctx: execution context
++   * \param[in, out] p: non linear evolution problem
++   * \param[in] extrapolate: function extrapolating the unknowns
++   */
++  template <bool parallel>
++  [[nodiscard]] static std::optional<real> computeLinearExtrapolationPrediction(
++      Context& ctx,
++      NonLinearEvolutionProblemImplementation<parallel>& p,
++      const std::function<void()>& extrapolate) noexcept {
++    // the integration of the behaviours, the kernels of the residual and the
++    // boundary conditions report their errors by exceptions
++    try {
++      const auto& u1 = p.getUnknowns(mfem_mgis::ets);
++      {
++        CatchTimeSection(ctx, "PRED::integrate");
++        // the result is the same on all the processes
++        if (!p.integrate(u1, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR,
++                         {})) {
++          return ctx.registerErrorMessage("integration failure");
++        }
++      }
++      auto norm = real{};
++      {
++        CatchTimeSection(ctx, "PRED::residual");
++        auto r = mfem::Vector(p.Width());
++        r.UseDevice(true);
++        p.Mult(u1, r);
++        // as `mfem::IterativeSolver::Norm`: the residual is null for the
++        // essential degrees of freedom
++        if constexpr (parallel) {
++          auto fed = p.getFiniteElementDiscretization();
++          auto& fespace = fed.template getFiniteElementSpace<parallel>();
++          norm = std::sqrt(mfem::InnerProduct(fespace.GetComm(), r, r));
++        } else {
++          norm = std::sqrt(mfem::InnerProduct(r, r));
++        }
++      }
++      if (norm > real{0}) {
++        extrapolate();
++      }
++      return norm;
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
++    }
++    return {};
++  }  // end of computeLinearExtrapolationPrediction
++
+   /*!
+    * \brief post-processing defined by an std::function
+    * \tparam parallel: boolean stating if the computations are performed in
+@@ -1053,6 +1111,12 @@ namespace mfem_mgis {
+   std::optional<real>
+   NonLinearEvolutionProblemImplementation<true>::computePrediction(
+       Context& ctx, const real t, const real dt) noexcept {
++    if (this->getPredictionPolicy().strategy ==
++        PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
++      // no linear system is solved
++      return computeLinearExtrapolationPrediction<true>(
++          ctx, *this, [this, t, dt] { this->extrapolateUnknowns(t, dt); });
++    }
+     if (this->linear_solver.get() == nullptr) {
+       return ctx.registerErrorMessage("linear solver not initialized");
+     }
+@@ -1523,6 +1587,12 @@ namespace mfem_mgis {
+   std::optional<real>
+   NonLinearEvolutionProblemImplementation<false>::computePrediction(
+       Context& ctx, const real t, const real dt) noexcept {
++    if (this->getPredictionPolicy().strategy ==
++        PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
++      // no linear system is solved
++      return computeLinearExtrapolationPrediction<false>(
++          ctx, *this, [this, t, dt] { this->extrapolateUnknowns(t, dt); });
++    }
+     if (this->linear_solver.get() == nullptr) {
+       return ctx.registerErrorMessage("linear solver not initialized");
+     }
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 238ba16cb1..a0a8301ae2 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -309,6 +309,7 @@ namespace mfem_mgis {
+     CatchTimeSection(ctx, "NLEPIB::revert");
+     this->u1 = this->u0;
+     this->hasStiffnessOperatorsBeenComputed = false;
++    this->first_resolution_of_time_step = true;
+     if (this->mgis_integrator != nullptr) {
+       try {
+         this->mgis_integrator->revert();
+@@ -322,7 +323,25 @@ namespace mfem_mgis {
+   bool NonLinearEvolutionProblemImplementationBase::update(
+       Context& ctx) noexcept {
+     CatchTimeSection(ctx, "NLEPIB::update");
++    if (this->prediction_policy.strategy ==
++        PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
++      // increment of the unknowns over the time step, extrapolated by the
++      // prediction of the next one. A time step without duration can't be
++      // extrapolated.
++      if (this->time_increment > real{0}) {
++        if (this->previous_increment.Size() != this->u1.Size()) {
++          this->previous_increment.SetSize(this->u1.Size());
++          this->previous_increment.UseDevice(true);
++        }
++        // `subtract` and `add` are friends of `mfem::Vector`
++        subtract(this->u1, this->u0, this->previous_increment);
++        this->previous_time_increment = this->time_increment;
++      } else {
++        this->previous_time_increment.reset();
++      }
++    }
+     this->u0 = this->u1;
++    this->first_resolution_of_time_step = true;
+     if (this->mgis_integrator != nullptr) {
+       try {
+         this->mgis_integrator->update();
+@@ -679,6 +698,7 @@ namespace mfem_mgis {
+       Context& ctx, const real t, const real dt) noexcept {
+     CatchTimeSection(ctx, "NLEPIB::setup");
+     this->setTimeIncrement(dt);
++    this->time_increment = dt;
+     this->selectOptionalComputations();
+     const auto success = [this, &ctx, t, dt] {
+       if (this->initialization_phase) {
+@@ -822,9 +842,29 @@ namespace mfem_mgis {
+ 
+   void NonLinearEvolutionProblemImplementationBase::setPredictionPolicy(
+       const PredictionPolicy& p) noexcept {
++    if (p.strategy != PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
++      // the increment of the last time step is only kept for the linear
++      // extrapolation
++      this->previous_increment.Destroy();
++      this->previous_time_increment.reset();
++    }
+     this->prediction_policy = p;
+   }  // end of setPredictionPolicy
+ 
++  void NonLinearEvolutionProblemImplementationBase::extrapolateUnknowns(
++      const real t, const real dt) {
++    if (!this->previous_time_increment.has_value()) {
++      raise(
++          "NonLinearEvolutionProblemImplementationBase::extrapolateUnknowns: "
++          "no increment of the unknowns over a previous time step");
++    }
++    add(this->u0, dt / (*(this->previous_time_increment)),
++        this->previous_increment, this->u1);
++    for (const auto& bc : this->dirichlet_boundary_conditions) {
++      bc->updateImposedValues(this->u1, t + dt);
++    }
++  }  // end of extrapolateUnknowns
++
+   PredictionPolicy
+   NonLinearEvolutionProblemImplementationBase::getPredictionPolicy()
+       const noexcept {
+@@ -835,6 +875,10 @@ namespace mfem_mgis {
+       Context& ctx, const real t, const real dt) noexcept {
+     CatchTimeSection(ctx, "NLEPIB::solve");
+     NonLinearResolutionOutput output;
++    // the resolutions which follow, if any, are not the first one of the
++    // time step, whatever the outcome of this one
++    const auto first_resolution = this->first_resolution_of_time_step;
++    this->first_resolution_of_time_step = false;
+     // phase of accesses on the host at the beginning of the resolution, for
+     // the behaviours integrated on the host, also by the assembly of the
+     // residual when PETSc is used, which does not call `integrate`; the
+@@ -851,8 +895,40 @@ namespace mfem_mgis {
+         return output;
+       }
+     }
+-    if (this->prediction_policy.strategy !=
+-        PredictionStrategy::DEFAULT_PREDICTION) {
++    if (this->prediction_policy.strategy ==
++        PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
++      if (usePETSc()) {
++        // the reference of the relative criterion can't be given to PETSc
++        std::ignore = ctx.registerErrorMessage(
++            "solve: the prediction by linear extrapolation is not supported "
++            "with PETSc");
++        output.status = false;
++        return output;
++      }
++      // the extrapolation is only made at the first resolution of a time
++      // step, if the increment of the previous time step is known: the
++      // other resolutions start from the current estimate, as with the
++      // default prediction
++      if (first_resolution && this->previous_time_increment.has_value()) {
++        const auto onorm = [this, &ctx, t, dt] {
++          CatchTimeSection(ctx, "NLEPIB::computePrediction");
++          return this->computePrediction(ctx, t, dt);
++        }();
++        if (isInvalid(onorm)) {
++          output.status = false;
++          return output;
++        }
++        // the reference of the relative criterion is the norm of the
++        // residual of the default prediction. If this residual is null, the
++        // default prediction is the solution and was not replaced.
++        if ((*onorm > real{0}) &&
++            (!this->solver->setReferenceResidualNorm(ctx, *onorm))) {
++          output.status = false;
++          return output;
++        }
++      }
++    } else if (this->prediction_policy.strategy !=
++               PredictionStrategy::DEFAULT_PREDICTION) {
+       const auto onorm = [this, &ctx, t, dt] {
+         CatchTimeSection(ctx, "NLEPIB::computePrediction");
+         return this->computePrediction(ctx, t, dt);
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 1e078e4c3d..5a03464206 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1522,6 +1522,37 @@ if(MFEM_MGIS_HAVE_TFEL)
+                          "${fixed_point_solver_test_kernels}")
+   endforeach()
+ 
++  # LinearExtrapolationPredictionTest executable: prediction by linear
++  # extrapolation of the increment of the previous time step (values of the
++  # prediction, reference of the relative criterion, first resolution of a
++  # time step only), with the Newton and FixedPoint solvers, also with the
++  # integration by batches and the computations by kernels, on the host and
++  # on the debug device of MFEM
++  add_test_executable(LinearExtrapolationPredictionTest)
++  add_test(NAME LinearExtrapolationPredictionTest
++           COMMAND LinearExtrapolationPredictionTest
++                   --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                   --library $<TARGET_FILE:BehaviourTest>)
++  # on 2 processes, with MUMPS if available, otherwise with the conjugate
++  # gradient of MFEM
++  if(MFEM_USE_MPI)
++    add_test(NAME LinearExtrapolationPredictionTestP
++             COMMAND mpirun -n 2 ./LinearExtrapolationPredictionTest --parallel
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>)
++    set_tests_properties(LinearExtrapolationPredictionTestP
++                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++  endif()
++  foreach(_device cpu debug)
++    add_test(NAME LinearExtrapolationPredictionTest-kernels-${_device}
++             COMMAND LinearExtrapolationPredictionTest --device ${_device}
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>)
++    set_tests_properties(LinearExtrapolationPredictionTest-kernels-${_device}
++                         PROPERTIES ENVIRONMENT
++                         "${fixed_point_solver_test_kernels}")
++  endforeach()
++
+   # MaterialArraysTest executable: arrays of the materials in the memory of
+   # MFEM, on the host, on the debug device of MFEM and on the GPU. The
+   # point-wise model is also integrated by batches with the library
+diff --git a/tests/LinearExtrapolationPredictionTest.cxx b/tests/LinearExtrapolationPredictionTest.cxx
+new file mode 100644
+index 0000000000..583a555037
+--- /dev/null
++++ b/tests/LinearExtrapolationPredictionTest.cxx
+@@ -0,0 +1,656 @@
++/*!
++ * \file   LinearExtrapolationPredictionTest.cxx
++ * \brief  Test of the prediction by linear extrapolation of the increment
++ * of the unknowns of the previous time step
++ * (`PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION`).
++ *
++ * The face `Xmax` of a cube made of the
++ * `IsotropicLinearHardeningPlasticity` behaviour is moved along its normal,
++ * the faces `Xmin`, `Ymin` and `Zmin` being fixed along their normals: the
++ * strain is uniform.
++ *
++ * In the elastic domain, the problem is linear. A resolution limited to
++ * zero iteration leaves the prediction in the unknowns at the end of the
++ * time step, and returns the norm of its residual and the reference of the
++ * relative criterion. With a displacement which is not linear in time:
++ * - at the first time step, the prediction is the default one;
++ * - then, the prediction is the extrapolation of the previous increment
++ *   weighted by the ratio of the time increments, the values imposed by the
++ *   Dirichlet boundary conditions being the ones of the end of the time
++ *   step;
++ * - the reference of the relative criterion is the one of the default
++ *   prediction, and the ratio between the norm of the residual of the
++ *   prediction and this reference is the analytical one;
++ * - after `revert`, the extrapolation is made again with the new time
++ *   increment;
++ * - a second resolution of the same time step starts from the solution of
++ *   the first one;
++ * - the default strategy releases the increment, and the linear
++ *   extrapolation selected again does not use a stale one.
++ *
++ * With a displacement proportional to the time, the extrapolation is the
++ * solution: no iteration is made from the second time step, also when the
++ * time increment changes, whereas the default prediction requires at least
++ * one.
++ *
++ * In the plastic domain, the solution is the one of the default prediction,
++ * with at most as many iterations.
++ *
++ * The checks are made with the Newton solver and with the `FixedPoint`
++ * solver (fixed point on the elastic operator, `NewtonK0` method).
++ * \date   14/11/2026
++ */
++
++#include <cmath>
++#include <string>
++#include <vector>
++#include <cstdlib>
++#include <utility>
++#include <iostream>
++#include <algorithm>
++#include <functional>
++#include "mfem/general/optparser.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "SequentialLinearSolver.hxx"
++#include "Tolerance.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief if true, the computations are parallel
++static bool parallel = false;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \return if two values are equal up to a relative tolerance
++static bool areClose(const double a, const double b, const double tolerance) {
++  return std::abs(a - b) <= tolerance * std::max(std::abs(a), std::abs(b));
++}  // end of areClose
++
++//! \return if two values are the same
++static bool areEqual(const mfem_mgis::real a, const mfem_mgis::real b) {
++  return (a <= b) && (b <= a);
++}  // end of areEqual
++
++//! \brief displacement imposed on the face `Xmax` as a function of time
++using Loading = std::function<mfem_mgis::real(const mfem_mgis::real)>;
++
++//! \brief non linear solver
++struct Solver {
++  //! \brief name of the solver in the messages
++  std::string name;
++  //! \brief value of the `NonLinearSolver` parameter, the default if empty
++  mfem_mgis::Parameters parameters;
++  //! \brief if true, the solver is a Newton method
++  bool newton = true;
++};
++
++//! \brief relative tolerance of the non linear resolutions
++static constexpr auto relative_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-10, 1e-4);
++//! \brief maximum number of iterations of the non linear resolutions
++static constexpr auto maximum_number_of_iterations = 200;
++
++//! \brief result of a resolution
++struct Resolution {
++  //! \brief true if the resolution converged
++  bool status = false;
++  //! \brief number of iterations
++  mfem_mgis::size_type iterations = 0;
++  //! \brief reference of the relative criterion
++  double reference = 0;
++  //! \brief norm of the residual at the end of the resolution
++  double norm = 0;
++  //! \brief unknowns at the end of the resolution
++  std::vector<mfem_mgis::real> u;
++};
++
++/*!
++ * \return a non linear evolution problem on a cube
++ * \param[in, out] ctx: execution context
++ * \param[in] mesh: mesh of a cube
++ * \param[in] solver: non linear solver
++ */
++static mfem_mgis::NonLinearEvolutionProblem makeProblem(mfem_mgis::Context& ctx,
++                                                        const char* const mesh,
++                                                        const Solver& solver) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  auto params = Parameters{
++      {"MeshFileName", mesh},
++      {"FiniteElementFamily", "H1"},
++      {"FiniteElementOrder", 1},
++      {"UnknownsSize", 3},
++      {"NumberOfUniformRefinements", 1},
++      {"Materials", Parameters{{"Cube", 1}}},
++      {"Boundaries",
++       Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
++      {"Hypothesis", "Tridimensional"},
++      {"Parallel", parallel}};
++  if (!solver.parameters.empty()) {
++    params.insert(throwing, {{"NonLinearSolver", solver.parameters}});
++  }
++  return construct<NonLinearEvolutionProblem>(ctx, params) | or_die;
++}  // end of makeProblem
++
++//! \brief cube whose face `Xmax` is moved along its normal
++struct Cube {
++  /*!
++   * \brief constructor
++   * \param[in] mesh: mesh of a cube
++   * \param[in] library: behaviour library
++   * \param[in] solver: non linear solver
++   * \param[in] loading: displacement imposed on the face `Xmax`
++   * \param[in] strategy: prediction strategy
++   */
++  Cube(const char* const mesh,
++       const char* const library,
++       const Solver& solver,
++       const Loading& loading,
++       const mfem_mgis::PredictionStrategy strategy)
++      : problem(makeProblem(ctx, mesh, solver)) {
++    using namespace mfem_mgis;
++    auto or_die = this->ctx.getFatalFailureHandler();
++    this->problem.addBehaviourIntegrator(this->ctx, "Mechanics", "Cube",
++                                         library,
++                                         "IsotropicLinearHardeningPlasticity") |
++        or_die;
++    auto& m = this->problem.getMaterial(this->ctx, "Cube", 0) | or_die;
++    for (auto* s : {&m.s0, &m.s1}) {
++      mgis::behaviour::setExternalStateVariable(this->ctx, *s, "Temperature",
++                                                293.15) |
++          or_die;
++    }
++    for (const auto& [boundary, component] :
++         {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
++      this->problem.addUniformDirichletBoundaryCondition(
++          this->ctx, {{"Boundary", boundary}, {"Component", component}}) |
++          or_die;
++    }
++    this->problem.addUniformDirichletBoundaryCondition(
++        this->ctx, {{"Boundary", "Xmax"},
++                    {"Component", 0},
++                    {"LoadingEvolution", loading}}) |
++        or_die;
++    // direct solver: MUMPS in parallel if MFEM provides it, otherwise the
++    // conjugate gradient of MFEM with the tightest tolerance (the tangent
++    // operators of the behaviour are symmetric positive definite)
++    if (parallel) {
++#ifdef MFEM_MGIS_HAVE_MUMPS
++      this->problem.setLinearSolver(this->ctx, "MUMPSSolver", {}) | or_die;
++#else  /* MFEM_MGIS_HAVE_MUMPS */
++      this->problem.setLinearSolver(this->ctx, "CGSolver",
++                                    {{"VerbosityLevel", 0},
++                                     {"RelativeTolerance", 1e-14},
++                                     {"AbsoluteTolerance", 0.},
++                                     {"MaximumNumberOfIterations", 10000}}) |
++          or_die;
++#endif /* MFEM_MGIS_HAVE_MUMPS */
++    } else {
++      this->problem.setLinearSolver(
++          this->ctx, unit_tests::sequential_direct_solver,
++          unit_tests::getSequentialDirectSolverParameters()) |
++          or_die;
++    }
++    this->problem.setSolverParameters(
++        this->ctx,
++        {{"VerbosityLevel", 0},
++         {"RelativeTolerance", static_cast<double>(relative_tolerance)},
++         {"AbsoluteTolerance", 0.},
++         {"MaximumNumberOfIterations", maximum_number_of_iterations}}) |
++        or_die;
++    this->setPredictionStrategy(strategy);
++  }  // end of Cube
++  //! \brief select the prediction strategy
++  void setPredictionStrategy(const mfem_mgis::PredictionStrategy strategy) {
++    this->problem.setPredictionPolicy({.strategy = strategy});
++  }  // end of setPredictionStrategy
++  //! \brief set the absolute tolerance of the non linear resolutions
++  void setAbsoluteTolerance(const double tolerance) {
++    auto or_die = this->ctx.getFatalFailureHandler();
++    this->problem.setSolverParameters(this->ctx,
++                                      {{"AbsoluteTolerance", tolerance}}) |
++        or_die;
++  }  // end of setAbsoluteTolerance
++  /*!
++   * \return the result of the resolution of a time step
++   * \param[in] t: time at the beginning of the time step
++   * \param[in] dt: time increment
++   */
++  Resolution solve(const mfem_mgis::real t, const mfem_mgis::real dt) {
++    auto local = mfem_mgis::Context{};
++    const auto o = this->problem.solve(local, t, dt);
++    auto r = Resolution{.status = o.status,
++                        .iterations = o.iterations,
++                        .reference = o.initial_residual_norm,
++                        .norm = o.final_residual_norm,
++                        .u = this->getUnknowns()};
++    return r;
++  }  // end of solve
++  /*!
++   * \return the result of a resolution limited to zero iteration: the
++   * unknowns are the prediction, and the norm of the residual is the one of
++   * the prediction
++   * \param[in] t: time at the beginning of the time step
++   * \param[in] dt: time increment
++   */
++  Resolution predict(const mfem_mgis::real t, const mfem_mgis::real dt) {
++    auto or_die = this->ctx.getFatalFailureHandler();
++    this->problem.setSolverParameters(this->ctx,
++                                      {{"MaximumNumberOfIterations", 0}}) |
++        or_die;
++    const auto r = this->solve(t, dt);
++    this->problem.setSolverParameters(
++        this->ctx,
++        {{"MaximumNumberOfIterations", maximum_number_of_iterations}}) |
++        or_die;
++    return r;
++  }  // end of predict
++  //! \return the unknowns at the end of the time step
++  std::vector<mfem_mgis::real> getUnknowns() {
++    const auto& u = this->problem.getUnknowns(mfem_mgis::ets);
++    return {u.HostRead(), u.HostRead() + u.Size()};
++  }  // end of getUnknowns
++  //! \brief accept the time step
++  void update() {
++    auto or_die = this->ctx.getFatalFailureHandler();
++    this->problem.update(this->ctx) | or_die;
++  }  // end of update
++  //! \brief cancel the time step
++  void revert() {
++    auto or_die = this->ctx.getFatalFailureHandler();
++    this->problem.revert(this->ctx) | or_die;
++  }  // end of revert
++  //! \brief execution context
++  mfem_mgis::Context ctx;
++  //! \brief non linear evolution problem
++  mfem_mgis::NonLinearEvolutionProblem problem;
++};
++
++/*!
++ * \return the maximum difference between two arrays, relative to the
++ * maximum absolute value of the first one
++ */
++static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
++                                    const std::vector<mfem_mgis::real>& b) {
++  if (a.size() != b.size()) {
++    return 1;
++  }
++  auto d = 0.;
++  auto m = 0.;
++  for (std::size_t i = 0; i != a.size(); ++i) {
++    d = std::max(d, static_cast<double>(std::abs(a[i] - b[i])));
++    m = std::max(m, static_cast<double>(std::abs(a[i])));
++  }
++  return m > 0 ? d / m : d;
++}  // end of getRelativeDifference
++
++/*!
++ * \brief displacement of the face `Xmax` in the elastic domain, per unit
++ * of time, or of square of the time
++ */
++static constexpr auto elastic_displacement = mfem_mgis::real{1e-4};
++
++/*!
++ * \brief checks of the prediction on a linear problem, with a displacement
++ * which is not linear in time
++ * \param[in] mesh: mesh of a cube
++ * \param[in] library: behaviour library
++ * \param[in] solver: non linear solver
++ */
++static void checkPredictions(const char* const mesh,
++                             const char* const library,
++                             const Solver& solver) {
++  using namespace mfem_mgis;
++  using Vector = std::vector<real>;
++  constexpr auto extrapolation =
++      PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION;
++  // differences of the predictions, of the solutions, of the norms and of
++  // the ratios of norms (in float, the linear solver of the sequential
++  // tests is iterative)
++  constexpr auto values_tolerance = unit_tests::tolerance(1e-13, 1e-5);
++  constexpr auto solutions_tolerance = unit_tests::tolerance(1e-8, 1e-3);
++  constexpr auto norms_tolerance = unit_tests::tolerance(1e-9, 1e-3);
++  constexpr auto ratios_tolerance = unit_tests::tolerance(1e-7, 5e-3);
++  const auto loading = Loading{
++      [](const real t) noexcept { return elastic_displacement * t * t; }};
++  // the same computation with the linear extrapolation and with the default
++  // prediction
++  auto e = Cube(mesh, library, solver, loading, extrapolation);
++  auto d = Cube(mesh, library, solver, loading,
++                PredictionStrategy::DEFAULT_PREDICTION);
++  const auto dofs = e.problem.getEssentialDegreesOfFreedom();
++  // unknowns at t = 1: the imposed displacements are not null
++  auto moved = Vector{};
++  /*!
++   * checks of a prediction of the time step from t to t + dt, the previous
++   * time step starting at tp: the unknowns are u0 + ratio * (u0 - up) (u0
++   * and up: unknowns at t and tp), except the imposed ones, and the ratio
++   * of the norm of its residual to the reference is the one of the
++   * differences between the imposed displacement and the displacement
++   * extrapolated or not
++   */
++  auto check_prediction = [&](const Resolution& p, const Vector& u0,
++                              const Vector& up, const real tp, const real t,
++                              const real dt, const real ratio,
++                              const std::string& step) {
++    const auto name = solver.name + ", " + step;
++    check(!p.status, name + ": convergence without iteration");
++    check(p.iterations == 0, name + ": iterations made");
++    if ((p.u.size() != u0.size()) || (up.size() != u0.size())) {
++      check(false, name + ": invalid number of unknowns");
++      return;
++    }
++    auto expected = Vector(u0.size());
++    for (std::size_t i = 0; i != u0.size(); ++i) {
++      expected[i] = u0[i] + ratio * (u0[i] - up[i]);
++    }
++    auto exact = true;
++    for (const auto dof : dofs) {
++      const auto i = static_cast<std::size_t>(dof);
++      const auto v = areEqual(moved[i], real{0}) ? real{0} : loading(t + dt);
++      exact = exact && areEqual(p.u[i], v);
++      expected[i] = v;
++    }
++    check(exact, name + ": imposed values not exact");
++    const auto difference = getRelativeDifference(expected, p.u);
++    check(difference <= values_tolerance,
++          name + ": unexpected prediction (relative difference " +
++              std::to_string(difference) + ")");
++    const auto next = static_cast<double>(loading(t + dt));
++    const auto current = static_cast<double>(loading(t));
++    const auto previous = static_cast<double>(loading(tp));
++    const auto expected_ratio =
++        std::abs(next - (current + ratio * (current - previous))) /
++        std::abs(next - current);
++    check((p.reference > 0) &&
++              areClose(p.norm / p.reference, expected_ratio, ratios_tolerance),
++          name +
++              ": unexpected ratio of the residual of the prediction to "
++              "the reference (" +
++              std::to_string(p.norm / p.reference) + ", expected " +
++              std::to_string(expected_ratio) + ")");
++  };
++  /*!
++   * the resolutions of the same time step with the linear extrapolation and
++   * with the default prediction have the same reference
++   */
++  auto check_reference = [&](const Resolution& a, const Resolution& b,
++                             const std::string& step) {
++    check(areClose(a.reference, b.reference, norms_tolerance),
++          solver.name + ", " + step + ": the reference is not the one of " +
++              "the default prediction (" + std::to_string(a.reference) + ", " +
++              std::to_string(b.reference) + ")");
++  };
++  const auto zeros = Vector(e.getUnknowns().size(), real{0});
++  // first time step: default prediction
++  const auto e1 = e.solve(0, 1);
++  const auto d1 = d.solve(0, 1);
++  if (!(e1.status && d1.status)) {
++    check(false, solver.name + ", first time step: resolution failed");
++    return;
++  }
++  check_reference(e1, d1, "first time step");
++  check(e1.iterations == d1.iterations,
++        solver.name +
++            ", first time step: iterations of the default "
++            "prediction expected");
++  check(getRelativeDifference(d1.u, e1.u) <= solutions_tolerance,
++        solver.name + ", first time step: unexpected solution");
++  moved = e1.u;
++  // a resolution which starts from a solution converges without iteration
++  for (auto* const c : {&e, &d}) {
++    c->setAbsoluteTolerance(100 * static_cast<double>(relative_tolerance) *
++                            e1.reference);
++    c->update();
++  }
++  // second time step, same time increment
++  {
++    const auto p = e.predict(1, 1);
++    check_prediction(p, e1.u, zeros, 0, 1, 1, 1, "second time step");
++    check_reference(p, d.predict(1, 1), "second time step");
++    e.revert();
++    d.revert();
++  }
++  // after `revert`, half of the time increment
++  {
++    const auto p = e.predict(1, real{1} / 2);
++    check_prediction(p, e1.u, zeros, 0, 1, real{1} / 2, real{1} / 2,
++                     "second time step, halved");
++    check_reference(p, d.predict(1, real{1} / 2), "second time step, halved");
++    e.revert();
++    d.revert();
++  }
++  const auto e2 = e.solve(1, real{1} / 2);
++  const auto d2 = d.solve(1, real{1} / 2);
++  if (!(e2.status && d2.status)) {
++    check(false, solver.name + ", second time step: resolution failed");
++    return;
++  }
++  check_reference(e2, d2, "second time step, resolution");
++  check(e2.iterations >= 1, solver.name + ", second time step: no iteration");
++  check(getRelativeDifference(d2.u, e2.u) <= solutions_tolerance,
++        solver.name + ", second time step: unexpected solution");
++  // second resolution of the same time step: no extrapolation, the solution
++  // is kept
++  {
++    const auto s = e.solve(1, real{1} / 2);
++    check(s.status && (s.iterations == 0),
++          solver.name + ", second resolution of a time step: iterations made");
++    check(getRelativeDifference(e2.u, s.u) <= 0,
++          solver.name + ", second resolution of a time step: solution changed");
++  }
++  e.update();
++  // third time step: the time increment is doubled
++  {
++    const auto p = e.predict(real{3} / 2, 1);
++    check_prediction(p, e2.u, e1.u, 1, real{3} / 2, 1, 2, "third time step");
++    e.revert();
++  }
++  // the default strategy releases the increment
++  e.setPredictionStrategy(PredictionStrategy::DEFAULT_PREDICTION);
++  {
++    const auto p = e.predict(real{3} / 2, 1);
++    check_prediction(p, e2.u, e1.u, 1, real{3} / 2, 1, 0,
++                     "third time step, default prediction");
++    e.revert();
++  }
++  // the linear extrapolation selected again has no increment to extrapolate
++  e.setPredictionStrategy(extrapolation);
++  {
++    const auto p = e.predict(real{3} / 2, 1);
++    check_prediction(p, e2.u, e1.u, 1, real{3} / 2, 1, 0,
++                     "third time step, linear extrapolation selected again");
++    e.revert();
++  }
++  const auto e3 = e.solve(real{3} / 2, 1);
++  if (!e3.status) {
++    check(false, solver.name + ", third time step: resolution failed");
++    return;
++  }
++  e.update();
++  // fourth time step: the increment of the third one is extrapolated
++  {
++    const auto p = e.predict(real{5} / 2, 1);
++    check_prediction(p, e3.u, e2.u, real{3} / 2, real{5} / 2, 1, 1,
++                     "fourth time step");
++    e.revert();
++  }
++}  // end of checkPredictions
++
++/*!
++ * \brief with a displacement proportional to the time, on a linear problem,
++ * the extrapolation is the solution
++ * \param[in] mesh: mesh of a cube
++ * \param[in] library: behaviour library
++ * \param[in] solver: non linear solver
++ */
++static void checkExactPrediction(const char* const mesh,
++                                 const char* const library,
++                                 const Solver& solver) {
++  using namespace mfem_mgis;
++  constexpr auto solutions_tolerance = unit_tests::tolerance(1e-8, 1e-3);
++  constexpr auto norms_tolerance = unit_tests::tolerance(1e-9, 1e-3);
++  const auto loading =
++      Loading{[](const real t) noexcept { return elastic_displacement * t; }};
++  auto e = Cube(mesh, library, solver, loading,
++                PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION);
++  auto d = Cube(mesh, library, solver, loading,
++                PredictionStrategy::DEFAULT_PREDICTION);
++  // time increments: the same one, then halved, then doubled
++  auto t = real{0};
++  auto step = 0;
++  for (const auto dt : {real{1}, real{1}, real{1} / 2, real{1}}) {
++    const auto name = solver.name + ", proportional displacement, step " +
++                      std::to_string(step);
++    const auto re = e.solve(t, dt);
++    const auto rd = d.solve(t, dt);
++    if (!(re.status && rd.status)) {
++      check(false, name + ": resolution failed");
++      return;
++    }
++    check(areClose(re.reference, rd.reference, norms_tolerance),
++          name + ": the reference is not the one of the default prediction");
++    check(rd.iterations >= 1, name + ": no iteration without extrapolation");
++    if (step == 0) {
++      check(re.iterations == rd.iterations,
++            name + ": iterations of the default prediction expected");
++      // a resolution which starts from the solution converges without
++      // iteration
++      for (auto* const c : {&e, &d}) {
++        c->setAbsoluteTolerance(100 * static_cast<double>(relative_tolerance) *
++                                re.reference);
++      }
++    } else {
++      check(re.iterations == 0, name + ": " + std::to_string(re.iterations) +
++                                    " iterations with the extrapolation");
++    }
++    check(getRelativeDifference(rd.u, re.u) <= solutions_tolerance,
++          name + ": unexpected solution");
++    e.update();
++    d.update();
++    t += dt;
++    ++step;
++  }
++}  // end of checkExactPrediction
++
++/*!
++ * \brief in the plastic domain, the solution is the one of the default
++ * prediction, with at most as many iterations
++ * \param[in] mesh: mesh of a cube
++ * \param[in] library: behaviour library
++ * \param[in] solver: non linear solver
++ */
++static void checkPlasticCube(const char* const mesh,
++                             const char* const library,
++                             const Solver& solver) {
++  using namespace mfem_mgis;
++  constexpr auto solutions_tolerance = unit_tests::tolerance(1e-8, 1e-2);
++  // strain of 1 % at the end: the cube yields during the third time step
++  const auto loading =
++      Loading{[](const real t) noexcept { return real{1e-2} * t; }};
++  auto e = Cube(mesh, library, solver, loading,
++                PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION);
++  auto d = Cube(mesh, library, solver, loading,
++                PredictionStrategy::DEFAULT_PREDICTION);
++  constexpr auto nsteps = 5;
++  const auto dt = real{1} / nsteps;
++  auto iterations = std::pair<size_type, size_type>{0, 0};
++  for (int i = 0; i != nsteps; ++i) {
++    const auto name = solver.name + ", plastic cube, step " + std::to_string(i);
++    const auto t = static_cast<real>(i) * dt;
++    const auto re = e.solve(t, dt);
++    const auto rd = d.solve(t, dt);
++    if (!(re.status && rd.status)) {
++      check(false, name + ": resolution failed");
++      return;
++    }
++    iterations.first += re.iterations;
++    iterations.second += rd.iterations;
++    const auto difference = getRelativeDifference(rd.u, re.u);
++    check(difference <= solutions_tolerance,
++          name + ": unexpected solution (relative difference " +
++              std::to_string(difference) + ")");
++    e.update();
++    d.update();
++  }
++  std::cout << solver.name << ", plastic cube: " << iterations.first
++            << " iterations with the linear extrapolation, "
++            << iterations.second << " with the default prediction\n";
++  check(iterations.first <= iterations.second,
++        solver.name +
++            ", plastic cube: more iterations with the linear "
++            "extrapolation");
++}  // end of checkPlasticCube
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* mesh = "cube.mesh";
++  const char* library = "src/libBehaviourTest.so";
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&mesh, "-m", "--mesh", "mesh of a cube");
++  args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  // direct solver, used as linear solver of the elastic operator: the one
++  // of the problem
++  const auto direct_solver = []() -> Parameter {
++    if (parallel) {
++#ifdef MFEM_MGIS_HAVE_MUMPS
++      return "MUMPSSolver";
++#else  /* MFEM_MGIS_HAVE_MUMPS */
++      return Parameters{
++          {"Name", "CGSolver"},
++          {"Options", Parameters{{"VerbosityLevel", 0},
++                                 {"RelativeTolerance", 1e-14},
++                                 {"AbsoluteTolerance", 0.},
++                                 {"MaximumNumberOfIterations", 10000}}}};
++#endif /* MFEM_MGIS_HAVE_MUMPS */
++    }
++    if (unit_tests::has_sequential_direct_solver) {
++      return unit_tests::sequential_direct_solver;
++    }
++    return Parameters{
++        {"Name", unit_tests::sequential_direct_solver},
++        {"Options", unit_tests::getSequentialDirectSolverParameters()}};
++  }();
++  const auto solvers = std::vector<Solver>{
++      {"Newton solver", {}, true},
++      {"fixed point on the elastic operator",
++       Parameters{{"FixedPoint", Parameters{}}}, false},
++      {"NewtonK0",
++       Parameters{
++           {"FixedPoint",
++            Parameters{{"Method", "NewtonK0"},
++                       {"ElasticOperatorUpdate", "Once"},
++                       {"ElasticOperatorLinearSolver", direct_solver},
++                       {"TangentLinearSolver",
++                        Parameters{{"CGSolver",
++                                    Parameters{{"RelativeTolerance", 1e-12},
++                                               {"MaximumNumberOfIterations",
++                                                2000}}}}}}}},
++       true}};
++  for (const auto& solver : solvers) {
++    checkPredictions(mesh, library, solver);
++    checkExactPrediction(mesh, library, solver);
++    if (solver.newton) {
++      checkPlasticCube(mesh, library, solver);
++    }
++  }
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.34.1
+

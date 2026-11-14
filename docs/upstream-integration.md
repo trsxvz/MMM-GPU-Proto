@@ -185,6 +185,11 @@ The overall plan is in [plan-mfem-mgis.md](plan-mfem-mgis.md).
    - line search of the Newton solver by backtracking on the norm of the
      residual (`LineSearch`, disabled by default; tests `LineSearchTest`
      and `NewtonLineSearchTest`);
+   - prediction by linear extrapolation of the increment of the previous
+     time step (`LINEAR_EXTRAPOLATION_PREDICTION`, made at the first
+     resolution of each time step, the reference of the relative criterion
+     being the residual of the default prediction; test
+     `LinearExtrapolationPredictionTest`);
    - Jacobi and Chebyshev smoothers of MFEM as preconditioners;
    - analysis of MUMPS reused as long as the pattern of the matrix does not
      change on any process (`ReuseAnalysis`, number of analyses given by
