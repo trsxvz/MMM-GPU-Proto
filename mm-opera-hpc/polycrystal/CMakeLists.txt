@@ -54,4 +54,22 @@ mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTestPar
   COMMAND mpirun -n 2 $<TARGET_FILE:uniaxial-polycrystal>
           ${_polycrystal_options}
           --macroscopic-stress-output-file polycrystal-test-par.res)
+# the maximum number of iterations of the non linear solver is taken into
+# account. With NewtonK0 and the tolerance of Eisenstat and Walker, whose
+# first linear solve is loose (the residual is about halved), a resolution
+# of this time step takes four iterations: with one iteration at most, the
+# first resolution fails and the time step is divided, which is expected
+# (in double, no resolution converges, and the temporal sequence fails
+# after its ten divisions; in float, the absolute tolerance on the residual
+# accepts the smaller time steps). A second iteration would reveal an
+# ignored option.
+add_test(NAME UniaxialPolycrystalTest-MaximumIterations
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-iterations.res
+          --non-linear-solver NewtonK0
+          --adaptive-linear-solver-tolerance EisenstatWalker1
+          --non-linear-solver-maximum-iterations 1)
+set_tests_properties(UniaxialPolycrystalTest-MaximumIterations PROPERTIES
+  PASS_REGULAR_EXPRESSION "dividing time step by 2"
+  FAIL_REGULAR_EXPRESSION "Fixed point iteration  2")
 add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)

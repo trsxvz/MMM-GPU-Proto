@@ -83,6 +83,13 @@ struct NumericalParameters {
    */
   const char *non_linear_solver = "Newton";
   /*!
+   * \brief maximum number of iterations of the non linear solver for each
+   * resolution of the microscopic equilibrium: a resolution which does not
+   * converge within this number of iterations fails, and the time step is
+   * divided by two
+   */
+  int non_linear_solver_maximum_iterations = 20;
+  /*!
    * \brief relative tolerance of the linear solver of the non linear solver
    * adapted to the decrease of the residual: `None`, `EisenstatWalker1` or
    * `EisenstatWalker2` (see `AdaptiveLinearSolverTolerance` in mfem-mgis)
@@ -314,6 +321,12 @@ int main(int argc, char *argv[]) {
         "warning: the option --reuse-analysis is ignored (the linear solver "
         "is not a direct solver)");
   }
+  if (p.non_linear_solver_maximum_iterations < 1) {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: the maximum number of iterations of the non linear solver "
+        "(--non-linear-solver-maximum-iterations) must be at least 1");
+    std::exit(EXIT_FAILURE);
+  }
   if (std::string_view{p.adaptive_linear_solver_tolerance} != "None") {
     auto adaptive_options = mfem_mgis::Parameters{};
     if (initial_tolerance_given) {
@@ -411,9 +424,12 @@ int main(int argc, char *argv[]) {
   }
   // setting the simulation and running it
   const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
-      NumericalParameters{.macroscopic_elastic_material_properties = mp,
-                          .macroscopic_stress_secant_acceleration =
-                              p.macroscopic_secant_acceleration};
+      NumericalParameters{
+          .microscopic_equilibrium_maximum_number_of_iterations =
+              p.non_linear_solver_maximum_iterations,
+          .macroscopic_elastic_material_properties = mp,
+          .macroscopic_stress_secant_acceleration =
+              p.macroscopic_secant_acceleration};
   mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(
       problem, Hzz, np, p.post_processings, p.displacement_gradient);
   const auto success = s.run(ctx, out, temporal_sequences);
@@ -462,6 +478,12 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "preconditioner of the linear solver to be used");
   args.AddOption(&p.non_linear_solver, "", "--non-linear-solver",
                  "non linear solver: Newton (default) or NewtonK0");
+  args.AddOption(&p.non_linear_solver_maximum_iterations, "",
+                 "--non-linear-solver-maximum-iterations",
+                 "maximum number of iterations of the non linear solver for "
+                 "each resolution of the microscopic equilibrium (a "
+                 "resolution which does not converge fails, and the time "
+                 "step is divided by two)");
   args.AddOption(&p.adaptive_linear_solver_tolerance, "",
                  "--adaptive-linear-solver-tolerance",
                  "relative tolerance of the linear solver adapted to the "
