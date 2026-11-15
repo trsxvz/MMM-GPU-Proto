@@ -1,4 +1,4 @@
-From 1f13c68c67c86eff1f62df8a31feb079911a5af1 Mon Sep 17 00:00:00 2001
+From 25ada8330ed41bbb22ecd4c949e8b6c9ad91dcc1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 01:58:44 +0100
 Subject: [PATCH] Polycrystal: stresses in the global frame kept between the
@@ -11,14 +11,14 @@ orthotropic behaviour in finite strain): on a GPU, this vector was
 allocated on the device at each step. It is now kept by the
 post-processing. Same operations, same results.
 ---
- polycrystal/UniaxialPolycrystal.cxx | 13 ++++++++-----
- 1 file changed, 8 insertions(+), 5 deletions(-)
+ polycrystal/UniaxialPolycrystal.cxx | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 7fe6a08..23d4ebc 100644
+index 222e400..6636586 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
-@@ -1073,9 +1073,12 @@ static void addGrainsMeanStresses(
+@@ -1081,9 +1081,13 @@ static void addGrainsMeanStresses(
        }
      }
    }
@@ -28,12 +28,13 @@ index 7fe6a08..23d4ebc 100644
    p.getImplementation<true>().addPostProcessing(
 -      ctx, [&ctx, &p, &grains, out, nc, or_die](const mfem_mgis::real t,
 -                                                const mfem_mgis::real dt) {
-+      ctx, [&ctx, &p, &grains, out, rotated, nc, or_die](
-+               const mfem_mgis::real t, const mfem_mgis::real dt) {
++      ctx,
++      [&ctx, &p, &grains, out, rotated, nc, or_die](const mfem_mgis::real t,
++                                                    const mfem_mgis::real dt) {
          auto &impl = p.getImplementation<true>();
          const auto &mat = p.getMaterial(ctx, 1, 0) | or_die;
          const auto &w = impl.getIntegrationPointsWeights(ctx, 1, 0) | or_die;
-@@ -1094,11 +1097,11 @@ static void addGrainsMeanStresses(
+@@ -1102,11 +1106,11 @@ static void addGrainsMeanStresses(
            }
          };
          if (mat.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {

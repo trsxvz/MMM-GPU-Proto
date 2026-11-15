@@ -128,7 +128,7 @@ struct NumericalParameters {
    * operator completing its default configuration in mfem-mgis, as
    * `name=value` separated by commas, with the names of mfem-mgis
    */
-  const char *hypre_boomeramg_parameters = "";
+  const char* hypre_boomeramg_parameters = "";
   /*!
    * \brief parameters of AmgX completing its default configuration in
    * mfem-mgis, as `name=value` separated by commas, with the names of AmgX
@@ -826,6 +826,26 @@ static mfem_mgis::Parameter getElasticOperatorLinearSolver(
     const NumericalParameters& p) {
   const auto s = std::string_view{p.elastic_operator_linear_solver};
   const auto boomeramg = std::string_view{p.hypre_boomeramg_parameters};
+  const auto amgx = std::string_view{p.amgx_parameters};
+  if ((s != "HypreBoomerAMG") && (s != "AmgX")) {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: invalid linear solver of the elastic operator (expected "
+        "HypreBoomerAMG or AmgX)");
+    std::exit(EXIT_FAILURE);
+  }
+  // the options of a solver are refused with the other one
+  if ((s != "HypreBoomerAMG") && (!boomeramg.empty())) {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: --hypre-boomeramg-parameters requires the HypreBoomerAMG "
+        "linear solver of the elastic operator");
+    std::exit(EXIT_FAILURE);
+  }
+  if ((s != "AmgX") && ((!amgx.empty()) || p.amgx_single_precision)) {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: --amgx-parameters and --amgx-single-precision require the "
+        "AmgX linear solver of the elastic operator");
+    std::exit(EXIT_FAILURE);
+  }
   if (s == "HypreBoomerAMG") {
     if (boomeramg.empty()) {
       return std::string{s};
@@ -834,20 +854,8 @@ static mfem_mgis::Parameter getElasticOperatorLinearSolver(
         {"HypreBoomerAMG",
          parseNameValueParameters(p.hypre_boomeramg_parameters)}};
   }
-  if (!boomeramg.empty()) {
-    mfem_mgis::Profiler::Utils::Message(
-        "error: --hypre-boomeramg-parameters requires the HypreBoomerAMG "
-        "linear solver of the elastic operator");
-    std::exit(EXIT_FAILURE);
-  }
-  if (s != "AmgX") {
-    mfem_mgis::Profiler::Utils::Message(
-        "error: invalid linear solver of the elastic operator (expected "
-        "HypreBoomerAMG or AmgX)");
-    std::exit(EXIT_FAILURE);
-  }
   auto options = mfem_mgis::Parameters{};
-  if (!std::string_view{p.amgx_parameters}.empty()) {
+  if (!amgx.empty()) {
     options.replaceOrInsert("AmgXParameters",
                             parseNameValueParameters(p.amgx_parameters));
   }
@@ -1077,8 +1085,9 @@ static void addGrainsMeanStresses(
   // vector created at each step is allocated on the device each time
   auto rotated = std::make_shared<mfem::Vector>();
   p.getImplementation<true>().addPostProcessing(
-      ctx, [&ctx, &p, &grains, out, rotated, nc, or_die](
-               const mfem_mgis::real t, const mfem_mgis::real dt) {
+      ctx,
+      [&ctx, &p, &grains, out, rotated, nc, or_die](const mfem_mgis::real t,
+                                                    const mfem_mgis::real dt) {
         auto &impl = p.getImplementation<true>();
         const auto &mat = p.getMaterial(ctx, 1, 0) | or_die;
         const auto &w = impl.getIntegrationPointsWeights(ctx, 1, 0) | or_die;

@@ -140,8 +140,8 @@ mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-LineSearch
           --line-search Backtracking)
 # options of the BoomerAMG preconditioner of hypre of the elastic operator
 # of NewtonK0: they are given to hypre (two levels, the default
-# configuration building more), with the same axial stress; they are refused
-# with another linear solver of the elastic operator
+# configuration building more), with the same axial stress; the options of
+# BoomerAMG are refused with AmgX, and the ones of AmgX with BoomerAMG
 mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-BoomerAMGParameters
   FILE polycrystal-test-boomeramg.res ${_polycrystal_checks}
   COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
@@ -160,6 +160,13 @@ add_test(NAME UniaxialPolycrystalTest-BoomerAMGParameters-Invalid
           --hypre-boomeramg-parameters MaximumNumberOfLevels=2)
 set_tests_properties(UniaxialPolycrystalTest-BoomerAMGParameters-Invalid PROPERTIES
   PASS_REGULAR_EXPRESSION "error: --hypre-boomeramg-parameters requires")
+add_test(NAME UniaxialPolycrystalTest-AmgXParameters-Invalid
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-amgx-invalid.res
+          --non-linear-solver NewtonK0
+          --amgx-parameters strength_threshold=0.8)
+set_tests_properties(UniaxialPolycrystalTest-AmgXParameters-Invalid PROPERTIES
+  PASS_REGULAR_EXPRESSION "error: --amgx-parameters and --amgx-single-precision require")
 # an unknown line search is refused
 add_test(NAME UniaxialPolycrystalTest-LineSearch-Invalid
   COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
