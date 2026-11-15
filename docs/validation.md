@@ -816,8 +816,9 @@ the macroscopic stresses, the post-processings and the end of the time
 step, computed on the host, take 9.0 % of the loop.
 
 Performance of the polycrystal on the GPUs (15/11/2026: MFEM with Umpire on
-Adastra, mfem-mgis patches 0295 to 0298, mm-opera-hpc patches 0052 and
-0053). MFEM 4.10 is built with Umpire, in C++20, by hipcc, then MGIS,
+Adastra, mfem-mgis patches 0295 to 0297, mm-opera-hpc patches 0052 and
+0053; the patch 0298 of the measurements below was then merged in the
+patch 0296). MFEM 4.10 is built with Umpire, in C++20, by hipcc, then MGIS,
 mfem-mgis and the polycrystal, on the local disk of a node
 (`build-perf.sh`), from the sources of the commits, in two variants:
 `umpire` (this MFEM) and `deployed` (the MFEM of 14/11, without Umpire). The
@@ -906,6 +907,49 @@ by the setup: with it, at 6.6 M unknowns per GPU (1600 grains refined once
 on 2 nodes, `perf-load.slurm`, job 5991008), 8 steps take 161.2 s against
 193.5 s (job 5989504), and 8.1 GiB are free on the fullest NUMA node in the
 steady regime, against 11 GiB before.
+
+After the review of these patches (15/11/2026; ), the global
+matrix frees the transposed blocks kept by MFEM at each assembly, reads the
+prolongation and the pattern by copy, frees the operands of the pattern
+before building its tables and keeps these tables on the device only; the
+sums by kernels are unchanged (one pass by blocks of points was measured
+slower than the reductions per component: 4.4 ms against 1.2 ms per call
+at 400 grains). The executable built from the commits () was
+validated by a chain of jobs:
+
+- tests (job 5992627): 133 on the host; on a MI300A, 116 with the kernels
+  forced, 116 with the computations chosen by each test, 7 selecting a
+  device; 16 with the MFEM without Umpire; the 14 tests of the
+  polycrystal: all passed;
+- : after a second assembly in the same matrix,
+  the product, the transposed product and the Gauss-Seidel, l1
+  Gauss-Seidel and l1-Jacobi smoothers of hypre give the results of a new
+  matrix, on the host and on a MI300A;
+- mutations, identity on the CPU and CPU computation of 400 grains, with
+  the sources of 06:48, which only differ from the final ones by the sums
+  of the patch 0297: 14 mutations out of 14 detected (job 5992371; without
+  , the 3 tests fail on a MI300A and none on the host);
+  outputs of 100 grains identical bit for bit to the ones of the
+  executable of 14/11 (job 5991879); output files of 400 grains on 96
+  cores identical bit for bit (job 5991884). The same jobs with the final
+  sources (5992635, 5992628, 5992633) were running when the connection to
+  Adastra was lost: their outcomes are in
+  ;
+- on the CI (run 43690547029): in double 61 tests of MGIS, 271 of
+  mfem-mgis, 23 of the examples, 20 of mm-opera-hpc; in float 61, 267, 22
+  and 20; the builds with CUDA and with HIP: all passed;
+- 400 grains on 1 node (job 5992629): 97.9 s with the sums by kernels and
+  101.6 s without, against 101.2 s for the executable before the review
+  with the sums on the host; 1600 grains on 4 nodes (job 5992630): 115.8 s
+  against 115.7 s, sums on the host;
+- at 6.6 M unknowns per GPU (job 5992632): 8 steps in 155.6 s against
+  161.2 s; the free memory of the fullest NUMA node is at least 6.4 GiB
+  during the setup against 3.0 GiB, and 12.2 GiB in the steady regime
+  against 8.1 GiB. At the end of the computation, the pools of Umpire
+  raise the memory used by a GPU from 90.4 to 119.5 GiB during a few
+  seconds (117.3 GiB before the review), and the free memory of this node
+  falls to 0.3 GiB; without Umpire (job 5992372) the memory of a GPU never
+  exceeds 92.4 GiB.
 
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of

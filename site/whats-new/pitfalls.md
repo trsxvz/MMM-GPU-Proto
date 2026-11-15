@@ -214,12 +214,39 @@ against deliberately wrong code revealed them.
   allocates such an array at each call. Workaround: MFEM built with Umpire
   (pool for the GPU), and work vectors kept by the solvers and by the
   residual in mfem-mgis.
-- **Values kept by hypre in a matrix on the GPU.** The Gauss-Seidel
+- **Values kept in a matrix of hypre on the GPU.** The Gauss-Seidel
   relaxations of hypre on a GPU keep in the matrix a copy of its values
   with sorted columns, and the one of their triangular solves, built only
-  if they do not exist: after new values are written in the same matrix,
-  hypre relaxes with the former ones. Workaround: these copies are freed
-  after each assembly in the same matrix (`batch::GlobalStiffnessMatrix`).
+  if they do not exist; MFEM keeps the transposed blocks of the matrix for
+  its transposed products. After new values are written in the same
+  matrix, the relaxations and the transposed products use the former
+  ones. Workaround: these copies are freed after each assembly in the same
+  matrix (`batch::GlobalStiffnessMatrix`: `ResetTranspose` of MFEM, and the
+  fields of hypre, listed for hypre 3.2.0).
+- **`HypreParMatrix::HostRead` on a GPU** copies the whole matrix to the
+  host and keeps the copy as long as the matrix lives: 3 GiB per process
+  for 3.3 million unknowns, only to read a pattern once. An array written
+  on the host by MFEM then read on the GPU also keeps both copies, which
+  are the same physical memory on a MI300A. Workaround: the pattern is
+  copied by `hypre_TMemcpy` into temporary vectors, and the tables read by
+  the kernels are copied to arrays allocated for the device.
+- **Pools of Umpire at the end of a computation.** When all the arrays of
+  a pool are freed, at the end of the program, Umpire frees its blocks and
+  allocates one block of their total size (two pools, of 22 and 11 GiB, at
+  3.3 million unknowns per GPU, in a trace of rocprofv3). On a MI300A,
+  whose GPU memory is the memory of the node, the memory used by the GPU
+  then rises during a few seconds: from 90 to 119.5 GiB at 6.6 million
+  unknowns per GPU, after the last time step, the free memory of a NUMA
+  node falling below 0.3 GiB; without Umpire, it never exceeds 92.4 GiB.
+  Not worked around: the memory of a computation with Umpire must be
+  judged with this end.
+- **Sums by one thread of a GPU.** A kernel whose threads each sum
+  thousands of values one after the other is slow when its threads are
+  few: 6 ms on a MI300A for 7 threads summing 4096 points of 6 components
+  each. Blocks of 32 points summed this way, whose sums are copied to the
+  host and added there, take 4.4 ms for all the points of 3.3 million
+  unknowns, against 1.2 ms for 9 reductions of MFEM (`mfem::reduce`), one
+  per component. Workaround: the reductions of MFEM.
 
 ## MFEM, hypre and solver libraries
 

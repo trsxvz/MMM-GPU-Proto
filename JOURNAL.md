@@ -7425,3 +7425,171 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   results of the GPU computations of the repository were not regenerated:
   the comparisons of the measurement scripts have tolerances, and no file
   of reference is compared bit for bit on the GPU.
+
+### 2026-11-15, polycrystal on the GPUs: corrections after the review
+
+- Context: an independent review of the patches of the night (mfem-mgis
+  0295 to 0298, mm-opera-hpc 0052 and 0053), of the scripts and of the
+  partitioning tool, made by reading only. No defect on the path of the
+  computations of the FM; one latent defect, and points of cleanliness. The
+  local histories are rewritten so that each patch keeps its tests and its
+  fixes: the patch 0298 is merged in the patch 0296, and the series of
+  mfem-mgis has 297 patches. The former heads are `879f9a423e` and
+  `1f13c68`.
+- mfem-mgis, patch 0296 (global matrix).
+  - Latent defect: on a GPU, MFEM keeps in a matrix its transposed blocks,
+    built at the first transposed product (`EnsureMultTranspose`), as hypre
+    keeps the copies of its Gauss-Seidel relaxations. A transposed product
+    made after a second assembly would have used the values of the first
+    one. No code of the prototype makes this product on the tangent
+    operator. Each assembly now calls `ResetTranspose`.
+  - The fields of hypre freed by each assembly were listed by reading
+    hypre 3.2.0: the comment says so, with the other fields examined.
+  - Setup: the matrix of ones and the operands of the product giving the
+    pattern are freed before the tables are built (`makeGlobalPattern`).
+    The prolongation is read as the pattern, by copy from the memory of
+    hypre (`copyBlock`), instead of `HostRead` then `HypreRead`, whose
+    omission stopped the computations on a GPU. The lists of the
+    contributions are copied to arrays allocated for the device
+    (`setIndices`): MFEM keeps the host copy of an array written on the
+    host then read on the device, which is the same physical memory on a
+    MI300A. The global numbers of the entries sent are exchanged as pairs
+    (one MPI type), with the counts of the entries: no doubled count can
+    overflow. `setup` is split (`makeGlobalPattern`, `setContributions`).
+  - Test: after a second assembly in the same matrix, the product, the
+    transposed product and three smoothers of hypre (Gauss-Seidel, l1
+    Gauss-Seidel, l1-Jacobi) give the results of a new matrix. The
+    Chebyshev smoother is not used: on a GPU its estimate of the largest
+    eigenvalue starts from random values which change at each call (1.8e-6
+    between two applications to the same matrix).
+- mfem-mgis, patch 0297 (mean thermodynamic forces by kernels): not
+  changed, after two attempts which were measured then removed.
+  - The review asked for one pass for all the components instead of one
+    reduction per component and per material, from the figure of the
+    entry above (36 ms per call at 400 grains), which was wrong: the 1.6 s
+    of `computeMacroscopicCauchyStress` over 20 steps are its first call
+    (1.5 s: the weights of the points, computed once on the host), and a
+    following call takes 1.2 ms for the 9 reductions (trace of the job
+    5992597, one material, 3.3 M unknowns per GPU).
+  - One kernel per material summing blocks of consecutive points, whose
+    sums are copied to the host and added there, is slower. With blocks
+    of 4096 points, a thread of the GPU sums its block one point after the
+    other: 6.2 ms per kernel for the 7 blocks of the material of one grain
+    (trace of the job 5992404). With blocks of 32 points: 4.4 ms per call
+    with one material (trace of the job 5992495, of which 2.4 ms in the
+    kernel).
+  - 400 grains, 20 steps, one material per grain (total; macroscopic
+    stress; post-processings): sums on the host 147.8 s; 3.9 s; 2.3 s (job
+    5991882); reductions per component 138.6 s; 3.2 s; 2.4 s (job 5992403)
+    and 139.7 s; 3.3 s; 2.5 s (job 5992631, where the sums on the host
+    take 140.3 s; 3.5 s; 2.1 s on the same node); blocks of 4096 points
+    211.7 s; 52.4 s; 23.8 s (job 5991882); blocks of 32 points 144.8 s;
+    3.6 s; 2.8 s (job 5992470).
+    The reductions per component are not a trap with one material per
+    grain at this size.
+- mfem-mgis, patch 0295: the number of work vectors is the last value of
+  their enumeration, which has no explicit underlying type, as the other
+  ones of mfem-mgis.
+- Not changed: the operator of the prediction by kernels is still the
+  product of hypre, once per time step. Giving it a global matrix whose
+  pattern is kept would keep a second matrix and its tables (about 20 bytes
+  per entry of the local matrix) for one assembly per time step: written in
+  the code and in the documentation.
+- mm-opera-hpc, patch 0052: `--amgx-parameters` and
+  `--amgx-single-precision` are refused with HypreBoomerAMG, as
+  `--hypre-boomeramg-parameters` is with AmgX (they were ignored).
+- Scripts (`cases/polycrystal/adastra-fm/`).
+  - `build-perf.sh`: the run path of the executables no longer names the
+    build trees of `/tmp` (run path given, and checked with `readelf`);
+    the errors of the machine profile are no longer hidden; the directory
+    of a build keeps the checksum of its sources and refuses other ones,
+    since its executables load its library of MGIS.
+  - `perf-mutations.slurm` gives a verdict (a mutation must make its tests
+    fail in at least one mode) and fails otherwise; `perf-ab.slurm` compares
+    the output files of the CPU computations bit for bit, instead of
+    writing "same axial stresses" without comparing them.
+  - `common.sh`: `load_build_environment`, `behaviour_targets` and
+    `test_settings`, shared by `perf-tests.slurm` and
+    `perf-mutations.slurm`.
+  - `partition.slurm`: the job fails when a partitioning or a check fails;
+    every partition is checked, and a partition is kept by the next jobs
+    only with the file `checked` written by a check which passed (it was
+    kept as soon as its log held the number of parts). The partitions made
+    before have no such file: `FM_CHECK` writes it. Only run locally, with
+    stand-ins of the tools.
+- Validation (executable built from the commits, in `perfimpl4` on the
+  scratch of Adastra; chain of jobs, each one after the tests).
+  - Tests (job 5992627), executable with Umpire: 133 on the host; on a
+    MI300A, 116 with the kernels forced, 116 with the computations chosen
+    by each test, 7 selecting a device; 16 on a MI300A with the MFEM
+    without Umpire; the 14 tests of the polycrystal; the polycrystal of 5
+    grains on 4 MI300A gives the same axial stress with one GPU per
+    process, with the 4 GPUs seen by all the processes and with the mean
+    stresses by kernels: all passed.
+  - CI (run 43690547029): in double 61 tests of MGIS, 271 of mfem-mgis, 23
+    of the examples, 20 of mm-opera-hpc; in float 61, 267, 22 and 20; the
+    builds with CUDA and with HIP; the series of patches: all passed.
+  - Identity on the CPU, mutations and CPU computation of 400 grains: the
+    jobs 5992628, 5992635 and 5992633 of this chain were running when the
+    connection to Adastra was lost (09:57); their outcomes are in
+    `fm/2026-11-15-perfimpl4/chain.log`. With the sources of 06:48, which
+    only differ by the sums of the patch 0297 (blocks of 4096 points):
+    outputs identical bit for bit to the ones of the executable of 14/11,
+    100 grains, NewtonK0 and Newton (job 5991879); output files of 400
+    grains on 96 cores identical bit for bit, 411.7 s against 411.8 s (job
+    5991884); 14 mutations out of 14 detected (job 5992371), among which
+    the transposed blocks not freed (the 3 tests fail on a MI300A, none on
+    the host) and the options of AmgX accepted with BoomerAMG.
+- Measurements (final configuration, 20 steps; reference: the executable
+  of the first chain of the day, `perfimpl`, sums on the host):
+
+  | Case | Reference (s) | Corrected, sums on the host (s) | Corrected, sums by kernels (s) |
+  |---|---|---|---|
+  | 400 grains, 1 node (job 5992629, first runs) | 101.2 | 101.6 | 97.9 |
+  | 400 grains, 1 node (job 5992652) | | | 98.7 |
+  | 1600 grains, 4 nodes (job 5992630, first runs) | 115.7 | 115.8 | |
+  | 400 grains, sources of 06:48 (job 5991880) | 102.4, 101.5 | 100.8, 100.4 | |
+  | 1600 grains, sources of 06:48 (job 5991881) | 111.9 | 109.9 | |
+
+  The second runs of the jobs 5992629 and 5992630 were not read
+  (connection lost).
+- Memory at 6.6 M unknowns per GPU (1600 grains refined once on 2 nodes,
+  8 steps, `perf-load.slurm`; free memory of the fullest NUMA node of the
+  first node, sampled every 2 s):
+
+  | Executable | Smallest during the setup (GiB) | Steady regime (GiB) | 8 steps (s) |
+  |---|---|---|---|
+  | patch 0296 alone (job 5990834) | 1.0 | 1.4 | |
+  | first chain, pattern copied (job 5991008) | 3.0 | 8.1 | 161.2 |
+  | corrected, sources of 06:48 (jobs 5991883, 5992408) | 11.0 | 12.5 | 171.8, 167.0 |
+  | corrected, final (job 5992632) | 6.4 | 12.2 | 155.6 |
+  | corrected, MFEM without Umpire (job 5992372) | 13.9 | 14.4 | 175.7 |
+
+  The smallest value of the setup lasts one sample. The first assembly
+  of the tangent operator takes 35.0 s with the final executable against
+  34.7 s; it took 39.6 and 39.5 s in the two runs of the sources of
+  06:48, on other nodes, which the sums of the patch 0297 do not explain
+  (15.3 s against 15.3 to 15.6 s at 400 grains).
+- Trap met: the pools of Umpire at the end of a computation. After the
+  last time step, the memory used by each GPU rises from 90.4 to 117.3 GiB
+  (first chain) or 119.5 GiB (corrected executable) during a few seconds:
+  the free memory of a NUMA node falls to 9.4 GiB in the first case, to
+  0.3, 0.04 and 0.25 GiB in the second one (three runs; samples every
+  2 s; memory free, not available), the memory of the host being freed
+  later than before. The
+  trace of the job 5992404 shows it: when all the arrays of a pool are
+  freed, Umpire frees its blocks then allocates one block of their size
+  (22 GiB, then 11 GiB for the second pool, at 3.3 M unknowns per GPU).
+  Without Umpire the memory of a GPU never exceeds 92.4 GiB. The
+  computations end, their results being written before; not worked
+  around.
+- Trap met: the connection to Adastra was lost at 09:57, the last jobs
+  running. The intermediate builds (`perfimpl2`, `perfimpl3`) were removed
+  from the scratch (quota of files of the project).
+- Not done, from the suggestions of the review: the stresses in the global
+  frame are still computed twice per time step (macroscopic stress, then
+  averages per grain), each computation keeping its array; the residual and
+  the correction of the `Newton` solver are still not used on the device;
+  the remarks on `split-mesh` (hash of the shared entities without sorting
+  their vertices, one tool instead of two) are left to its author. The
+  corrected executable did not run on 64 nodes.
