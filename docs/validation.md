@@ -951,6 +951,29 @@ validated by a chain of jobs:
   falls to 0.3 GiB; without Umpire (job 5992372) the memory of a GPU never
   exceeds 92.4 GiB.
 
+Iterations of the linear solver in the messages and pattern of the local
+matrix built for the nodes (15/11/2026, mfem-mgis patches 0298 and 0299,
+results in `fm/2026-11-15-perfimpl5` on the scratch of Adastra):
+
+- tests of mfem-mgis (job 5996551, `perf-tests.slurm` with
+  `GradientsKernelsTest` added): 135 out of 135 on the host, 117 out of 117
+  on a MI300A with the kernels forced and with the choices of each test, 7
+  out of 7 for the tests selecting a device, 14 tests of the polycrystal;
+- outputs of 100 grains on 96 cores, whose tangent operator is assembled by
+  kernels in the local matrix, identical bit for bit to the ones of the
+  previous executable, with `NewtonK0` and with `Newton` (job 5996552,
+  `ls-identity.slurm`), in 148.6 s against 151.3 s and 170.6 s against
+  170.9 s;
+- 5 mutations out of 5 detected (job 5996596, `perf-mutations.slurm`,
+  `FM_MUTATIONS="i1 i2 s1 s2 s3"`);
+- on the CI (run 43744363712): double and float, builds with CUDA and with
+  HIP, all passed;
+- 600 grains on 1 node, 20 steps (job 5996553, `perf-ab.slurm`): first
+  assembly of the tangent operator in 14.1 and 14.0 s against 24.8 and
+  24.0 s, total 133.8 and 133.4 s against 147.8 and 143.2 s, same axial
+  stress within 1e-5, 1860 and 1866 iterations of the linear solver in 111
+  and 112 solves.
+
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of
 mfem-mgis and to the builds of the examples and of mm-opera-hpc): each

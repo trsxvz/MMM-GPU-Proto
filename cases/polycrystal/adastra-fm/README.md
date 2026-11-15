@@ -222,11 +222,12 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     pointers, and no debug information is needed for the names of the
     functions: the executables of the measurements are profiled as they
     are.
-  - Results: `trace/rank<rank>-<host>/perf.data` (250 MB for one minute),
-    and `report-rank<rank>.txt`: share of the samples of each function,
-    with and without its callees. Only the time spent in user code is
-    sampled (the nodes do not allow the sampling of the kernel): the
-    allocations and the waits are not in the profile.
+  - Results: `trace/rank<rank>-<host>/perf.data` (250 MB for one minute).
+    The command of `perf report` written in `chain.log`, to run on the
+    login node (a few seconds; it did not end in 20 minutes on a node),
+    gives `report-rank<rank>.txt`: share of the samples of each function,
+    with and without its callees. Only the user code is sampled (event
+    `cycles:Pu`): the allocations and the waits are not in the profile.
 - **`roctx-tests.slurm`: tests of the ranges of roctx.**
   - Separate build by `build-roctx.sh` of MGIS, mfem-mgis and the
     polycrystal from the archive `FM_FIX/src.tgz`, on the local disk of the
@@ -281,7 +282,10 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   2 s.
 - **`perf-mutations.slurm`: mutations of the code of these changes**, each
   one having to make its tests fail in at least one mode, in a build of
-  the local disk. The job fails if a mutation is not detected.
+  the local disk. The job fails if a mutation is not detected. It also
+  holds the mutations of the iterations of the linear solver written in
+  the messages and of the pattern of the local matrix (`FM_MUTATIONS="i1
+  i2 s1 s2 s3"`).
 - **Chains of jobs.** `perf-tests.slurm`, `ls-identity.slurm`,
   `perf-ab.slurm`, `perf-load.slurm` and `perf-mutations.slurm` fail when a
   check fails and write

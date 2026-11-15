@@ -7593,3 +7593,99 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   the remarks on `split-mesh` (hash of the shared entities without sorting
   their vertices, one tool instead of two) are left to its author. The
   corrected executable did not run on 64 nodes.
+
+### 2026-11-15, polycrystal on the GPUs: iterations of the linear solver in the messages, first assembly
+
+- Context: the study of the scalability of the polycrystal on Adastra
+  needed a trace to separate the number of iterations of the linear solver
+  from their cost, and the first assembly of the tangent operator took
+  24.5 s at 4.94 M unknowns per GPU, 20 s of which were computations of one
+  thread of the host, the GPU waiting.
+- mfem-mgis, patch 0298: when the iterations are printed, the `Newton` and
+  `FixedPoint` solvers write the number of iterations of an iterative
+  linear solver after each linear solve, as they record it:
+
+      Fixed point iteration  3 : 17 iterations of the linear solver
+
+  Nothing is written for a direct solver. The lines of the norms are
+  unchanged, and so are the counts of the measurement scripts. The lines
+  are written with the verbosity of the series (`--verbosity-level 0` of
+  the polycrystal). Not done: the prediction, which writes no message and
+  has no verbosity (the one of the non linear solver is set after it), and
+  the `KINSOL` and `SNES` solvers, which do not record these iterations and
+  which neither the CI nor the build of Adastra compile.
+  `FixedPointSolverTest` reads the messages of each time step of all its
+  computations: the numbers written are the ones recorded, in the same
+  order.
+- Host profile of the first assembly: `profile-host.slurm` runs the process
+  0 under `perf record -F 199 --call-graph dwarf,16384` (`trace-ranks.sh`,
+  `FM_TRACE_TOOL=perf`), the executable of the measurements being profiled
+  as it is. At 600 grains on 1 node (job 5996491), the first assembly
+  takes 34 % of the cycles of the process: 67 % of them in
+  `batch::makeAssembledStiffnessMatrix` (pattern of the local matrix: 38 %
+  in its loop marking the degrees of freedom of the elements of each row,
+  24 % in the sort of the columns of each row, 4 % in copies), 31 % in
+  `batch::GlobalStiffnessMatrix::setup` (lists of the contributions to the
+  global matrix).
+- mfem-mgis, patch 0299: the degrees of freedom being the components of
+  the nodes, and an element having all the components of its nodes, the
+  pattern of the local matrix is the one of the couplings between the
+  nodes, each entry being a full block of components.
+  `batch::makeAssembledStiffnessMatrix` builds the pattern of the nodes
+  (`vdim * vdim` times fewer operations), then writes the columns of each
+  row in increasing order in the arrays of the matrix, the diagonal first,
+  for both numberings of MFEM. Same matrix, bit for bit; the intermediate
+  copy of the columns (1.7 GB at this size) is no longer allocated. The
+  degrees of freedom of the elements which are not the components of their
+  nodes are refused. `GradientsKernelsTest`: pattern of MFEM for 1, 2 and 3
+  components, both numberings, hexahedra, tetrahedra and quadrangles of
+  orders 1 and 2.
+- Discarded: a kernel for the pattern (a sort per row in the kernel and a
+  buffer of all the candidates, 4 GB at this size, when the memory is the
+  tightest); the setup of the global matrix (6 s: linear passes over
+  arrays of 1.7 GB, already reduced from 5.2 to 2.0 s for the search; a
+  kernel would need a counting sort that MFEM does not provide); threads
+  of the host (no such idiom in mfem-mgis).
+- Measurements, 600 grains on 1 node (4 MI300A, 19.7 M unknowns), final
+  configuration, 20 steps, two runs of each executable in turn on the same
+  node (job 5996553):
+
+  | | Before (`perfimpl4`) | After (`perfimpl5`) |
+  |---|---|---|
+  | First assembly of the tangent operator (s) | 24.8, 24.0 | 14.1, 14.0 |
+  | Total (s) | 147.8, 143.2 | 133.8, 133.4 |
+  | Loop over the steps (s) | 124.9, 120.6 | 111.2, 110.8 |
+  | Other assemblies (s) | 22.1, 22.1 | 22.1, 22.1 |
+  | Newton iterations | 159, 158 | 158, 159 |
+  | Iterations of the linear solver | not written | 1860 in 111 solves, 1866 in 112 |
+
+  The second profile (job 5996554) gives 7 times fewer cycles in
+  `batch::makeAssembledStiffnessMatrix` (5.3e9 against 38.7e9) and as many
+  in the setup of the global matrix (18.2e9 against 18.1e9), which is now
+  three quarters of the computations of the host of the first assembly.
+- Validation (Adastra, `fm/2026-11-15-perfimpl5`): tests of mfem-mgis on
+  the host 135 out of 135, on a MI300A 117 out of 117 with the kernels
+  forced and 117 out of 117 with the choices of each test, 7 out of 7 for
+  the tests selecting a device (among which the global matrix, the same
+  bit for bit on the host and on the GPU), 14 tests of the polycrystal
+  (job 5996551); outputs of 100 grains on 96 cores, computed by kernels,
+  identical bit for bit to the ones of the previous executable with
+  `NewtonK0` (148.6 s against 151.3 s) and with `Newton` (170.6 s against
+  170.9 s), job 5996552; 5 mutations out of 5 detected (another number
+  written by each solver, diagonal not first, components in the order of
+  the other numbering, degrees of freedom of the elements not checked),
+  job 5996596. CI: run 43744363712, double and float, builds with CUDA and
+  with HIP.
+- Scripts: `cases/measure-polycrystal-grains.sh` appends the total of the
+  iterations of the linear solver to the lines of `series.txt`;
+  `ls-identity.slurm` compares the lines of the iterations without the new
+  ones; `perf-mutations.slurm` has the five mutations.
+- Trap met: `perf report` does not end in 20 minutes on a node of the
+  MI300A partition (job 5996554, stopped by its time limit), and takes a
+  few seconds on the login node: `profile-host.slurm` writes the command in
+  the journal of the chain.
+- Machine profiles with CUDA (`jean-zay-h100`, `jean-zay-a100`): the lazy
+  loading of the modules of CUDA, the counterpart of
+  `HIP_USE_RUNTIME_UNBUNDLER`, is the default of CUDA 13.0, and
+  `CUDA_MODULE_LOADING` is set neither by the profiles nor by the
+  environment of Jean Zay: nothing to change.
