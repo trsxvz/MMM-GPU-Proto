@@ -28,7 +28,10 @@
  * at which the integration fails are refused, and the resolution fails when
  * no step is acceptable; with a second, elastic, material, such a trial is
  * refused although the norm of its residual, computed from the stresses of
- * the material which is integrated, would be accepted.
+ * the material which is integrated, would be accepted. In all the
+ * computations, the messages of a resolution give the numbers of iterations
+ * of an iterative linear solver recorded in the information on its
+ * iterations, and none for a direct solver.
  * \date   10/10/2026
  */
 
@@ -45,11 +48,13 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <sstream>
 #include <iostream>
 #include <algorithm>
 #include "mfem/general/device.hpp"
 #include "mfem/general/optparser.hpp"
 #include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Material.hxx"
@@ -235,6 +240,27 @@ struct ComputationOptions {
 };
 
 /*!
+ * \return the numbers of iterations of the linear solver written in the
+ * messages of a resolution, one line per linear solve of an iterative solver
+ * \param[in] messages: messages of the resolution
+ */
+static std::vector<int> readLinearSolverIterations(
+    const std::string& messages) {
+  constexpr auto suffix = std::string_view{" iterations of the linear solver"};
+  auto iterations = std::vector<int>{};
+  auto lines = std::istringstream{messages};
+  for (auto line = std::string{}; std::getline(lines, line);) {
+    if (!line.ends_with(suffix)) {
+      continue;
+    }
+    const auto end = line.size() - suffix.size();
+    const auto begin = line.rfind(' ', end - 1) + 1;
+    iterations.push_back(std::stoi(line.substr(begin, end - begin)));
+  }
+  return iterations;
+}  // end of readLinearSolverIterations
+
+/*!
  * \return the results of the computation
  * \param[in, out] ctx: execution context
  * \param[in] mesh: mesh of a cube
@@ -365,8 +391,13 @@ static Results compute(mfem_mgis::Context& ctx,
     if ((i == opts.changes_step) && (!opts.changes.empty())) {
       problem.setSolverParameters(ctx, opts.changes) | or_die;
     }
+    // the messages of the resolution are read, then printed
     auto c = Context{};
+    auto log = std::ostringstream{};
+    c.setLogStream(log);
     const auto o = problem.solve(c, t, dt);
+    std::cout << log.str();
+    auto recorded_linear_iterations = std::vector<int>{};
     r.iterations += o.iterations;
     r.iterations_per_step.push_back(o.iterations);
     r.norms.clear();
@@ -381,8 +412,10 @@ static Results compute(mfem_mgis::Context& ctx,
       if (contains(p, "LinearSolver")) {
         const auto& ls_information =
             get<Parameters>(throwing, p, "LinearSolver");
-        r.linear_iterations += static_cast<size_type>(
+        recorded_linear_iterations.push_back(
             get<int>(throwing, ls_information, "NumberOfIterations"));
+        r.linear_iterations +=
+            static_cast<size_type>(recorded_linear_iterations.back());
         if (contains(ls_information, "ResidualNorm")) {
           r.linear_residual_norms.push_back(
               get<double>(throwing, ls_information, "ResidualNorm"));
@@ -409,6 +442,13 @@ static Results compute(mfem_mgis::Context& ctx,
     if (!o.status) {
       std::cerr << c.getErrorMessage() << '\n';
       return r;
+    }
+    // the messages, written by the first process, give the iterations of
+    // the linear solver of each iteration
+    if (isMPIMainProcess(problem.getFiniteElementDiscretization())) {
+      check(readLinearSolverIterations(log.str()) == recorded_linear_iterations,
+            "iterations of the linear solver in the messages of the time "
+            "step " + std::to_string(i));
     }
     problem.update(ctx) | or_die;
     t += dt;

@@ -478,6 +478,12 @@ The other options are the ones of the iterative solvers
 :cxx:`MaximumNumberOfIterations`, :cxx:`VerbosityLevel`) and
 :cxx:`DiscardLinearSolverFailure`.
 
+When the iterations are printed (:cxx:`VerbosityLevel`), the fixed point
+solver and the Newton solver write the number of iterations of an iterative
+linear solver after each linear solve (``Fixed point iteration  3 : 17
+iterations of the linear solver``, ``Newton iteration  3 : ...``). Nothing
+is written for a direct solver.
+
 The relative tolerance of the iterative linear solver of the Newton solver
 and of the :cxx:`NewtonK0` method can be adapted to the decrease of the
 residual (option :cxx:`AdaptiveLinearSolverTolerance`, see

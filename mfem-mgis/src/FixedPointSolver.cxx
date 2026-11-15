@@ -743,6 +743,13 @@ namespace mfem_mgis {
       if (!solved) {
         break;
       }
+      if (shall_print) {
+        if (const auto n = getNumberOfIterationsAtConvergence(solver);
+            isValid(n)) {
+          log << "Fixed point iteration " << std::setw(2) << it << " : " << *n
+              << " iterations of the linear solver\n";
+        }
+      }
       if ((!this->discardLinearSolverFailure) && (!hasConverged(solver))) {
         add_iteration_information(norm, false);
         break;

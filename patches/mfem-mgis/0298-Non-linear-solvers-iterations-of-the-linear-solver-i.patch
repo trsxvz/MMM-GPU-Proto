@@ -1,0 +1,190 @@
+From 49237f17a9ea6460ce56c01d844317ad17a9347a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 15 Nov 2026 18:43:48 +0100
+Subject: [PATCH] Non linear solvers: iterations of the linear solver in the
+ messages
+
+The number of iterations of an iterative linear solver is recorded for each
+iteration of the `Newton` and `FixedPoint` solvers (information on the
+iterations, `LinearSolver/NumberOfIterations`), but was not written: in the
+messages of a computation, the number of iterations of the linear solver
+could not be separated from their cost, which a study of scalability needs
+at each size.
+
+When the iterations are printed, a line follows each linear solve of an
+iterative solver:
+
+    Fixed point iteration  3 : 17 iterations of the linear solver
+    Newton iteration  3 : 17 iterations of the linear solver
+
+Nothing is written for a direct solver, nor when the iterations are not
+printed. The lines giving the norm of the residual are unchanged.
+
+The prediction, which writes no message, and the `KINSOL` and `SNES`
+solvers, which do not record these iterations, are unchanged.
+
+FixedPointSolverTest: in all its computations (Newton and fixed point
+solvers, direct and iterative linear solvers, with and without line
+search), the numbers of iterations written in the messages of each time
+step are the ones recorded, in the same order.
+---
+ .../user_guide/nonlinear_algorithms.rst       |  6 +++
+ src/FixedPointSolver.cxx                      |  7 +++
+ src/NewtonSolver.cxx                          |  7 +++
+ tests/FixedPointSolverTest.cxx                | 44 ++++++++++++++++++-
+ 4 files changed, 62 insertions(+), 2 deletions(-)
+
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index 91714d6815..e48fa43902 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -478,6 +478,12 @@ The other options are the ones of the iterative solvers
+ :cxx:`MaximumNumberOfIterations`, :cxx:`VerbosityLevel`) and
+ :cxx:`DiscardLinearSolverFailure`.
+ 
++When the iterations are printed (:cxx:`VerbosityLevel`), the fixed point
++solver and the Newton solver write the number of iterations of an iterative
++linear solver after each linear solve (``Fixed point iteration  3 : 17
++iterations of the linear solver``, ``Newton iteration  3 : ...``). Nothing
++is written for a direct solver.
++
+ The relative tolerance of the iterative linear solver of the Newton solver
+ and of the :cxx:`NewtonK0` method can be adapted to the decrease of the
+ residual (option :cxx:`AdaptiveLinearSolverTolerance`, see
+diff --git a/src/FixedPointSolver.cxx b/src/FixedPointSolver.cxx
+index bae80d2a2e..954bcf812c 100644
+--- a/src/FixedPointSolver.cxx
++++ b/src/FixedPointSolver.cxx
+@@ -743,6 +743,13 @@ namespace mfem_mgis {
+       if (!solved) {
+         break;
+       }
++      if (shall_print) {
++        if (const auto n = getNumberOfIterationsAtConvergence(solver);
++            isValid(n)) {
++          log << "Fixed point iteration " << std::setw(2) << it << " : " << *n
++              << " iterations of the linear solver\n";
++        }
++      }
+       if ((!this->discardLinearSolverFailure) && (!hasConverged(solver))) {
+         add_iteration_information(norm, false);
+         break;
+diff --git a/src/NewtonSolver.cxx b/src/NewtonSolver.cxx
+index 6bca09e572..83cd52848f 100644
+--- a/src/NewtonSolver.cxx
++++ b/src/NewtonSolver.cxx
+@@ -256,6 +256,13 @@ namespace mfem_mgis {
+       if (t != nullptr) {
+         linear_residual_norm = t->getLinearResidualNorm();
+       }
++      if (shall_print) {
++        if (const auto n = getNumberOfIterationsAtConvergence(*(this->prec));
++            isValid(n)) {
++          log << "Newton iteration " << std::setw(2) << it << " : " << *n
++              << " iterations of the linear solver\n";
++        }
++      }
+       if (!corrected) {
+         auto iteration = Parameters{};
+         add_to_iterations_information(iteration,
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index dc6f2b1b86..699a892d16 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -28,7 +28,10 @@
+  * at which the integration fails are refused, and the resolution fails when
+  * no step is acceptable; with a second, elastic, material, such a trial is
+  * refused although the norm of its residual, computed from the stresses of
+- * the material which is integrated, would be accepted.
++ * the material which is integrated, would be accepted. In all the
++ * computations, the messages of a resolution give the numbers of iterations
++ * of an iterative linear solver recorded in the information on its
++ * iterations, and none for a direct solver.
+  * \date   10/10/2026
+  */
+ 
+@@ -45,11 +48,13 @@
+ #include <string>
+ #include <string_view>
+ #include <vector>
++#include <sstream>
+ #include <iostream>
+ #include <algorithm>
+ #include "mfem/general/device.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MPI.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Material.hxx"
+@@ -234,6 +239,27 @@ struct ComputationOptions {
+   const char* two_materials_mesh = nullptr;
+ };
+ 
++/*!
++ * \return the numbers of iterations of the linear solver written in the
++ * messages of a resolution, one line per linear solve of an iterative solver
++ * \param[in] messages: messages of the resolution
++ */
++static std::vector<int> readLinearSolverIterations(
++    const std::string& messages) {
++  constexpr auto suffix = std::string_view{" iterations of the linear solver"};
++  auto iterations = std::vector<int>{};
++  auto lines = std::istringstream{messages};
++  for (auto line = std::string{}; std::getline(lines, line);) {
++    if (!line.ends_with(suffix)) {
++      continue;
++    }
++    const auto end = line.size() - suffix.size();
++    const auto begin = line.rfind(' ', end - 1) + 1;
++    iterations.push_back(std::stoi(line.substr(begin, end - begin)));
++  }
++  return iterations;
++}  // end of readLinearSolverIterations
++
+ /*!
+  * \return the results of the computation
+  * \param[in, out] ctx: execution context
+@@ -365,8 +391,13 @@ static Results compute(mfem_mgis::Context& ctx,
+     if ((i == opts.changes_step) && (!opts.changes.empty())) {
+       problem.setSolverParameters(ctx, opts.changes) | or_die;
+     }
++    // the messages of the resolution are read, then printed
+     auto c = Context{};
++    auto log = std::ostringstream{};
++    c.setLogStream(log);
+     const auto o = problem.solve(c, t, dt);
++    std::cout << log.str();
++    auto recorded_linear_iterations = std::vector<int>{};
+     r.iterations += o.iterations;
+     r.iterations_per_step.push_back(o.iterations);
+     r.norms.clear();
+@@ -381,8 +412,10 @@ static Results compute(mfem_mgis::Context& ctx,
+       if (contains(p, "LinearSolver")) {
+         const auto& ls_information =
+             get<Parameters>(throwing, p, "LinearSolver");
+-        r.linear_iterations += static_cast<size_type>(
++        recorded_linear_iterations.push_back(
+             get<int>(throwing, ls_information, "NumberOfIterations"));
++        r.linear_iterations +=
++            static_cast<size_type>(recorded_linear_iterations.back());
+         if (contains(ls_information, "ResidualNorm")) {
+           r.linear_residual_norms.push_back(
+               get<double>(throwing, ls_information, "ResidualNorm"));
+@@ -410,6 +443,13 @@ static Results compute(mfem_mgis::Context& ctx,
+       std::cerr << c.getErrorMessage() << '\n';
+       return r;
+     }
++    // the messages, written by the first process, give the iterations of
++    // the linear solver of each iteration
++    if (isMPIMainProcess(problem.getFiniteElementDiscretization())) {
++      check(readLinearSolverIterations(log.str()) == recorded_linear_iterations,
++            "iterations of the linear solver in the messages of the time "
++            "step " + std::to_string(i));
++    }
+     problem.update(ctx) | or_die;
+     t += dt;
+   }
+-- 
+2.34.1
+

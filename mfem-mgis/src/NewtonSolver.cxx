@@ -256,6 +256,13 @@ namespace mfem_mgis {
       if (t != nullptr) {
         linear_residual_norm = t->getLinearResidualNorm();
       }
+      if (shall_print) {
+        if (const auto n = getNumberOfIterationsAtConvergence(*(this->prec));
+            isValid(n)) {
+          log << "Newton iteration " << std::setw(2) << it << " : " << *n
+              << " iterations of the linear solver\n";
+        }
+      }
       if (!corrected) {
         auto iteration = Parameters{};
         add_to_iterations_information(iteration,
