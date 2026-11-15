@@ -1,6 +1,6 @@
-From fe44d78d8ffc3356842ff98ed09c2cb6a3a19998 Mon Sep 17 00:00:00 2001
+From 42fbdd3fe38388d06201e3516b36779173eeee55 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 15 Nov 2026 06:46:53 +0100
+Date: Sun, 15 Nov 2026 08:13:19 +0100
 Subject: [PATCH] Mean thermodynamic forces: sums computed by kernels
 
 `computeMeanThermodynamicForcesValues` read the thermodynamic forces on the
@@ -44,11 +44,11 @@ several blocks of points.
  ...nearEvolutionProblemImplementationBase.hxx |  59 +++++++
  src/Batch/IntegrationPointsFunctions.cxx      |  44 +++++
  .../IntegrationPointsFunctionsKernels.cxx     |  23 +++
- .../IntegrationPointsFunctionsKernels.hxx     |  50 ++++++
+ .../IntegrationPointsFunctionsKernels.hxx     |  58 +++++++
  ...nearEvolutionProblemImplementationBase.cxx |  91 ++++++++++
  tests/CMakeLists.txt                          |  23 ++-
  tests/IntegrationPointsWeightsTest.cxx        | 163 +++++++++++++-----
- 12 files changed, 476 insertions(+), 52 deletions(-)
+ 12 files changed, 484 insertions(+), 52 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
 index 096fbce726..91a940309f 100644
@@ -375,10 +375,10 @@ index 75b7392c6e..d1ba83075f 100644
        const IntegrationPointsFunctionsKernelArguments& a,
        const int c,
 diff --git a/src/Batch/IntegrationPointsFunctionsKernels.hxx b/src/Batch/IntegrationPointsFunctionsKernels.hxx
-index 05660fa2d2..32fe0418b3 100644
+index 05660fa2d2..40a6c87246 100644
 --- a/src/Batch/IntegrationPointsFunctionsKernels.hxx
 +++ b/src/Batch/IntegrationPointsFunctionsKernels.hxx
-@@ -71,6 +71,56 @@ namespace mfem_mgis::batch::internals {
+@@ -71,6 +71,64 @@ namespace mfem_mgis::batch::internals {
        mfem::Array<double>& w,
        const bool use_device);
  
@@ -409,8 +409,16 @@ index 05660fa2d2..32fe0418b3 100644
 +    int number_of_components = 0;
 +  };
 +
-+  //! \brief number of points of a block of `launchWeightedSumsKernel`
-+  inline constexpr int weighted_sums_block_size = 4096;
++  /*!
++   * \brief number of points of a block of `launchWeightedSumsKernel`
++   *
++   * A block is summed by one thread of the device, one point after the
++   * other: the blocks are small, so that the threads are numerous (a block
++   * of 4096 points of 6 components takes 6 ms on a MI300A, as long as
++   * hundreds of thousands of blocks of 32 points). The sums of the blocks
++   * are added on the host: 1/32 of the values.
++   */
++  inline constexpr int weighted_sums_block_size = 32;
 +
 +  //! \return the number of blocks of `launchWeightedSumsKernel`
 +  [[nodiscard]] constexpr int getNumberOfWeightedSumsBlocks(
@@ -547,7 +555,7 @@ index ed5f2c5df1..92bcd6f47a 100644
        const real dt) {
      if (this->mgis_integrator != nullptr) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 7d895ed285..1376960d22 100644
+index 7d895ed285..d185977d64 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -689,14 +689,18 @@ if(MFEM_MGIS_HAVE_TFEL)
@@ -559,7 +567,7 @@ index 7d895ed285..1376960d22 100644
 +  # by kernels, for an isotropic behaviour and for an orthotropic one
 +  # (thermodynamic forces rotated in the global frame), on the host and on
 +  # the debug device of MFEM, and with a finer mesh, whose materials have
-+  # several of the blocks of points summed by the kernel
++  # more of the blocks of points summed by the kernel
    add_test_executable(IntegrationPointsWeightsTest)
  
    # Helper function for IntegrationPointsWeightsTest
@@ -592,7 +600,7 @@ index 7d895ed285..1376960d22 100644
    # StateManagerTest executable
    add_tfel_test_executable(StateManagerTest)
 diff --git a/tests/IntegrationPointsWeightsTest.cxx b/tests/IntegrationPointsWeightsTest.cxx
-index da91e986e1..3b274e0666 100644
+index da91e986e1..f273f4dd79 100644
 --- a/tests/IntegrationPointsWeightsTest.cxx
 +++ b/tests/IntegrationPointsWeightsTest.cxx
 @@ -19,6 +19,18 @@
@@ -608,8 +616,8 @@ index da91e986e1..3b274e0666 100644
 + * an orthotropic behaviour (option `--behaviour`), the materials are
 + * rotated: the thermodynamic forces are summed in the global frame, the
 + * integrals are compared between the two computations only. The kernel sums
-+ * the points by blocks: with more refinements of the mesh (option
-+ * `--refinements`), each material has several blocks.
++ * the points by blocks, which are more numerous with more refinements of
++ * the mesh (option `--refinements`).
 + *
   * The weights are not computed again by the following calls, which is only
   * visible if the mesh is modified (the documentation of

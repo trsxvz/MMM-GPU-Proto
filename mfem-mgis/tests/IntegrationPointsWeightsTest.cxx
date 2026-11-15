@@ -28,8 +28,8 @@
  * an orthotropic behaviour (option `--behaviour`), the materials are
  * rotated: the thermodynamic forces are summed in the global frame, the
  * integrals are compared between the two computations only. The kernel sums
- * the points by blocks: with more refinements of the mesh (option
- * `--refinements`), each material has several blocks.
+ * the points by blocks, which are more numerous with more refinements of
+ * the mesh (option `--refinements`).
  *
  * The weights are not computed again by the following calls, which is only
  * visible if the mesh is modified (the documentation of

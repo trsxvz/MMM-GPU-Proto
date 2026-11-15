@@ -98,8 +98,16 @@ namespace mfem_mgis::batch::internals {
     int number_of_components = 0;
   };
 
-  //! \brief number of points of a block of `launchWeightedSumsKernel`
-  inline constexpr int weighted_sums_block_size = 4096;
+  /*!
+   * \brief number of points of a block of `launchWeightedSumsKernel`
+   *
+   * A block is summed by one thread of the device, one point after the
+   * other: the blocks are small, so that the threads are numerous (a block
+   * of 4096 points of 6 components takes 6 ms on a MI300A, as long as
+   * hundreds of thousands of blocks of 32 points). The sums of the blocks
+   * are added on the host: 1/32 of the values.
+   */
+  inline constexpr int weighted_sums_block_size = 32;
 
   //! \return the number of blocks of `launchWeightedSumsKernel`
   [[nodiscard]] constexpr int getNumberOfWeightedSumsBlocks(

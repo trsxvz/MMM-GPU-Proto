@@ -693,7 +693,7 @@ if(MFEM_MGIS_HAVE_TFEL)
   # by kernels, for an isotropic behaviour and for an orthotropic one
   # (thermodynamic forces rotated in the global frame), on the host and on
   # the debug device of MFEM, and with a finer mesh, whose materials have
-  # several of the blocks of points summed by the kernel
+  # more of the blocks of points summed by the kernel
   add_test_executable(IntegrationPointsWeightsTest)
 
   # Helper function for IntegrationPointsWeightsTest
