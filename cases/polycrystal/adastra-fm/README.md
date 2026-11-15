@@ -312,12 +312,14 @@ that the cluster goes on without the login session.
   by the partitioning job of the next point unless the point ends with
   `:keep`. The 6144 parts of a computation on 64 nodes are as many files:
   only one set at a time weighs on the quota of the group.
-- `scaling.sh nodes <nodes>`: the points `FM_GPU_POINTS` then
-  `FM_CPU_POINTS` of one number of nodes in one job
-  (`scaling-nodes.slurm`), for the numbers of nodes which wait long in the
-  queue. The parts of each CPU point are written in the job just before
-  its computation and removed after it; the nodes wait meanwhile (2 to 5
-  minutes).
+- `scaling.sh nodes <nodes>`: the points `FM_GPU_POINTS`
+  (`grains[:computations]`) then `FM_CPU_POINTS` (`grains[:keep]`) of one
+  number of nodes in one job (`scaling-nodes.slurm`): one wait in the queue
+  for all of them. The parts of each CPU point are written in the job just
+  before its computation unless they exist, and removed after it unless the
+  point ends with `:keep`; the nodes wait meanwhile (2 to 8 minutes).
+- `scaling.sh parts <grains>:<processes>...`: partitions written and
+  checked, for instance the kept ones after a study which removed them.
 - `scaling.sh check <grains>:<processes>...`: partitions made before the
   file `checked` existed, read back.
 - A computation starts only after its parts were written and checked
@@ -327,19 +329,26 @@ that the cluster goes on without the login session.
 - `FM_AFTER` is the dependency of the first job of a chain, for instance
   the mesh job.
 
-`scaling-fm.sh` is the study of the FM: `meshes`, then `computations`.
+`scaling-fm.sh` is the study of the FM: `meshes`, then `computations`,
+with the executable writing the iterations of the linear solver.
 
 - Weak series: 600 N grains on N nodes, from 1 to 64 nodes (4.94 M
   unknowns per GPU, 206,000 per core).
-- Strong series: 600 grains from 1 to 64 nodes, 2400 from 4, 9600 from
-  16 and 19,200 from 32.
+- Strong series: 2400 grains from 4 to 64 nodes, 9600 from 16 and 19,200
+  from 32.
+- GPU three times and CPU once per point, one job per number of nodes (two
+  on 64 nodes).
 
 `scaling-table.py <series directories>` prints one line per RVE and number
 of nodes (login node). `scaling-figures.py <table> <directory> [grains...]`
 writes the tables (efficiencies, speedups, where the time goes, the same
 without the launch of the processes) and three figures (matplotlib, on a
 workstation): the largest point, the weak series and the strong series of
-the RVEs given.
+the RVEs given. `scaling-linear.py <series directories>` prints the
+iterations of the linear solver of each computation: per solve, per solve
+at the first tolerance of the Newton method (the same on both sides), slow
+solves, first time steps. They tell the difficulty of the problem from the
+parallel cost.
 
 ## The report
 

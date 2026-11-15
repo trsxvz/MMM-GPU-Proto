@@ -9,6 +9,7 @@
 #   FM_RUN=<name> fm-chain/scaling.sh gpu <grains> <nodes>...
 #   FM_RUN=<name> fm-chain/scaling.sh cpu <grains>:<nodes>[:keep]...
 #   FM_RUN=<name> fm-chain/scaling.sh nodes <nodes>
+#   FM_RUN=<name> fm-chain/scaling.sh parts <grains>:<processes>...
 # - mesh: geometries of the seeds FM_SEEDS (default 1 2) then mesh of the
 #   first one gmsh accepts, for each number of grains. The orientations
 #   must be in <scratch>/meshes/series/v<grains>.
@@ -19,8 +20,11 @@
 #   removed by the next job unless the point ends with `:keep` (the parts of
 #   the CPU are many files: only one set at a time weighs on the quota).
 # - nodes: the points FM_GPU_POINTS ("grains[:computations]", after a job
-#   writing their parts) then FM_CPU_POINTS (grains) of one number of nodes
-#   in one job (scaling-nodes.slurm): one wait in the queue for all of them.
+#   writing their parts) then FM_CPU_POINTS ("grains[:keep]") of one number
+#   of nodes in one job (scaling-nodes.slurm): one wait in the queue for
+#   all of them.
+# - parts: partitions written and checked, for instance the ones to keep
+#   after a study which removed them.
 # A computation only starts after its parts were written and checked; a
 # point which fails does not stop the next ones of the chain.
 # FM_AFTER: dependency of the first job of each chain (for instance
@@ -29,6 +33,7 @@
 # FM_TIMEOUT_CPU: time limits of a CPU job and of its computation in s
 # (default 02:00:00 and 6600). FM_TIMEOUT_GPU: time limit of a GPU
 # computation in s (default 1500). FM_EXECUTABLE: executable of both sides.
+# FM_PROTO: version of the measurement scripts (deploy-overlay.sh).
 # Prints the last job of each chain; the jobs are listed in
 # <results>/jobs.txt.
 set -eu
@@ -38,8 +43,8 @@ mkdir -p "$R"
 solver="--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --adaptive-linear-solver-initial-tolerance 0.01"
 common="ALL,FM_RUN=$FM_RUN"
 partitioning="FM_PARTITION_WORKERS=16,FM_FILES_LIMIT=${FM_FILES_LIMIT:-1490000}"
-computation="$common,FM_PROTO=$W/proto/7eb41368"
-computation+=",executable=${FM_EXECUTABLE:-$W/perfimpl4/bin/uniaxial-polycrystal-umpire}"
+computation="$common,FM_PROTO=${FM_PROTO:-$W/proto/48e3158b}"
+computation+=",executable=${FM_EXECUTABLE:-$W/perfimpl5/bin/uniaxial-polycrystal-umpire}"
 computation+=",extra_options=--single-material --line-search Backtracking --prediction LinearExtrapolation --mesh_mode Restart"
 computation+=",FM_SERIES_REFINEMENT=0,duration=20,FM_NSTEPS=20"
 computation+=",FM_SOLVER_GPU=$solver,FM_SOLVER_CPU=$solver"
@@ -58,7 +63,7 @@ parts() { echo "$W/meshes/part/v$1-np$2"; }
 cpu_environment() {
   [ "$1" -le 1000 ] || echo FI_CXI_RX_MATCH_MODE=hybrid
 }
-command=${1:?mesh, check, gpu, cpu or nodes}
+command=${1:?mesh, check, gpu, cpu, nodes or parts}
 shift
 case $command in
   mesh)
@@ -144,6 +149,12 @@ case $command in
       fm-chain/scaling-nodes.slurm)
     note "$nodes nodes in one job, GPU ${FM_GPU_POINTS:-none}, CPU ${FM_CPU_POINTS:-none}: $j"
     echo "$j"
+    ;;
+  parts)
+    p=$(submit "${FM_AFTER:-}" --nodes=1 --job-name=fm-scal-parts \
+      --export="$common,$partitioning,FM_PARTITIONS=$*" fm-chain/partition.slurm)
+    note "partitions $*: $p"
+    echo "$p"
     ;;
   *)
     echo "unknown command $command" >&2

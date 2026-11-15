@@ -4,21 +4,25 @@
 # per core). Run on the login node, in the directory holding fm-chain/:
 #   fm-chain/scaling-fm.sh meshes
 #   fm-chain/scaling-fm.sh computations
-# - Weak: 600 N grains on N nodes, N = 1 to 64 (GPU x2, CPU x1; the CPU
-#   point of 38,400 grains on 64 nodes is the job 5989775).
-# - Strong: 600 grains from 1 to 64 nodes, 2400 from 4, 9600 from 16 and
-#   19,200 from 32, doubling the nodes (GPU x1, x2 for 19,200 grains;
-#   CPU x1), the base point being the one of the weak series.
-# The partition was busy: a job on 64 nodes waited for hours. All the
-# points on 64 nodes are therefore in one job, and so are the two CPU
-# points of the strong series on 32 nodes.
-# Quota of files of the group: the parts of the CPU of the strong series
-# (33,000 files) and the 3072 parts of 19,200 grains are removed after
-# their computation. A set of 6144 parts and a set of 3072 fit next to the
-# kept parts, not more: the chain of the points on 16 nodes and less waits
-# for the job on 32 nodes.
+# - Weak: 600 N grains on N nodes, N = 1 to 64.
+# - Strong: 2400 grains from 4 to 64 nodes, 9600 from 16 and 19,200 from
+#   32, doubling the nodes, each one from the fewest nodes the memory of
+#   the GPUs allows (the point of the weak series).
+# - GPU x3, CPU x1 per point, with the executable writing the iterations
+#   of the linear solver.
+# All the points of a number of nodes are in one job (two on 64 nodes): one
+# wait in the queue each.
+# Quota of files of the group (3000 files left at the start): each job
+# reads the kept parts of its point of the weak series first and removes
+# them, which leaves room for the parts of its points of the strong series,
+# written in the job and removed after each computation. The 6144 parts of
+# the strong series on 64 nodes need the room freed by all the other jobs.
+# The parts of the weak series are written again at the end.
+# (A first study, with an executable which did not write these iterations
+# and one job per point, also had 600 grains from 1 to 64 nodes:
+# fm/2026-11-15-scaling.)
 set -eu
-export FM_RUN=2026-11-15-scaling
+export FM_RUN=${FM_RUN:-2026-11-15-scaling-cg}
 scaling=fm-chain/scaling.sh
 # usage: after_mesh grains...
 # dependency on the mesh jobs of these numbers of grains still in the queue
@@ -28,31 +32,41 @@ after_mesh() {
   ids=$(squeue -h -u "$USER" -n "${names%,}" -o %i | paste -sd:)
   echo "${ids:+afterok:$ids}"
 }
+# usage: points suffix grains...
+points() {
+  local suffix=$1
+  shift
+  printf "%s$suffix " "$@"
+}
 case ${1:?meshes or computations} in
   meshes)
     $scaling mesh 600 1200 2400 4800 9600 19200
     ;;
   computations)
-    # weak series up to 32 nodes: GPU twice, CPU with its parts kept
-    for n in 600 1200 2400 4800 9600; do
-      FM_AFTER=$(after_mesh $n) FM_GPU_REPS=2 $scaling gpu $n $((n / 600))
-      FM_AFTER=$(after_mesh $n) $scaling cpu $n:$((n / 600)):keep
+    # RVEs of the strong series on each number of nodes, the largest first
+    declare -A strong=([8]="2400" [16]="2400" [32]="9600 2400"
+      [64]="19200 9600 2400")
+    declare -A time=([8]=02:00:00 [16]=02:00:00 [32]=02:30:00)
+    kept=
+    others=
+    for nodes in 1 2 4 8 16 32; do
+      weak=$((600 * nodes))
+      rves="$weak ${strong[$nodes]:-}"
+      job=$(FM_AFTER=$(after_mesh $rves) FM_GPU_POINTS=$(points :3 $rves) \
+        FM_CPU_POINTS=$rves FM_TIME_CPU=${time[$nodes]:-01:30:00} \
+        FM_TIMEOUT_GPU=600 FM_TIMEOUT_CPU=3600 $scaling nodes $nodes)
+      kept+="$weak:$((96 * nodes)) "
+      others+=":$job"
     done
-    FM_AFTER=$(after_mesh 19200) FM_GPU_REPS=2 $scaling gpu 19200 32
-    FM_AFTER=$(after_mesh 19200) $scaling cpu 19200:32
-    # strong series up to 32 nodes
-    FM_AFTER=$(after_mesh 600) $scaling gpu 600 2 4 8 16 32
-    FM_AFTER=$(after_mesh 2400) $scaling gpu 2400 8 16 32
-    FM_AFTER=$(after_mesh 9600) $scaling gpu 9600 32
-    FM_AFTER=$(after_mesh 9600) FM_TIMEOUT_CPU=4500 $scaling cpu 9600:32
-    large=$(FM_AFTER=$(after_mesh 600 2400) FM_CPU_POINTS="2400 600" \
-      FM_TIMEOUT_CPU=4500 $scaling nodes 32)
-    FM_AFTER=afterany:$large FM_TIME_CPU=01:30:00 FM_TIMEOUT_CPU=4500 \
-      $scaling cpu 2400:16 600:16 2400:8 600:8 600:4 600:2
-    # 64 nodes: both series in one job, the GPUs first
-    FM_AFTER=afterok:$($scaling check 38400:256) \
-      FM_GPU_POINTS="600 2400 9600 19200:2 38400:2" \
-      FM_CPU_POINTS="600 2400 9600 19200" \
-      FM_TIMEOUT_GPU=600 FM_TIMEOUT_CPU=3000 $scaling nodes 64
+    # 64 nodes: the GPUs and the CPU of the weak series, whose parts exist
+    checked=$($scaling check 38400:6144)
+    FM_AFTER=afterok:$checked FM_GPU_POINTS=$(points :3 38400 ${strong[64]}) \
+      FM_CPU_POINTS=38400:keep FM_TIME_CPU=02:00:00 FM_TIMEOUT_GPU=600 \
+      FM_TIMEOUT_CPU=4800 $scaling nodes 64
+    # 64 nodes: the CPU of the strong series, the first parts written before
+    first=$(FM_AFTER=afterany$others $scaling parts 19200:6144)
+    last=$(FM_AFTER=afterany:$first FM_CPU_POINTS=${strong[64]} \
+      FM_TIME_CPU=01:30:00 FM_TIMEOUT_CPU=2400 $scaling nodes 64)
+    FM_AFTER=afterany:$last $scaling parts $kept
     ;;
 esac

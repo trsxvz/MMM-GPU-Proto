@@ -9,8 +9,9 @@ the GPUs then for the cores, the mean over the completed computations of:
 the duration of the Slurm step (time to solution, s), the wall clock time
 from the end of the first step to the end of the last one (s), the energy
 of the step (J), the Newton iterations, the failed resolutions, the time
-of the program (s, setup included) and of its loop over the steps (s),
-after the number of computations. `-` without a completed computation. The table
+of the program (s, setup included), the time of its loop over the steps (s)
+and the iterations of the linear solver (`-` for the computations which do
+not write them), after the number of computations. `-` without a completed computation. The table
 is read by scaling-figures.py.
 """
 import os
@@ -20,8 +21,9 @@ import sys
 
 FIELDS = ["label", "mode", "nodes", "np", "status", "unknowns", "total", "szz",
           "steps", "resolutions", "newton", "failures", "solver", "mesh", "loop",
-          "energy", "elapsed", "cauchy", "pp", "wall"]
-MEANS = ["elapsed", "wall", "energy", "newton", "failures", "total", "loop"]
+          "energy", "elapsed", "cauchy", "pp", "wall", "linear"]
+MEANS = ["elapsed", "wall", "energy", "newton", "failures", "total", "loop",
+         "linear"]
 
 
 def completed(directories):
@@ -53,8 +55,9 @@ def main():
             rows = modes.get(mode, [])
             values.append(len(rows))
             for name in MEANS:
-                values.append("%.6g" % statistics.mean(
-                    float(r[name]) for r in rows) if rows else "-")
+                known = [float(r[name]) for r in rows
+                         if r.get(name, "-") != "-"]
+                values.append("%.6g" % statistics.mean(known) if known else "-")
         print(grains, nodes, unknowns, *values)
 
 
