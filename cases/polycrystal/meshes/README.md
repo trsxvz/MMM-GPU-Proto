@@ -110,6 +110,72 @@ read by the computation with `--mesh_mode Restart` and no refinement
 vertices are numbered again at the reading: the axial stress differs by
 7e-9 relatively from the one of "FromScratch" (100 grains, CPU).
 
+### Any number of parts: `split-mesh`
+
+`partition-mesh` runs one process per part, and each one reads the whole
+serial mesh: 10 to 15 GB per process for 38,400 grains (39.6 M tetrahedra).
+The 6144 processes of the CPU computation on 64 nodes would need more than
+the memory of the partition. `partition/split_mesh.cpp` writes the parts of
+any number of processes with a few workers:
+
+```
+srun -n <workers> split-mesh <mesh> <refinements> <parts> <prefix>
+srun -n <workers> split-mesh --check <parts> <prefix>
+```
+
+- **Partition.** The one MFEM computes for `<parts>` processes: same call
+  as in `ParMesh` and `partition-mesh` (`Mesh::GeneratePartitioning`,
+  METIS), made by the first worker and sent to the others.
+- **Parts.** Each worker reads the serial mesh and builds its share of the
+  parts with `mfem::MeshPartitioner`: local mesh, periodic nodes, groups
+  and shared entities.
+- **Refinement.** MFEM refines the local mesh (`Mesh::UniformRefinement`).
+  The diagonal cutting each tetrahedron only depends on its vertices in the
+  serial mesh: the global refined mesh is the one of `partition-mesh`. No
+  process has the rank of the part, so the tool refines the shared vertices,
+  edges and triangles itself, as `ParMesh::UniformRefineGroups3D`
+  (tetrahedra only).
+- **Format.** The one of `ParMesh::ParPrint`, 17 digits, read with
+  `--mesh_mode Restart` and no refinement.
+- **`--check`** reads the parts back. Each group of parts must be described
+  by all its parts with the same shared vertices, edges and triangles, at
+  the same positions in the same order (modulo the periods), and these must
+  be edges and boundary faces of the local mesh. It prints the numbers of
+  elements, vertices and edges: the P2 unknowns are three per vertex and per
+  edge.
+
+Validation on Adastra (15/11/2026, jobs 5989362 and 5989568,
+`FM_SPLIT_TEST=1` and `FM_CHECK` of `adastra-fm/partition.slurm`):
+
+- **Against MFEM alone**, 400 grains in 96 parts. `split-mesh --mfem` runs
+  one process per part: the part of `MeshPartitioner` is read by `ParMesh`,
+  refined and written by `ParPrint`. The 96 files are identical byte for
+  byte to the ones of `split-mesh`, run with 96 or with 7 workers.
+- **Against `partition-mesh`**, same case. The files differ:
+  `MeshPartitioner` does not number the local vertices as the constructor
+  of `ParMesh` does. The mesh is the same:
+  - same fingerprint of the elements (`--check`: sum of the hashes of the
+    attribute and of the positions of the vertices of each element, bit
+    for bit);
+  - same counts: 3,299,024 elements, 545,922 vertices and 3,844,946 edges,
+    the 13,172,604 P2 unknowns of the computations;
+  - CPU computation of 2 steps on 96 cores reading each set of parts: same
+    iterations (9 resolutions, 38 Newton iterations) and same axial stress
+    to the 14 digits written (63490700.823708 Pa); the lateral stresses,
+    zero in theory, differ by 7e-9 Pa.
+- **A damaged part is refused**: one shared vertex replaced in one file,
+  `--check` fails on its group.
+- **38,400 grains in 6144 parts**
+  (`meshes/part/v38400-np6144/mesh.<rank>`): 16 workers on one node, 681 s
+  (451 s for the reading and the partition, 216 s for the parts), 25.1 GB
+  per worker, 77 GB of files. 16 workers per node is the limit of the
+  500 GB of a node for this mesh.
+  - `--check` on 96 cores, 71 to 121 s: 316,666,304 elements, 52,394,570
+    vertices and 369,060,874 edges, the 1,264,366,332 unknowns of the GPU
+    computation; 170,617 groups, all consistent.
+  - Same fingerprint of the elements as the 256 parts of `partition-mesh`
+    read by the GPU computation (`v38400-np256`).
+
 `msh22_binary.py` writes the same mesh in binary Gmsh 2.2 (read by MFEM
 4.10, identical outputs on the CPU), but the reading is hardly faster
 (2.67 s against 2.29 s for 400 grains): the cost is the construction of

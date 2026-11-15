@@ -8,6 +8,17 @@
 # computation reading the partitioned mesh ("Restart", no refinement) with
 # the one building it ("FromScratch", one refinement), and the reading of
 # the mesh on the GPU (400 grains, 4 processes).
+# FM_PARTITION_WORKERS=<w>: the parts are written by <w> processes of
+# meshes/partition/split-mesh instead of one process per part, for the
+# numbers of parts whose processes cannot each read the serial mesh (6144
+# parts of 38,400 grains), then checked by split-mesh --check on all the
+# cores. FM_CHECK: partitions "grains:processes" already made, checked the
+# same way (same fingerprint of the elements for all the partitions of a
+# mesh). With FM_SPLIT_TEST=1, first compares split-mesh on
+# FM_SPLIT_TEST_CASE (default 400:96, one node, files on its local disk) to
+# the parts made by MFEM alone (split-mesh --mfem) and by partition-mesh,
+# and the CPU computations reading the parts of the two tools
+# (FM_SPLIT_TEST_STEPS time steps, default 2; 0: no computation).
 #SBATCH --job-name=fm-partition
 #SBATCH --constraint=MI300
 #SBATCH --exclusive
@@ -19,18 +30,69 @@
 #SBATCH --output=%x-%j.out
 source "$SLURM_SUBMIT_DIR/fm-chain/common.sh"
 S=${FM_PARTITION_SOURCES:-$W/partition-tool}
-log "start, partitions ${FM_PARTITIONS:?}, tool in $S"
+log "start, partitions ${FM_PARTITIONS:-none}, tool in $S"
 # environment of the prototype for the build and the partitioning only: it
 # redefines variables of the chain (P)
+# split-mesh against MFEM alone and against partition-mesh: same files
+split_test() {
+  local c=${FM_SPLIT_TEST_CASE:-400:96}
+  local n=${c%%:*} np=${c##*:} t=/tmp/split-test-$SLURM_JOB_ID status=0
+  local m=$W/meshes/clean/v$n/${n}crystals.msh
+  mkdir -p "$t"/{split,few,mfem,old}
+  srun -n "$np" --cpu-bind=cores "$S/split-mesh" "$m" 1 "$np" "$t/split/mesh." > "$t/split.log" 2>&1 || status=1
+  srun -n 7 --cpu-bind=cores "$S/split-mesh" "$m" 1 "$np" "$t/few/mesh." > "$t/few.log" 2>&1 || status=1
+  srun -n "$np" --cpu-bind=cores "$S/split-mesh" --mfem "$m" 1 "$t/mfem/mesh." > "$t/mfem.log" 2>&1 || status=1
+  srun -n "$np" --cpu-bind=cores "$S/partition-mesh" "$m" 1 "$t/old/mesh." > "$t/old.log" 2>&1 || status=1
+  log "split test v$n np$np: status $status, $(tail -1 "$t/split.log"); $(tail -2 "$t/split.log" | head -1)"
+  for other in few mfem old; do
+    local same=0 different=0
+    for f in "$t"/split/mesh.*; do
+      if cmp -s "$f" "$t/$other/$(basename "$f")"; then
+        same=$((same + 1))
+      else
+        different=$((different + 1))
+      fi
+    done
+    log "split test, $np processes of split-mesh against $other: $same files identical, $different different"
+    # files different from the ones of partition-mesh: the computations
+    # reading them are compared below
+    if [ "$other" = old ]; then
+      [ "$different" = 0 ] || touch "$t/compute"
+      continue
+    fi
+    [ "$different" = 0 ] && [ "$same" = "$np" ] || status=1
+  done
+  for parts in split old; do
+    srun -n "$SLURM_NTASKS" --cpu-bind=cores "$S/split-mesh" --check "$np" "$t/$parts/mesh." > "$t/check-$parts.log" 2>&1 || status=1
+    log "split test, check of $parts: $(tail -3 "$t/check-$parts.log" | tr '\n' ' ')"
+  done
+  # a damaged part must be refused: a shared vertex replaced in one part
+  mkdir -p "$t/bad"
+  cp "$t"/split/mesh.* "$t/bad/"
+  awk '/^shared_vertices [1-9]/ && !done {print; getline; print ($1 == 0 ? 1 : 0); done = 1; next} {print}' \
+    "$t/split/mesh.000001" > "$t/bad/mesh.000001"
+  if srun -n "$SLURM_NTASKS" --cpu-bind=cores "$S/split-mesh" --check "$np" "$t/bad/mesh." > "$t/check-bad.log" 2>&1; then
+    log "split test: damaged part NOT detected"
+    status=1
+  else
+    log "split test, damaged part: $(grep -h -e "^group" -e "check" "$t/check-bad.log" | tr '\n' ' ')"
+  fi
+  rm -rf "$t/bad" "$t/few" "$t/mfem"
+  [ "$status" = 0 ] || log "split test FAILED (logs in $t on $(hostname))"
+  return "$status"
+}
 partition() {
   set +u
   source "$D/MMM-GPU-Proto/scripts/env.sh" > /dev/null 2>&1
   set -u
-  if ! make -C "$S" partition-mesh > "$S/build.log" 2>&1; then
-    log "build of partition-mesh failed (see $S/build.log)"
+  if ! make -C "$S" partition-mesh split-mesh > "$S/build.log" 2>&1; then
+    log "build of partition-mesh and split-mesh failed (see $S/build.log)"
     return 1
   fi
-  for p in $FM_PARTITIONS; do
+  if [ "${FM_SPLIT_TEST:-0}" = 1 ]; then
+    split_test || return 1
+  fi
+  for p in ${FM_PARTITIONS:-}; do
     n=${p%%:*} np=${p##*:}
     d=$W/meshes/part/v$n-np$np
     # partitions already made are kept
@@ -43,13 +105,52 @@ partition() {
     # FM_PARTITION_TASKS_PER_NODE: fewer processes per node for the large
     # meshes (each process reads the whole serial mesh, about 9 GB for
     # 12,800 grains)
+    if [ -n "${FM_PARTITION_WORKERS:-}" ]; then
+      srun -n "$FM_PARTITION_WORKERS" ${FM_PARTITION_TASKS_PER_NODE:+--ntasks-per-node=$FM_PARTITION_TASKS_PER_NODE} \
+        --cpu-bind=cores "$S/split-mesh" \
+          "$W/meshes/clean/v$n/${n}crystals.msh" 1 "$np" "$d/mesh." > "$d/partition.log" 2>&1
+      log "v$n np$np: status $?, $(( $(date +%s) - start )) s, $FM_PARTITION_WORKERS processes of split-mesh, $(tail -2 "$d/partition.log" | tr '\n' ' '), $(du -sh "$d" | cut -f1)"
+      start=$(date +%s)
+      srun -n "$SLURM_NTASKS" --cpu-bind=cores "$S/split-mesh" --check "$np" "$d/mesh." > "$d/check.log" 2>&1
+      log "v$n np$np: check status $?, $(( $(date +%s) - start )) s, $(tail -3 "$d/check.log" | tr '\n' ' ')"
+      continue
+    fi
     srun -n "$np" ${FM_PARTITION_TASKS_PER_NODE:+--ntasks-per-node=$FM_PARTITION_TASKS_PER_NODE} \
       --cpu-bind=cores "$S/partition-mesh" \
         "$W/meshes/clean/v$n/${n}crystals.msh" 1 "$d/mesh." > "$d/partition.log" 2>&1
     log "v$n np$np: status $?, $(( $(date +%s) - start )) s, $(tail -1 "$d/partition.log"), $(du -sh "$d" | cut -f1)"
   done
+  # partitions already made, read back
+  for p in ${FM_CHECK:-}; do
+    n=${p%%:*} np=${p##*:}
+    d=$W/meshes/part/v$n-np$np
+    start=$(date +%s)
+    srun -n "$SLURM_NTASKS" --cpu-bind=cores "$S/split-mesh" --check "$np" "$d/mesh." > "$d/check.log" 2>&1
+    log "v$n np$np: check status $?, $(( $(date +%s) - start )) s, $(tail -3 "$d/check.log" | tr '\n' ' ')"
+  done
 }
 (partition) || exit 1
+if [ "${FM_SPLIT_TEST:-0}" = 1 ]; then
+  c=${FM_SPLIT_TEST_CASE:-400:96}
+  n=${c%%:*} t=/tmp/split-test-$SLURM_JOB_ID out=$R/split-test-$SLURM_JOB_ID
+  if [ -e "$t/compute" ] && [ "${FM_SPLIT_TEST_STEPS:-2}" != 0 ]; then
+    # CPU computations reading the parts of partition-mesh and of split-mesh
+    mkdir -p "$out"
+    for parts in old split; do
+      mesh=$t/$parts/mesh. vectors=$MESHES/v$n/vectors_${n}crystals.txt \
+        refinement=0 label=g${n}c-$parts nsteps=${FM_SPLIT_TEST_STEPS:-2} \
+        duration=${FM_SPLIT_TEST_STEPS:-2} solver_label=best \
+        solver_cpu=${FM_SOLVER_CPU:?} run_timeout_cpu=2400 modes=cpu \
+        extra_options="$extra_options --mesh_mode Restart" \
+        "$P/cases/measure-polycrystal-grains.sh" "$out"
+      log "split test, computation on the parts of $parts: $(tail -1 "$out/series.txt")"
+    done
+    log "split test, .res: $(tail -1 "$out/g${n}c-old-r0-cpu-n1-best.res") / $(tail -1 "$out/g${n}c-split-r0-cpu-n1-best.res")"
+  elif [ ! -e "$t/compute" ]; then
+    log "split test: files identical to the ones of partition-mesh, no computation needed"
+  fi
+  rm -rf "$t"
+fi
 if [ "${FM_TEST:-0}" = 1 ]; then
   out=$R/partition-test-$SLURM_JOB_ID
   mkdir -p "$out"

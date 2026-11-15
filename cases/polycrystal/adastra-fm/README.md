@@ -40,6 +40,23 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   - The best solvers of each side: `FM_SOLVER_GPU`, `FM_SOLVER_CPU`.
   - `FM_GPU_REPS` computations on all the GPUs, then `FM_CPU_REPS` on all
     the cores.
+- **`partition.slurm`: partitioned meshes** (`meshes/partition/`, see
+  `meshes/README.md`).
+  - For each `grains:processes` of `FM_PARTITIONS`, the cleaned mesh
+    refined once and split in parts, in
+    `meshes/part/v<grains>-np<processes>/mesh.<rank>`. The computations
+    read them with `--mesh_mode Restart`, `FM_SERIES_REFINEMENT=0` and
+    `FM_MESH_GPU` or `FM_MESH_CPU` of `series.slurm`.
+  - By default `partition-mesh`, one process per part
+    (`FM_PARTITION_TASKS_PER_NODE` processes per node: each one reads the
+    whole mesh).
+  - `FM_PARTITION_WORKERS=<w>`: `split-mesh` with `<w>` processes for any
+    number of parts, then `split-mesh --check` on all the cores. One node
+    is enough for the 6144 parts of 38,400 grains.
+  - `FM_SPLIT_TEST=1`: tests of `split-mesh` first (400 grains, 96 parts,
+    on the local disk of the node); the job stops if they fail.
+  - `FM_TEST=1`: computations reading the parts against the ones building
+    the mesh themselves.
 - **`ls-tests.slurm`: tests of the line search** (option `LineSearch` of
   mfem-mgis, 14/11/2026).
   - Separate build in `FM_FIX` (`build-fix.sh`), then the unit tests of
