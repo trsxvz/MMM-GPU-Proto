@@ -124,6 +124,12 @@ struct NumericalParameters {
    */
   const char* elastic_operator_linear_solver = "HypreBoomerAMG";
   /*!
+   * \brief options of the BoomerAMG preconditioner of hypre of the elastic
+   * operator completing its default configuration in mfem-mgis, as
+   * `name=value` separated by commas, with the names of mfem-mgis
+   */
+  const char *hypre_boomeramg_parameters = "";
+  /*!
    * \brief parameters of AmgX completing its default configuration in
    * mfem-mgis, as `name=value` separated by commas, with the names of AmgX
    */
@@ -556,6 +562,12 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "linear solver of the elastic operator of NewtonK0: "
                  "HypreBoomerAMG (default) or AmgX (one cycle of the "
                  "multigrid of AmgX)");
+  args.AddOption(&p.hypre_boomeramg_parameters, "",
+                 "--hypre-boomeramg-parameters",
+                 "options of the BoomerAMG preconditioner of hypre of the "
+                 "elastic operator of NewtonK0, as name=value separated by "
+                 "commas, for instance "
+                 "MaximumCoarseSize=2000,AggressiveCoarseningLevels=1");
   args.AddOption(&p.amgx_parameters, "", "--amgx-parameters",
                  "parameters of AmgX, as name=value separated by commas, "
                  "for instance strength_threshold=0.8,interpolator=MULTIPASS");
@@ -813,8 +825,20 @@ static mfem_mgis::Parameters parseNameValueParameters(const std::string& o) {
 static mfem_mgis::Parameter getElasticOperatorLinearSolver(
     const NumericalParameters& p) {
   const auto s = std::string_view{p.elastic_operator_linear_solver};
+  const auto boomeramg = std::string_view{p.hypre_boomeramg_parameters};
   if (s == "HypreBoomerAMG") {
-    return std::string{s};
+    if (boomeramg.empty()) {
+      return std::string{s};
+    }
+    return mfem_mgis::Parameters{
+        {"HypreBoomerAMG",
+         parseNameValueParameters(p.hypre_boomeramg_parameters)}};
+  }
+  if (!boomeramg.empty()) {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: --hypre-boomeramg-parameters requires the HypreBoomerAMG "
+        "linear solver of the elastic operator");
+    std::exit(EXIT_FAILURE);
   }
   if (s != "AmgX") {
     mfem_mgis::Profiler::Utils::Message(

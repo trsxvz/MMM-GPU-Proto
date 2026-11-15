@@ -138,6 +138,28 @@ mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-LineSearch
           --non-linear-solver NewtonK0
           --adaptive-linear-solver-tolerance EisenstatWalker1
           --line-search Backtracking)
+# options of the BoomerAMG preconditioner of hypre of the elastic operator
+# of NewtonK0: they are given to hypre (two levels, the default
+# configuration building more), with the same axial stress; they are refused
+# with another linear solver of the elastic operator
+mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-BoomerAMGParameters
+  FILE polycrystal-test-boomeramg.res ${_polycrystal_checks}
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-boomeramg.res
+          --non-linear-solver NewtonK0
+          --adaptive-linear-solver-tolerance EisenstatWalker1
+          --hypre-boomeramg-parameters MaximumNumberOfLevels=2)
+set_tests_properties(UniaxialPolycrystalTest-BoomerAMGParameters PROPERTIES
+  PASS_REGULAR_EXPRESSION "Num levels = 2"
+  FAIL_REGULAR_EXPRESSION "MISMATCH;run-and-check.py: ;no row ;Traceback")
+add_test(NAME UniaxialPolycrystalTest-BoomerAMGParameters-Invalid
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-boomeramg-invalid.res
+          --non-linear-solver NewtonK0
+          --elastic-operator-linear-solver AmgX
+          --hypre-boomeramg-parameters MaximumNumberOfLevels=2)
+set_tests_properties(UniaxialPolycrystalTest-BoomerAMGParameters-Invalid PROPERTIES
+  PASS_REGULAR_EXPRESSION "error: --hypre-boomeramg-parameters requires")
 # an unknown line search is refused
 add_test(NAME UniaxialPolycrystalTest-LineSearch-Invalid
   COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}

@@ -1,0 +1,125 @@
+From 627d9d91c93f4c4a19cf5daecd7fa50393e26dc6 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 15 Nov 2026 01:48:26 +0100
+Subject: [PATCH] Polycrystal: options of the BoomerAMG preconditioner of the
+ elastic operator
+
+The BoomerAMG preconditioner of hypre built on the elastic operator of
+NewtonK0 had the default configuration of mfem-mgis. The option
+--hypre-boomeramg-parameters gives its options as name=value separated by
+commas, with the names of mfem-mgis (MaximumNumberOfLevels,
+MaximumCoarseSize, AggressiveCoarseningLevels, StrongThreshold...), as
+--amgx-parameters does for AmgX: on a GPU, the coarse levels of the
+multigrid launch most of the kernels of a linear solve for a small part of
+its computations, and their number can now be tuned. It is refused with
+another linear solver of the elastic operator. Without the option, the
+preconditioner and the results are unchanged.
+
+Tests: two levels asked and built, with the same axial stress; option
+refused with AmgX.
+---
+ polycrystal/CMakeLists.txt          | 22 ++++++++++++++++++++++
+ polycrystal/README.md               |  1 +
+ polycrystal/UniaxialPolycrystal.cxx | 26 +++++++++++++++++++++++++-
+ 3 files changed, 48 insertions(+), 1 deletion(-)
+
+diff --git a/polycrystal/CMakeLists.txt b/polycrystal/CMakeLists.txt
+index 50e1f66..05f3d21 100755
+--- a/polycrystal/CMakeLists.txt
++++ b/polycrystal/CMakeLists.txt
+@@ -138,6 +138,28 @@ mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-LineSearch
+           --non-linear-solver NewtonK0
+           --adaptive-linear-solver-tolerance EisenstatWalker1
+           --line-search Backtracking)
++# options of the BoomerAMG preconditioner of hypre of the elastic operator
++# of NewtonK0: they are given to hypre (two levels, the default
++# configuration building more), with the same axial stress; they are refused
++# with another linear solver of the elastic operator
++mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-BoomerAMGParameters
++  FILE polycrystal-test-boomeramg.res ${_polycrystal_checks}
++  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
++          --macroscopic-stress-output-file polycrystal-test-boomeramg.res
++          --non-linear-solver NewtonK0
++          --adaptive-linear-solver-tolerance EisenstatWalker1
++          --hypre-boomeramg-parameters MaximumNumberOfLevels=2)
++set_tests_properties(UniaxialPolycrystalTest-BoomerAMGParameters PROPERTIES
++  PASS_REGULAR_EXPRESSION "Num levels = 2"
++  FAIL_REGULAR_EXPRESSION "MISMATCH;run-and-check.py: ;no row ;Traceback")
++add_test(NAME UniaxialPolycrystalTest-BoomerAMGParameters-Invalid
++  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
++          --macroscopic-stress-output-file polycrystal-test-boomeramg-invalid.res
++          --non-linear-solver NewtonK0
++          --elastic-operator-linear-solver AmgX
++          --hypre-boomeramg-parameters MaximumNumberOfLevels=2)
++set_tests_properties(UniaxialPolycrystalTest-BoomerAMGParameters-Invalid PROPERTIES
++  PASS_REGULAR_EXPRESSION "error: --hypre-boomeramg-parameters requires")
+ # an unknown line search is refused
+ add_test(NAME UniaxialPolycrystalTest-LineSearch-Invalid
+   COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index 5bf24ad..d0f5098 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -96,6 +96,7 @@ Usage: ./uniaxial-polycrystal --help
+ | `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if `-1`. Giving it without `--adaptive-linear-solver-tolerance` is an error.                      |
+ | `--adaptive-linear-solver-maximum-tolerance <double>` | double | `-1` | Maximum adaptive tolerance, the default one (0.9) if `-1`: the tolerance of Eisenstat and Walker rises to it when the residual increases, for instance after a failure of the integration of the behaviour. Giving it without `--adaptive-linear-solver-tolerance` is an error. |
+ | `--elastic-operator-linear-solver <string>` | string | `HypreBoomerAMG`             | Linear solver of the elastic operator of `NewtonK0`: `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX, which requires mfem-mgis built with `-Denable-amgx=ON`). |
++| `--hypre-boomeramg-parameters <string>`     | string |                              | Options of the BoomerAMG preconditioner of hypre of the elastic operator of `NewtonK0`, as `name=value` separated by commas, with the names of mfem-mgis (`setHypreBoomerAMGPreconditioner`): for instance `MaximumCoarseSize=2000,AggressiveCoarseningLevels=1`. A real value is written with a decimal point (`StrongThreshold=0.5`). Without this option, the preconditioner has the default configuration of mfem-mgis. Requires `--elastic-operator-linear-solver HypreBoomerAMG`. |
+ | `--amgx-parameters <string>`                | string |                              | Parameters of AmgX, as `name=value` separated by commas.                                                                                      |
+ | `--amgx-single-precision`, `--no-amgx-single-precision` | bool   | `false`                      | Computations of AmgX in single precision.                                                                                                     |
+ | `--linear-solver-preconditioner <string>`   | string | `HypreBoomerAMG`             | Preconditioner for the linear solver. Use `none` to disable.                                                                                  |
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 0a8cdba..7fe6a08 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -123,6 +123,12 @@ struct NumericalParameters {
+    * requires mfem-mgis compiled with AmgX)
+    */
+   const char* elastic_operator_linear_solver = "HypreBoomerAMG";
++  /*!
++   * \brief options of the BoomerAMG preconditioner of hypre of the elastic
++   * operator completing its default configuration in mfem-mgis, as
++   * `name=value` separated by commas, with the names of mfem-mgis
++   */
++  const char *hypre_boomeramg_parameters = "";
+   /*!
+    * \brief parameters of AmgX completing its default configuration in
+    * mfem-mgis, as `name=value` separated by commas, with the names of AmgX
+@@ -556,6 +562,12 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+                  "linear solver of the elastic operator of NewtonK0: "
+                  "HypreBoomerAMG (default) or AmgX (one cycle of the "
+                  "multigrid of AmgX)");
++  args.AddOption(&p.hypre_boomeramg_parameters, "",
++                 "--hypre-boomeramg-parameters",
++                 "options of the BoomerAMG preconditioner of hypre of the "
++                 "elastic operator of NewtonK0, as name=value separated by "
++                 "commas, for instance "
++                 "MaximumCoarseSize=2000,AggressiveCoarseningLevels=1");
+   args.AddOption(&p.amgx_parameters, "", "--amgx-parameters",
+                  "parameters of AmgX, as name=value separated by commas, "
+                  "for instance strength_threshold=0.8,interpolator=MULTIPASS");
+@@ -813,8 +825,20 @@ static mfem_mgis::Parameters parseNameValueParameters(const std::string& o) {
+ static mfem_mgis::Parameter getElasticOperatorLinearSolver(
+     const NumericalParameters& p) {
+   const auto s = std::string_view{p.elastic_operator_linear_solver};
++  const auto boomeramg = std::string_view{p.hypre_boomeramg_parameters};
+   if (s == "HypreBoomerAMG") {
+-    return std::string{s};
++    if (boomeramg.empty()) {
++      return std::string{s};
++    }
++    return mfem_mgis::Parameters{
++        {"HypreBoomerAMG",
++         parseNameValueParameters(p.hypre_boomeramg_parameters)}};
++  }
++  if (!boomeramg.empty()) {
++    mfem_mgis::Profiler::Utils::Message(
++        "error: --hypre-boomeramg-parameters requires the HypreBoomerAMG "
++        "linear solver of the elastic operator");
++    std::exit(EXIT_FAILURE);
+   }
+   if (s != "AmgX") {
+     mfem_mgis::Profiler::Utils::Message(
+-- 
+2.34.1
+
