@@ -27,7 +27,10 @@
 # The job fails, so that a job submitted with --dependency=afterok does not
 # start, if a computation fails or does not end its steps, or if the axial
 # stress of a GPU variant differs from the one of the first variant by more
-# than FM_TOLERANCE (relative, default 1e-6); otherwise the file
+# than FM_TOLERANCE (relative, default 1e-5: on the GPUs, where the element
+# matrices are added in an order which changes from one run to the next,
+# the axial stress of 400 grains varied by 1.4e-6 between the runs of one
+# executable, job 5982471); otherwise the file
 # <results>/passed is written (FM_REQUIRE of the next jobs, see common.sh).
 #SBATCH --job-name=fm-perf-ab
 #SBATCH --constraint=MI300
@@ -131,7 +134,7 @@ done
 energy "$out/energy.txt"
 # axial stresses of the GPU computations (column 8 of series.txt) compared
 # to the first one
-if ! awk -v tol="${FM_TOLERANCE:-1e-6}" '$2 == "gpu" {
+if ! awk -v tol="${FM_TOLERANCE:-1e-5}" '$2 == "gpu" {
     if (ref == "") ref = $8
     d = ($8 - ref) / ref; if (d < 0) d = -d
     if (d > tol) { print $1, $8, "differs from", ref; bad = 1 } }
