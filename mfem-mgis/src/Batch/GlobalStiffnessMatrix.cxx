@@ -72,56 +72,123 @@ namespace mfem_mgis::batch {
   }  // end of getGlobalTrueDegreesOfFreedom
 
   /*!
-   * \return the position of the entry `(I, J)` (global numbers) in the
-   * values of the part of a global matrix owned by the process (positions
-   * in the diagonal block, then in the off diagonal block from the number
-   * of entries of the diagonal block), or -1 if the entry is not in the
-   * pattern of the matrix or if its row is not owned by the process
-   * \param[in] A: global matrix
-   * \param[in] I: row
-   * \param[in] J: column
+   * \brief positions of the entries of the part of a global matrix owned by
+   * the process, searched row by row: the positions of the entries of the
+   * last row asked are kept by column, so that the entries of a row of a
+   * local matrix, which follow each other and belong to the same row of
+   * the global matrix, are found without searching this row again
    */
-  static int findGlobalPosition(const hypre_ParCSRMatrix* const A,
-                                const HYPRE_BigInt I,
-                                const HYPRE_BigInt J) {
-    const auto first_row = hypre_ParCSRMatrixFirstRowIndex(A);
-    const auto last_row = hypre_ParCSRMatrixLastRowIndex(A);
-    if ((I < first_row) || (I > last_row)) {
-      return -1;
-    }
-    const auto r = static_cast<HYPRE_Int>(I - first_row);
-    const auto* const diag = hypre_ParCSRMatrixDiag(A);
-    const auto first_column = hypre_ParCSRMatrixFirstColDiag(A);
-    const auto last_column = hypre_ParCSRMatrixLastColDiag(A);
-    if ((J >= first_column) && (J <= last_column)) {
-      const auto c = static_cast<HYPRE_Int>(J - first_column);
-      const auto* const i = hypre_CSRMatrixI(diag);
-      const auto* const j = hypre_CSRMatrixJ(diag);
-      for (auto p = i[r]; p != i[r + 1]; ++p) {
-        if (j[p] == c) {
-          return static_cast<int>(p);
-        }
+  struct GlobalPositionsFinder {
+    /*!
+     * \brief constructor
+     * \param[in] m: global matrix, readable on the host, which must outlive
+     * this object
+     */
+    explicit GlobalPositionsFinder(const hypre_ParCSRMatrix* const m)
+        : A(m),
+          diag(hypre_ParCSRMatrixDiag(m)),
+          offd(hypre_ParCSRMatrixOffd(m)),
+          first_row(hypre_ParCSRMatrixFirstRowIndex(m)),
+          last_row(hypre_ParCSRMatrixLastRowIndex(m)),
+          first_column(hypre_ParCSRMatrixFirstColDiag(m)),
+          last_column(hypre_ParCSRMatrixLastColDiag(m)),
+          diagonal_block(
+              static_cast<std::size_t>(hypre_CSRMatrixNumCols(diag))),
+          off_diagonal_block(
+              static_cast<std::size_t>(hypre_CSRMatrixNumCols(offd))) {
+    }  // end of GlobalPositionsFinder
+    /*!
+     * \return the position of the entry `(I, J)` (global numbers) in the
+     * values of the part of the global matrix owned by the process
+     * (positions in the diagonal block, then in the off diagonal block from
+     * the number of entries of the diagonal block), or -1 if the entry is
+     * not in the pattern of the matrix or if its row is not owned by the
+     * process
+     * \param[in] I: row
+     * \param[in] J: column
+     */
+    [[nodiscard]] int find(const HYPRE_BigInt I, const HYPRE_BigInt J) {
+      if ((I < this->first_row) || (I > this->last_row)) {
+        return -1;
       }
-      return -1;
-    }
-    const auto* const offd = hypre_ParCSRMatrixOffd(A);
-    const auto* const cmap = hypre_ParCSRMatrixColMapOffd(A);
-    const auto nc = hypre_CSRMatrixNumCols(offd);
-    const auto* const c = std::lower_bound(cmap, cmap + nc, J);
-    if ((c == cmap + nc) || (*c != J)) {
-      return -1;
-    }
-    const auto cc = static_cast<HYPRE_Int>(c - cmap);
-    const auto* const i = hypre_CSRMatrixI(offd);
-    const auto* const j = hypre_CSRMatrixJ(offd);
-    const auto nd = hypre_CSRMatrixNumNonzeros(diag);
-    for (auto p = i[r]; p != i[r + 1]; ++p) {
-      if (j[p] == cc) {
-        return static_cast<int>(nd + p);
+      const auto r = static_cast<HYPRE_Int>(I - this->first_row);
+      if (r != this->row) {
+        this->row = r;
+        const auto nd = hypre_CSRMatrixNumNonzeros(this->diag);
+        this->setRow(this->diagonal_block, this->diag, 0);
+        this->setRow(this->off_diagonal_block, this->offd, nd);
       }
-    }
-    return -1;
-  }  // end of findGlobalPosition
+      if ((J >= this->first_column) && (J <= this->last_column)) {
+        return this->getPosition(
+            this->diagonal_block,
+            static_cast<std::size_t>(J - this->first_column));
+      }
+      const auto* const cmap = hypre_ParCSRMatrixColMapOffd(this->A);
+      const auto nc = hypre_CSRMatrixNumCols(this->offd);
+      const auto* const c = std::lower_bound(cmap, cmap + nc, J);
+      if ((c == cmap + nc) || (*c != J)) {
+        return -1;
+      }
+      return this->getPosition(this->off_diagonal_block,
+                               static_cast<std::size_t>(c - cmap));
+    }  // end of find
+
+   private:
+    //! \brief position of the entry of a column in a row of a block
+    struct Position {
+      //! \brief row of the block in which the entry was found
+      HYPRE_Int row = -1;
+      //! \brief position of the entry in the values of the global matrix
+      int position = -1;
+    };
+    /*!
+     * \brief keeps the positions of the entries of the current row of a
+     * block
+     * \param[out] positions: positions by column of the block
+     * \param[in] block: block
+     * \param[in] offset: position of the first value of the block
+     */
+    void setRow(std::vector<Position>& positions,
+                const hypre_CSRMatrix* const block,
+                const HYPRE_Int offset) const {
+      const auto* const i = hypre_CSRMatrixI(block);
+      const auto* const j = hypre_CSRMatrixJ(block);
+      for (auto p = i[this->row]; p != i[this->row + 1]; ++p) {
+        positions[static_cast<std::size_t>(j[p])] = {
+            this->row, static_cast<int>(offset + p)};
+      }
+    }  // end of setRow
+    /*!
+     * \return the position of the entry of a column of a block in the
+     * current row, or -1
+     * \param[in] positions: positions by column of the block
+     * \param[in] c: column of the block
+     */
+    [[nodiscard]] int getPosition(const std::vector<Position>& positions,
+                                  const std::size_t c) const {
+      return positions[c].row == this->row ? positions[c].position : -1;
+    }  // end of getPosition
+    //! \brief global matrix
+    const hypre_ParCSRMatrix* A;
+    //! \brief diagonal block
+    const hypre_CSRMatrix* diag;
+    //! \brief off diagonal block
+    const hypre_CSRMatrix* offd;
+    //! \brief first row owned by the process
+    HYPRE_BigInt first_row;
+    //! \brief last row owned by the process
+    HYPRE_BigInt last_row;
+    //! \brief first column of the diagonal block
+    HYPRE_BigInt first_column;
+    //! \brief last column of the diagonal block
+    HYPRE_BigInt last_column;
+    //! \brief current row, whose positions are kept
+    HYPRE_Int row = -1;
+    //! \brief positions of the entries of the diagonal block, by column
+    std::vector<Position> diagonal_block;
+    //! \brief positions of the entries of the off diagonal block, by column
+    std::vector<Position> off_diagonal_block;
+  };  // end of struct GlobalPositionsFinder
 
   /*!
    * \brief frees the copies of the values of a block of a matrix that hypre
@@ -231,6 +298,7 @@ namespace mfem_mgis::batch {
       return static_cast<int>(it - first_rows.begin()) - 1;
     };
     // destinations of the entries of the local matrix
+    auto finder = GlobalPositionsFinder(g);
     const auto* const Ai = A.HostReadI();
     const auto* const Aj = A.HostReadJ();
     const auto n = A.NumNonZeroElems();
@@ -249,7 +317,7 @@ namespace mfem_mgis::batch {
       for (auto k = Ai[r]; k != Ai[r + 1]; ++k) {
         const auto J = T[static_cast<std::size_t>(Aj[k])];
         if (o == rank) {
-          const auto p = findGlobalPosition(g, I, J);
+          const auto p = finder.find(I, J);
           found = found && (p >= 0);
           positions[static_cast<std::size_t>(k)] = p;
         } else {
@@ -321,8 +389,8 @@ namespace mfem_mgis::batch {
     auto received_positions =
         std::vector<int>(static_cast<std::size_t>(received));
     for (std::size_t i = 0; i != static_cast<std::size_t>(received); ++i) {
-      const auto p = findGlobalPosition(g, received_pairs[2 * i],
-                                        received_pairs[2 * i + 1]);
+      const auto p =
+          finder.find(received_pairs[2 * i], received_pairs[2 * i + 1]);
       found = found && (p >= 0);
       received_positions[i] = p;
     }
