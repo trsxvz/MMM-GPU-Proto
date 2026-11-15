@@ -6,9 +6,9 @@
 #   fm-chain/scaling-fm.sh computations
 # - Weak: 600 N grains on N nodes, N = 1 to 64 (GPU x2, CPU x1; the CPU
 #   point of 38,400 grains on 64 nodes is the job 5989775).
-# - Strong: 600 grains from 1 to 64 nodes, 2400 from 4 and 9600 from 16,
-#   doubling the nodes (GPU x1, CPU x1), the base point being the one of
-#   the weak series.
+# - Strong: 600 grains from 1 to 64 nodes, 2400 from 4, 9600 from 16 and
+#   19,200 from 32, doubling the nodes (GPU x1, x2 for 19,200 grains;
+#   CPU x1), the base point being the one of the weak series.
 # The partition was busy: a job on 64 nodes waited for hours. All the
 # points on 64 nodes are therefore in one job, and so are the two CPU
 # points of the strong series on 32 nodes.
@@ -51,7 +51,8 @@ case ${1:?meshes or computations} in
       $scaling cpu 2400:16 600:16 2400:8 600:8 600:4 600:2
     # 64 nodes: both series in one job, the GPUs first
     FM_AFTER=afterok:$($scaling check 38400:256) \
-      FM_GPU_POINTS="600 2400 9600 38400:2" FM_CPU_POINTS="600 2400 9600" \
+      FM_GPU_POINTS="600 2400 9600 19200:2 38400:2" \
+      FM_CPU_POINTS="600 2400 9600 19200" \
       FM_TIMEOUT_GPU=600 FM_TIMEOUT_CPU=3000 $scaling nodes 64
     ;;
 esac

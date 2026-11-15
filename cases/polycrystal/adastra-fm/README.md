@@ -310,13 +310,15 @@ that the cluster goes on without the login session.
 
 - Weak series: 600 N grains on N nodes, from 1 to 64 nodes (4.94 M
   unknowns per GPU, 206,000 per core).
-- Strong series: 600 grains from 1 to 64 nodes, 2400 from 4 and 9600 from
-  16.
+- Strong series: 600 grains from 1 to 64 nodes, 2400 from 4, 9600 from
+  16 and 19,200 from 32.
 
 `scaling-table.py <series directories>` prints one line per RVE and number
-of nodes (login node). `scaling-figures.py <table> <directory>` writes the
-tables with the efficiencies and the speedups, and the figures (matplotlib,
-on a workstation).
+of nodes (login node). `scaling-figures.py <table> <directory> [grains...]`
+writes the tables (efficiencies, speedups, where the time goes, the same
+without the launch of the processes) and three figures (matplotlib, on a
+workstation): the largest point, the weak series and the strong series of
+the RVEs given.
 
 ## The report
 
