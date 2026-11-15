@@ -60,7 +60,9 @@ namespace mfem_mgis::batch {
    * the ones of the product `Pᵀ A P` of hypre up to round-off errors (sums
    * in another order). The values exchanged between the processes are given
    * to MPI on the GPU with GPU-aware MPI (`mfem::Device::GetGPUAwareMPI`),
-   * on the host otherwise. The setup is made on the host.
+   * on the host otherwise. The setup is made on the host, from a copy of
+   * the pattern of the global matrix: on a GPU, the matrix and its values
+   * are not copied to the host.
    *
    * The global matrix is the same object at each assembly: on the GPU, the
    * copies of its values that hypre keeps in it (sorted columns and

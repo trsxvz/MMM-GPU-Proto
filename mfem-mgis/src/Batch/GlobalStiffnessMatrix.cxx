@@ -71,6 +71,38 @@ namespace mfem_mgis::batch {
     return T;
   }  // end of getGlobalTrueDegreesOfFreedom
 
+  //! \brief pattern of a block of a global matrix, on the host
+  struct BlockPattern {
+    //! \brief offsets of the rows
+    std::vector<HYPRE_Int> rows;
+    //! \brief columns of the entries
+    std::vector<HYPRE_Int> columns;
+  };
+
+  /*!
+   * \return the pattern of a block of a global matrix, copied from the
+   * memory where hypre keeps it: on a GPU, the block itself, and its values,
+   * are not copied to the host
+   * \param[in] block: block
+   */
+  static BlockPattern readPattern(const hypre_CSRMatrix* const block) {
+    const auto location = hypre_CSRMatrixMemoryLocation(block);
+    const auto nr = hypre_CSRMatrixNumRows(block);
+    const auto nnz = hypre_CSRMatrixNumNonzeros(block);
+    auto p = BlockPattern{};
+    p.rows.assign(static_cast<std::size_t>(nr) + 1, 0);
+    p.columns.resize(static_cast<std::size_t>(nnz));
+    if (hypre_CSRMatrixI(block) != nullptr) {
+      hypre_TMemcpy(p.rows.data(), hypre_CSRMatrixI(block), HYPRE_Int, nr + 1,
+                    HYPRE_MEMORY_HOST, location);
+    }
+    if (nnz != 0) {
+      hypre_TMemcpy(p.columns.data(), hypre_CSRMatrixJ(block), HYPRE_Int, nnz,
+                    HYPRE_MEMORY_HOST, location);
+    }
+    return p;
+  }  // end of readPattern
+
   /*!
    * \brief positions of the entries of the part of a global matrix owned by
    * the process, searched row by row: the positions of the entries of the
@@ -81,21 +113,21 @@ namespace mfem_mgis::batch {
   struct GlobalPositionsFinder {
     /*!
      * \brief constructor
-     * \param[in] m: global matrix, readable on the host, which must outlive
-     * this object
+     * \param[in] m: global matrix, which must outlive this object. The
+     * patterns of its blocks are copied to the host (see `readPattern`).
      */
     explicit GlobalPositionsFinder(const hypre_ParCSRMatrix* const m)
         : A(m),
-          diag(hypre_ParCSRMatrixDiag(m)),
-          offd(hypre_ParCSRMatrixOffd(m)),
+          diag(readPattern(hypre_ParCSRMatrixDiag(m))),
+          offd(readPattern(hypre_ParCSRMatrixOffd(m))),
           first_row(hypre_ParCSRMatrixFirstRowIndex(m)),
           last_row(hypre_ParCSRMatrixLastRowIndex(m)),
           first_column(hypre_ParCSRMatrixFirstColDiag(m)),
           last_column(hypre_ParCSRMatrixLastColDiag(m)),
-          diagonal_block(
-              static_cast<std::size_t>(hypre_CSRMatrixNumCols(diag))),
-          off_diagonal_block(
-              static_cast<std::size_t>(hypre_CSRMatrixNumCols(offd))) {
+          diagonal_block(static_cast<std::size_t>(
+              hypre_CSRMatrixNumCols(hypre_ParCSRMatrixDiag(m)))),
+          off_diagonal_block(static_cast<std::size_t>(
+              hypre_CSRMatrixNumCols(hypre_ParCSRMatrixOffd(m)))) {
     }  // end of GlobalPositionsFinder
     /*!
      * \return the position of the entry `(I, J)` (global numbers) in the
@@ -114,9 +146,9 @@ namespace mfem_mgis::batch {
       const auto r = static_cast<HYPRE_Int>(I - this->first_row);
       if (r != this->row) {
         this->row = r;
-        const auto nd = hypre_CSRMatrixNumNonzeros(this->diag);
         this->setRow(this->diagonal_block, this->diag, 0);
-        this->setRow(this->off_diagonal_block, this->offd, nd);
+        this->setRow(this->off_diagonal_block, this->offd,
+                     static_cast<HYPRE_Int>(this->diag.columns.size()));
       }
       if ((J >= this->first_column) && (J <= this->last_column)) {
         return this->getPosition(
@@ -124,7 +156,7 @@ namespace mfem_mgis::batch {
             static_cast<std::size_t>(J - this->first_column));
       }
       const auto* const cmap = hypre_ParCSRMatrixColMapOffd(this->A);
-      const auto nc = hypre_CSRMatrixNumCols(this->offd);
+      const auto nc = this->off_diagonal_block.size();
       const auto* const c = std::lower_bound(cmap, cmap + nc, J);
       if ((c == cmap + nc) || (*c != J)) {
         return -1;
@@ -145,16 +177,16 @@ namespace mfem_mgis::batch {
      * \brief keeps the positions of the entries of the current row of a
      * block
      * \param[out] positions: positions by column of the block
-     * \param[in] block: block
+     * \param[in] block: pattern of the block
      * \param[in] offset: position of the first value of the block
      */
     void setRow(std::vector<Position>& positions,
-                const hypre_CSRMatrix* const block,
+                const BlockPattern& block,
                 const HYPRE_Int offset) const {
-      const auto* const i = hypre_CSRMatrixI(block);
-      const auto* const j = hypre_CSRMatrixJ(block);
-      for (auto p = i[this->row]; p != i[this->row + 1]; ++p) {
-        positions[static_cast<std::size_t>(j[p])] = {
+      const auto r = static_cast<std::size_t>(this->row);
+      for (auto p = block.rows[r]; p != block.rows[r + 1]; ++p) {
+        positions[static_cast<std::size_t>(
+            block.columns[static_cast<std::size_t>(p)])] = {
             this->row, static_cast<int>(offset + p)};
       }
     }  // end of setRow
@@ -170,10 +202,10 @@ namespace mfem_mgis::batch {
     }  // end of getPosition
     //! \brief global matrix
     const hypre_ParCSRMatrix* A;
-    //! \brief diagonal block
-    const hypre_CSRMatrix* diag;
-    //! \brief off diagonal block
-    const hypre_CSRMatrix* offd;
+    //! \brief pattern of the diagonal block
+    BlockPattern diag;
+    //! \brief pattern of the off diagonal block
+    BlockPattern offd;
     //! \brief first row owned by the process
     HYPRE_BigInt first_row;
     //! \brief last row owned by the process
@@ -277,7 +309,6 @@ namespace mfem_mgis::batch {
     G.MakePtAP(dA, Ph);
     G.SetOperatorOwner(false);
     this->matrix.reset(G.As<mfem::HypreParMatrix>());
-    this->matrix->HostRead();
     const hypre_ParCSRMatrix* const g = *(this->matrix);
     const auto nd = hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixDiag(g));
     const auto no = hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixOffd(g));
