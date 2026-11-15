@@ -72,62 +72,23 @@ namespace mfem_mgis::batch::internals {
       const bool use_device);
 
   /*!
-   * \brief arguments of the kernel summing the components of a field at the
-   * integration points multiplied by the weights of the points
-   */
-  struct WeightedSumsKernelArguments {
-    /*!
-     * \brief values of the field: the component `c` at the point `i` is
-     * `values[i * point_stride + c * component_stride]`
-     */
-    const real* values = nullptr;
-    //! \brief stride between two points
-    long long point_stride = 0;
-    //! \brief stride between two components
-    long long component_stride = 0;
-    //! \brief weights of the points
-    const real* weights = nullptr;
-    /*!
-     * \brief sums of each block of points (`number_of_components` values
-     * per block, see `getNumberOfWeightedSumsBlocks`)
-     */
-    double* sums = nullptr;
-    //! \brief number of points
-    int number_of_points = 0;
-    //! \brief number of components
-    int number_of_components = 0;
-  };
-
-  /*!
-   * \brief number of points of a block of `launchWeightedSumsKernel`
-   *
-   * A block is summed by one thread of the device, one point after the
-   * other: the blocks are small, so that the threads are numerous (a block
-   * of 4096 points of 6 components takes 6 ms on a MI300A, as long as
-   * hundreds of thousands of blocks of 32 points). The sums of the blocks
-   * are added on the host: 1/32 of the values.
-   */
-  inline constexpr int weighted_sums_block_size = 32;
-
-  //! \return the number of blocks of `launchWeightedSumsKernel`
-  [[nodiscard]] constexpr int getNumberOfWeightedSumsBlocks(
-      const int number_of_points) noexcept {
-    return (number_of_points + weighted_sums_block_size - 1) /
-           weighted_sums_block_size;
-  }  // end of getNumberOfWeightedSumsBlocks
-
-  /*!
-   * \brief launches the kernel summing, for each block of consecutive
-   * points, all the components of a field multiplied by the weights of the
-   * points, in the order of the points. The contributions are accumulated
-   * in double (see `launchIntegralKernel`). One kernel is launched whatever
-   * the number of components; the sums of the blocks, a few values, are
-   * then added by the caller.
-   * \param[in] a: arguments
+   * \return the sum of the values of a component of a field at the
+   * integration points multiplied by the weights of the points, accumulated
+   * in double (see `launchIntegralKernel`)
+   * \param[in] v: values of the component, `v[i * stride]` at the point `i`
+   * \param[in] stride: stride between two points
+   * \param[in] weights: weights of the points
+   * \param[in] n: number of points
+   * \param[in, out] w: workspace of the reduction
    * \param[in] use_device: if true, the kernel runs on the device (if a device
-   * is enabled), and the pointers of the arguments are located on the device
+   * is enabled), and the pointers are located on the device
    */
-  void launchWeightedSumsKernel(const WeightedSumsKernelArguments&, const bool);
+  [[nodiscard]] double launchWeightedSumKernel(const real* const,
+                                               const long long,
+                                               const real* const,
+                                               const int,
+                                               mfem::Array<double>&,
+                                               const bool);
 
   /*!
    * \brief launches the kernel adding the right-hand side of the L2

@@ -69,18 +69,17 @@ namespace mfem_mgis::batch {
   /*!
    * \brief adds to each value of `s` the sum, over the integration points,
    * of a component of a field multiplied by the weights of the points,
-   * computed by one kernel for all the components, on the device if a
-   * device is enabled: the points are summed by blocks of consecutive
-   * points, in their order, then the sums of the blocks are added in their
-   * order (contributions accumulated in double)
+   * computed on the device if a device is enabled (the contributions of the
+   * points being accumulated in double), in the order of the points on the
+   * host
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[in, out] s: sums, one per component of the field
    * \param[in] f: field, whose values are located on the device if a device
    * is enabled (see `mfem::Vector::Read`)
    * \param[in] w: weights of the points
-   * \param[in, out] workspace: sums of the blocks, kept by the caller
-   * between the calls
+   * \param[in, out] workspace: workspace of the reductions, kept by the
+   * caller between the calls
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addWeightedSums(
       Context& ctx,

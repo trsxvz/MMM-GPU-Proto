@@ -313,26 +313,12 @@ namespace mfem_mgis::batch {
     }
     try {
       const auto use_device = mfem::Device::IsEnabled();
-      const auto nc = static_cast<int>(s.size());
-      const auto nb = internals::getNumberOfWeightedSumsBlocks(w.Size());
-      workspace.SetSize(nb * nc);
-      auto a = internals::WeightedSumsKernelArguments{};
-      a.values = f.data();
-      a.point_stride = static_cast<long long>(f.getPointStride());
-      a.component_stride = static_cast<long long>(f.getComponentStride());
-      a.weights = w.Read(use_device);
-      a.sums = workspace.Write(use_device);
-      a.number_of_points = w.Size();
-      a.number_of_components = nc;
-      internals::launchWeightedSumsKernel(a, use_device);
-      // sums of the blocks, added in their order
-      const auto* const sums = workspace.HostRead();
-      for (int c = 0; c != nc; ++c) {
-        auto r = double{};
-        for (int b = 0; b != nb; ++b) {
-          r += sums[b * nc + c];
-        }
-        s[static_cast<std::size_t>(c)] += static_cast<real>(r);
+      const auto* const weights = w.Read(use_device);
+      for (std::size_t c = 0; c != s.size(); ++c) {
+        s[c] += static_cast<real>(internals::launchWeightedSumKernel(
+            f.data() + c * f.getComponentStride(),
+            static_cast<long long>(f.getPointStride()), weights, w.Size(),
+            workspace, use_device));
       }
     } catch (...) {
       return ctx.registerErrorMessage(getExceptionMessage(name));

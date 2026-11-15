@@ -556,8 +556,9 @@ each computation, and an invalid value is reported by
   kept by the problem. On a GPU, the thermodynamic forces are neither
   copied to the host nor summed there. The sums are the ones of the loop of
   the host up to round-off errors (the contributions are accumulated in
-  double, by blocks of consecutive points whose sums are then added). One
-  kernel is launched per material, for all the components;
+  double, in an order which depends on the device). One reduction per
+  component is launched for each material: this computation is meant for a
+  few materials with many points;
 - :code:`computeL2Projection` and
   :code:`computeImplicitGradientRegularization`: right-hand sides by a
   kernel; for the L2 projection, mass matrices computed by a kernel and

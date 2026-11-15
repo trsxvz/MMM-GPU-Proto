@@ -7,9 +7,9 @@
 #   values ignored, sent values of another entry;
 # - mean thermodynamic forces computed by kernels
 #   (IntegrationPointsWeightsTest, on the host and on a MI300A): weights
-#   ignored, stride of the points ignored, blocks of points after the first
-#   one ignored, computation by kernels never selected, measure doubled,
-#   thermodynamic forces of an orthotropic behaviour not rotated;
+#   ignored, stride of the points ignored, computation by kernels never
+#   selected, measure doubled, thermodynamic forces of an orthotropic
+#   behaviour not rotated;
 # - work vectors of the non linear solvers and of the residual
 #   (FixedPointSolverTest, NewtonLineSearchTest,
 #   LinearExtrapolationPredictionTest, with the kernels forced): the same
@@ -62,13 +62,12 @@ src=$B/src/mfem-mgis
 opera=$B/src/mm-opera-hpc
 global=$src/src/Batch/GlobalStiffnessMatrix.cxx
 global_kernels=$src/src/Batch/GlobalStiffnessMatrixKernels.cxx
-points=$src/src/Batch/IntegrationPointsFunctions.cxx
 points_kernels=$src/src/Batch/IntegrationPointsFunctionsKernels.cxx
 base=$src/src/NonLinearEvolutionProblemImplementationBase.cxx
 problem=$src/src/NonLinearEvolutionProblemImplementation.cxx
 solver=$src/src/NonLinearSolverBase.cxx
 polycrystal=$opera/polycrystal/UniaxialPolycrystal.cxx
-files=("$global" "$global_kernels" "$points" "$points_kernels" "$base" "$problem"
+files=("$global" "$global_kernels" "$points_kernels" "$base" "$problem"
   "$solver" "$polycrystal")
 mkdir -p "$out/original"
 for f in "${files[@]}"; do
@@ -213,11 +212,11 @@ mutation g4-transposed-blocks-not-freed global_tests "$global" \
   '      this->matrix->ResetTranspose();' ''
 # mean thermodynamic forces computed by kernels
 mutation k1-weights-ignored means_tests "$points_kernels" \
-  '              s[c] += a.weights[i] * v[c * a.component_stride];' \
-  '              s[c] += v[c * a.component_stride];'
+  '          s += weights[i] * v[i * stride];' \
+  '          s += v[i * stride];'
 mutation k2-stride-of-the-points-ignored means_tests "$points_kernels" \
-  '            const auto* const v = a.values + i * a.point_stride;' \
-  '            const auto* const v = a.values + i;'
+  '          s += weights[i] * v[i * stride];' \
+  '          s += weights[i] * v[i];'
 mutation k3-kernels-never-selected means_tests "$base" \
   '      if (!internals::usePostProcessingsKernels(may_throw)) {
         return false;
@@ -235,11 +234,6 @@ mutation k5-thermodynamic-forces-not-rotated means_tests "$base" \
       if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {' \
   '      auto forces = mgis::FieldView<const real>{};
       if (false && (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC)) {'
-mutation k6-blocks-after-the-first-one-ignored means_tests "$points" \
-  '        for (int b = 0; b != nb; ++b) {
-          r += sums[b * nc + c];' \
-  '        for (int b = 0; b != 1; ++b) {
-          r += sums[b * nc + c];'
 # work vectors
 mutation v1-same-work-vector solvers_tests "$solver" \
   '    auto &w = this->work_vectors[static_cast<std::size_t>(v)];' \

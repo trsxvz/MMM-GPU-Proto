@@ -355,12 +355,11 @@ namespace mfem_mgis {
      * The integrals are the sums over the integration points of the
      * thermodynamic forces multiplied by the weights of the points (see
      * `getIntegrationPointsWeights`), computed where the kernels run: on a
-     * GPU, the thermodynamic forces are not copied to the host. One kernel
-     * sums all the components, by blocks of consecutive points whose sums
-     * are then added (contributions accumulated in double): the integrals
-     * are the ones of a loop on the points up to round-off errors. The
-     * measure is the sum of the weights, computed once on the host in the
-     * order of the points.
+     * GPU, the thermodynamic forces are not copied to the host. The
+     * contributions of the points are accumulated in double, in an order
+     * which depends on the device: the integrals are the ones of a loop on
+     * the points up to round-off errors. The measure is the sum of the
+     * weights, computed once on the host in the order of the points.
      *
      * \return true if the integrals were added, false if the
      * post-processings are not computed by kernels, an invalid value on
@@ -708,8 +707,8 @@ namespace mfem_mgis {
        * behaviours)
        */
       mfem::Vector rotated_thermodynamic_forces;
-      //! \brief sums of the blocks of points (see `batch::addWeightedSums`)
-      mfem::Array<double> block_sums;
+      //! \brief workspace of the reductions
+      mfem::Array<double> reduction;
     };
     /*!
      * \brief workspaces by material identifier and index of the behaviour
