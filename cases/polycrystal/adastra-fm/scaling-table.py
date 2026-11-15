@@ -8,8 +8,9 @@ each number of grains (label g<N>c...) and of nodes, the unknowns and, for
 the GPUs then for the cores, the mean over the completed computations of:
 the duration of the Slurm step (time to solution, s), the wall clock time
 from the end of the first step to the end of the last one (s), the energy
-of the step (J), the Newton iterations and the failed resolutions, after
-the number of computations. `-` without a completed computation. The table
+of the step (J), the Newton iterations, the failed resolutions, the time
+of the program (s, setup included) and of its loop over the steps (s),
+after the number of computations. `-` without a completed computation. The table
 is read by scaling-figures.py.
 """
 import os
@@ -20,7 +21,7 @@ import sys
 FIELDS = ["label", "mode", "nodes", "np", "status", "unknowns", "total", "szz",
           "steps", "resolutions", "newton", "failures", "solver", "mesh", "loop",
           "energy", "elapsed", "cauchy", "pp", "wall"]
-MEANS = ["elapsed", "wall", "energy", "newton", "failures"]
+MEANS = ["elapsed", "wall", "energy", "newton", "failures", "total", "loop"]
 
 
 def completed(directories):

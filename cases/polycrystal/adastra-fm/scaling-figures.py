@@ -8,8 +8,9 @@ The weak series is made of the points at the base load (default 600 grains
 per node); each RVE with points on more nodes than its base one gives a
 strong series. Efficiencies: weak T(1) / T(N), strong T(N0) N0 / (T(N) N),
 on the time to solution (duration of the Slurm step). Writes tables.md
-(Markdown, in French as the reports) and, in PNG and PDF, weak.*, strong.*
-and speedup.* (matplotlib).
+(Markdown, in French as the reports), with where the time goes, and, in PNG
+and PDF (matplotlib): weak.*, strong.* (the largest RVE of the strong
+series), strong-family.* (all of them on one graph) and speedup.*.
 """
 import os
 import sys
@@ -101,6 +102,21 @@ def table(rows, strong, out):
             f" {pair(r['gpu_newton'], r['cpu_newton'])} |\n")
 
 
+def breakdown(rows, mode, out):
+    """where the time to solution goes: launch of the processes (Slurm step
+    without the program), setup (program without its loop), first step
+    (loop without the wall clock time of the next steps), next steps"""
+    out.write("| Nœuds | Lancement (s) | Mise en place (s) | Premier pas (s)"
+              " | 19 pas suivants (s) | Total (s) |\n" + "|---" * 6 + "|\n")
+    for n, r in rows:
+        v = {k: r[f"{mode}_{k}"] for k in ("elapsed", "total", "loop", "wall")}
+        if None in v.values():
+            continue
+        parts = (v["elapsed"] - v["total"], v["total"] - v["loop"],
+                 v["loop"] - v["wall"], v["wall"], v["elapsed"])
+        out.write(f"| {n} | " + " | ".join(french(x, 1) for x in parts) + " |\n")
+
+
 def node_axis(ax, nodes):
     ax.set_xscale("log", base=2)
     ax.set_xticks(nodes)
@@ -167,20 +183,58 @@ def weak_figure(rows, directory):
     save(fig, directory, "weak")
 
 
-def strong_figure(strong, directory):
-    fig, axes = plt.subplots(2, len(strong), figsize=(4 * len(strong), 6.5),
-                             sharex="col", height_ratios=[3, 2], squeeze=False)
-    for column, (grains, rows) in enumerate(strong.items()):
-        time_and_efficiency(axes[:, column], rows, True)
-        unknowns = rows[0][1]["unknowns"] / 1e6
-        axes[0, column].set_title(
-            f"{grains} grains, {french(unknowns, 1)} M DDL", loc="left")
-    axes[0, 0].set_ylabel("Temps jusqu'à la solution (s)")
-    axes[1, 0].set_ylabel("Efficacité (%)")
-    axes[0, 0].legend()
-    fig.suptitle("Scalabilité forte", x=0.01, ha="left")
-    fig.tight_layout()
+def strong_figure(grains, rows, directory):
+    """main figure of the strong scalability: one RVE, time to solution and
+    efficiency, with the times and the speedup of the GPUs written at each
+    number of nodes"""
+    fig, axes = plt.subplots(2, 1, figsize=(6, 6.5), sharex=True,
+                             height_ratios=[3, 2])
+    time_and_efficiency(axes, rows, True)
+    for n, r in rows:
+        gpu, cpu = r["gpu_elapsed"], r["cpu_elapsed"]
+        for t in (gpu, cpu):
+            if t:
+                axes[0].annotate(f"{french(t)} s", (n, t), (0, 8),
+                                 textcoords="offset points", ha="center")
+        if gpu and cpu:
+            axes[0].annotate(f"× {french(cpu / gpu, 1)}", (n, (gpu * cpu) ** 0.5),
+                             ha="center", va="center", color=MUTED)
+    unknowns = french(rows[0][1]["unknowns"] / 1e6, 0)
+    axes[0].set_title(f"Scalabilité forte : {grains} grains, {unknowns} M DDL",
+                      loc="left")
+    axes[0].set_ylabel("Temps jusqu'à la solution (s)")
+    axes[1].set_ylabel("Efficacité (%)")
+    axes[1].legend(*axes[0].get_legend_handles_labels(), loc="lower left")
+    axes[0].margins(x=0.12, y=0.15)
     save(fig, directory, "strong")
+
+
+def family_figure(strong, directory):
+    """the strong series of all the RVEs on one graph: one marker per RVE,
+    its name written at its last point, the ideal times dashed"""
+    fig, ax = plt.subplots(figsize=(7.5, 5.5))
+    nodes = sorted({n for rows in strong.values() for n, _ in rows})
+    for (grains, rows), marker in zip(strong.items(), MARKERS):
+        for mode, colour in (("gpu", GPU), ("cpu", CPU)):
+            xy = curve(ax, rows, f"{mode}_elapsed", color=colour, marker=marker)
+            if not xy:
+                continue
+            n0, t0 = xy[0]
+            ax.plot([n0, nodes[-1]], [t0, t0 * n0 / nodes[-1]], color=colour,
+                    linewidth=1, linestyle="--")
+            ax.annotate(f"{grains} grains", xy[-1], (8, 0),
+                        textcoords="offset points", va="center")
+    for mode, colour in (("gpu", GPU), ("cpu", CPU)):
+        ax.plot([], [], color=colour, label=NAMES[mode])
+    ax.plot([], [], color=MUTED, linewidth=1, linestyle="--", label="idéal")
+    ax.set_yscale("log")
+    plain_log(ax.yaxis)
+    node_axis(ax, nodes)
+    ax.margins(x=0.16)
+    ax.set_ylabel("Temps jusqu'à la solution (s)")
+    ax.set_title("Scalabilité forte : les trois problèmes", loc="left")
+    ax.legend()
+    save(fig, directory, "strong-family")
 
 
 def speedup_figure(weak, strong, directory):
@@ -219,12 +273,21 @@ def main():
     with open(os.path.join(directory, "tables.md"), "w") as out:
         out.write("## Scalabilité faible\n\n")
         table(weak, False, out)
+        for mode in ("gpu", "cpu"):
+            out.write(f"\nDécomposition du temps {mode.upper()} :\n\n")
+            breakdown(weak, mode, out)
         for grains, rows in strong.items():
             out.write(f"\n## Scalabilité forte, {grains} grains\n\n")
             table(rows, True, out)
+            for mode in ("gpu", "cpu"):
+                out.write(f"\nDécomposition du temps {mode.upper()},"
+                          f" {grains} grains :\n\n")
+                breakdown(rows, mode, out)
     weak_figure(weak, directory)
     if strong:
-        strong_figure(strong, directory)
+        largest = max(strong)
+        strong_figure(largest, strong[largest], directory)
+        family_figure(strong, directory)
     speedup_figure(weak, strong, directory)
 
 

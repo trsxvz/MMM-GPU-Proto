@@ -8,6 +8,7 @@
 #   FM_RUN=<name> fm-chain/scaling.sh check <grains>:<processes>...
 #   FM_RUN=<name> fm-chain/scaling.sh gpu <grains> <nodes>...
 #   FM_RUN=<name> fm-chain/scaling.sh cpu <grains>:<nodes>[:keep]...
+#   FM_RUN=<name> fm-chain/scaling.sh nodes <nodes>
 # - mesh: geometries of the seeds FM_SEEDS (default 1 2) then mesh of the
 #   first one gmsh accepts, for each number of grains. The orientations
 #   must be in <scratch>/meshes/series/v<grains>.
@@ -17,6 +18,9 @@
 # - cpu: the points one after the other: parts, computation, and the parts
 #   removed by the next job unless the point ends with `:keep` (the parts of
 #   the CPU are many files: only one set at a time weighs on the quota).
+# - nodes: the points FM_GPU_POINTS ("grains[:computations]", after a job
+#   writing their parts) then FM_CPU_POINTS (grains) of one number of nodes
+#   in one job (scaling-nodes.slurm): one wait in the queue for all of them.
 # A computation only starts after its parts were written and checked; a
 # point which fails does not stop the next ones of the chain.
 # FM_AFTER: dependency of the first job of each chain (for instance
@@ -33,7 +37,7 @@ R=$W/fm/${FM_RUN:?FM_RUN required}
 mkdir -p "$R"
 solver="--non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --adaptive-linear-solver-initial-tolerance 0.01"
 common="ALL,FM_RUN=$FM_RUN"
-partitioning="$common,FM_PARTITION_WORKERS=16,FM_FILES_LIMIT=${FM_FILES_LIMIT:-1490000}"
+partitioning="FM_PARTITION_WORKERS=16,FM_FILES_LIMIT=${FM_FILES_LIMIT:-1490000}"
 computation="$common,FM_PROTO=$W/proto/7eb41368"
 computation+=",executable=${FM_EXECUTABLE:-$W/perfimpl4/bin/uniaxial-polycrystal-umpire}"
 computation+=",extra_options=--single-material --line-search Backtracking --prediction LinearExtrapolation --mesh_mode Restart"
@@ -49,7 +53,12 @@ submit() {
 }
 note() { echo "$(date '+%F %T') $*" >> "$R/jobs.txt"; }
 parts() { echo "$W/meshes/part/v$1-np$2"; }
-command=${1:?mesh, check, gpu or cpu}
+# usage: cpu_environment processes
+# setting of the Slingshot network for the large numbers of ranks
+cpu_environment() {
+  [ "$1" -le 1000 ] || echo FI_CXI_RX_MATCH_MODE=hybrid
+}
+command=${1:?mesh, check, gpu, cpu or nodes}
 shift
 case $command in
   mesh)
@@ -78,7 +87,7 @@ case $command in
       partitions+="$n:$((4 * nodes)) "
     done
     p=$(submit "${FM_AFTER:-}" --nodes=1 --job-name="fm-scal-part-g$n-gpu" \
-      --export="$partitioning,FM_PARTITIONS=$partitions" fm-chain/partition.slurm)
+      --export="$common,$partitioning,FM_PARTITIONS=$partitions" fm-chain/partition.slurm)
     note "GPU, $n grains: partitions $partitions$p"
     for nodes; do
       d=$(parts "$n" $((4 * nodes)))
@@ -98,14 +107,11 @@ case $command in
       np=$((96 * nodes))
       d=$(parts "$n" "$np")
       p=$(submit "$after" --nodes=1 --job-name="fm-scal-part-g$n-n$nodes-cpu" \
-        --export="$partitioning,FM_PARTITIONS=$n:$np,FM_REMOVE_PARTITIONS=$remove" \
+        --export="$common,$partitioning,FM_PARTITIONS=$n:$np,FM_REMOVE_PARTITIONS=$remove" \
         fm-chain/partition.slurm)
-      # setting of the Slingshot network for the large numbers of ranks
-      environment=
-      [ "$np" -le 1000 ] || environment=FI_CXI_RX_MATCH_MODE=hybrid
       c=$(submit "afterok:$p" --nodes="$nodes" --time="${FM_TIME_CPU:-02:00:00}" \
         --job-name="fm-scal-g$n-n$nodes-cpu" \
-        --export="$computation,FM_REQUIRE=$d/checked,FM_GRAINS=$n,FM_MESH_CPU=$d/mesh.,FM_GPU_REPS=0,FM_CPU_REPS=1,FM_TIMEOUT_CPU=${FM_TIMEOUT_CPU:-6600},FM_CPU_ENVIRONMENT=$environment" \
+        --export="$computation,FM_REQUIRE=$d/checked,FM_GRAINS=$n,FM_MESH_CPU=$d/mesh.,FM_GPU_REPS=0,FM_CPU_REPS=1,FM_TIMEOUT_CPU=${FM_TIMEOUT_CPU:-6600},FM_CPU_ENVIRONMENT=$(cpu_environment "$np")" \
         fm-chain/series.slurm)
       note "CPU, $n grains on $nodes nodes${keep:+ (parts kept)}: partition $p${remove:+ (removes $remove)}, computation $c"
       after=afterany:$c
@@ -118,6 +124,26 @@ case $command in
       note "CPU: removal of $remove $c"
     fi
     echo "$c"
+    ;;
+  nodes)
+    nodes=$1
+    after=${FM_AFTER:-}
+    if [ -n "${FM_GPU_POINTS:-}" ]; then
+      partitions=
+      for point in $FM_GPU_POINTS; do
+        partitions+="${point%%:*}:$((4 * nodes)) "
+      done
+      p=$(submit "$after" --nodes=1 --job-name="fm-scal-part-n$nodes-gpu" \
+        --export="$common,$partitioning,FM_PARTITIONS=$partitions" fm-chain/partition.slurm)
+      note "GPU on $nodes nodes: partitions $partitions$p"
+      after=afterok:$p
+    fi
+    j=$(submit "$after" --nodes="$nodes" --time="${FM_TIME_CPU:-02:00:00}" \
+      --job-name="fm-scal-n$nodes" \
+      --export="$computation,$partitioning,FM_GPU_POINTS=${FM_GPU_POINTS:-},FM_CPU_POINTS=${FM_CPU_POINTS:-},FM_TIMEOUT_GPU=${FM_TIMEOUT_GPU:-1500},FM_TIMEOUT_CPU=${FM_TIMEOUT_CPU:-6600},FM_CPU_ENVIRONMENT=$(cpu_environment $((96 * nodes)))" \
+      fm-chain/scaling-nodes.slurm)
+    note "$nodes nodes in one job, GPU ${FM_GPU_POINTS:-none}, CPU ${FM_CPU_POINTS:-none}: $j"
+    echo "$j"
     ;;
   *)
     echo "unknown command $command" >&2

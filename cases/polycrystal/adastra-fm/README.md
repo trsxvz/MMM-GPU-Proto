@@ -291,6 +291,12 @@ that the cluster goes on without the login session.
   by the partitioning job of the next point unless the point ends with
   `:keep`. The 6144 parts of a computation on 64 nodes are as many files:
   only one set at a time weighs on the quota of the group.
+- `scaling.sh nodes <nodes>`: the points `FM_GPU_POINTS` then
+  `FM_CPU_POINTS` of one number of nodes in one job
+  (`scaling-nodes.slurm`), for the numbers of nodes which wait long in the
+  queue. The parts of each CPU point are written in the job just before
+  its computation and removed after it; the nodes wait meanwhile (2 to 5
+  minutes).
 - `scaling.sh check <grains>:<processes>...`: partitions made before the
   file `checked` existed, read back.
 - A computation starts only after its parts were written and checked
