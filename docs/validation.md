@@ -908,33 +908,33 @@ on 2 nodes, `perf-load.slurm`, job 5991008), 8 steps take 161.2 s against
 193.5 s (job 5989504), and 8.1 GiB are free on the fullest NUMA node in the
 steady regime, against 11 GiB before.
 
-After the review of these patches (15/11/2026; ), the global
+After the review of these patches (15/11/2026; `JOURNAL.md`), the global
 matrix frees the transposed blocks kept by MFEM at each assembly, reads the
 prolongation and the pattern by copy, frees the operands of the pattern
 before building its tables and keeps these tables on the device only; the
 sums by kernels are unchanged (one pass by blocks of points was measured
 slower than the reductions per component: 4.4 ms against 1.2 ms per call
-at 400 grains). The executable built from the commits () was
+at 400 grains). The executable built from the commits (`perfimpl4`) was
 validated by a chain of jobs:
 
 - tests (job 5992627): 133 on the host; on a MI300A, 116 with the kernels
   forced, 116 with the computations chosen by each test, 7 selecting a
   device; 16 with the MFEM without Umpire; the 14 tests of the
   polycrystal: all passed;
-- : after a second assembly in the same matrix,
+- `GlobalStiffnessMatrixTest`: after a second assembly in the same matrix,
   the product, the transposed product and the Gauss-Seidel, l1
   Gauss-Seidel and l1-Jacobi smoothers of hypre give the results of a new
   matrix, on the host and on a MI300A;
 - mutations, identity on the CPU and CPU computation of 400 grains, with
   the sources of 06:48, which only differ from the final ones by the sums
   of the patch 0297: 14 mutations out of 14 detected (job 5992371; without
-  , the 3 tests fail on a MI300A and none on the host);
+  `ResetTranspose`, the 3 tests fail on a MI300A and none on the host);
   outputs of 100 grains identical bit for bit to the ones of the
   executable of 14/11 (job 5991879); output files of 400 grains on 96
   cores identical bit for bit (job 5991884). The same jobs with the final
   sources (5992635, 5992628, 5992633) were running when the connection to
   Adastra was lost: their outcomes are in
-  ;
+  `fm/2026-11-15-perfimpl4/chain.log`;
 - on the CI (run 43690547029): in double 61 tests of MGIS, 271 of
   mfem-mgis, 23 of the examples, 20 of mm-opera-hpc; in float 61, 267, 22
   and 20; the builds with CUDA and with HIP: all passed;
