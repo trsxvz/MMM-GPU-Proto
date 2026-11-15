@@ -18,7 +18,7 @@ import sys
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FuncFormatter, NullLocator
+from matplotlib.ticker import FuncFormatter, LogLocator, NullLocator
 
 # colours by entity: the GPUs, the cores, then the series of the speedups
 GPU, CPU = "#2a78d6", "#eb6834"
@@ -67,12 +67,17 @@ def series(points, base):
                   if len(s) > 1 and s[0][0] * base == g}
 
 
-def efficiency(rows, mode, strong):
-    """nodes -> efficiency of the time to solution against the first point"""
+def efficiency(rows, mode, strong, time="elapsed"):
+    """nodes -> efficiency against the first point, on the time to solution
+    or on another time of the points"""
     n0, first = rows[0]
-    t0 = first[f"{mode}_elapsed"]
-    return [(n, ratio(t0 * (n0 if strong else n), r[f"{mode}_elapsed"] * n))
-            for n, r in rows if r[f"{mode}_elapsed"] and t0]
+    t0 = first[f"{mode}_{time}"]
+    return [(n, ratio(t0 * (n0 if strong else n), r[f"{mode}_{time}"] * n))
+            for n, r in rows if r[f"{mode}_{time}"] and t0]
+
+
+def percent(e):
+    return "-" if e is None else f"{french(100 * e)} %"
 
 
 def table(rows, strong, out):
@@ -87,7 +92,6 @@ def table(rows, strong, out):
     for n, r in rows:
         mj = lambda m: r[f"{m}_energy"] and r[f"{m}_energy"] / 1e6
         pair = lambda a, b, d=0: f"{french(a, d)} / {french(b, d)}"
-        percent = lambda e: "-" if e is None else f"{french(100 * e)} %"
         out.write(
             f"| {r['grains']:.0f} | {french(r['unknowns'] / 1e6, 1)} M | {n} |"
             f" {french(r['unknowns'] / (4e6 * n), 2)} M |"
@@ -117,6 +121,20 @@ def breakdown(rows, mode, out):
         out.write(f"| {n} | " + " | ".join(french(x, 1) for x in parts) + " |\n")
 
 
+def program(rows, strong, out):
+    """the same comparison without the launch of the processes, which
+    depends on what the nodes ran before: time of the program"""
+    out.write("| Nœuds | Temps du programme GPU / CPU (s) | Efficacité GPU / CPU"
+              " | Speedup |\n" + "|---" * 4 + "|\n")
+    eg = dict(efficiency(rows, "gpu", strong, "total"))
+    ec = dict(efficiency(rows, "cpu", strong, "total"))
+    for n, r in rows:
+        out.write(
+            f"| {n} | {french(r['gpu_total'])} / {french(r['cpu_total'])} |"
+            f" {percent(eg.get(n))} / {percent(ec.get(n))} |"
+            f" {french(ratio(r['cpu_total'], r['gpu_total']), 1)} |\n")
+
+
 def node_axis(ax, nodes):
     ax.set_xscale("log", base=2)
     ax.set_xticks(nodes)
@@ -126,8 +144,10 @@ def node_axis(ax, nodes):
 
 
 def plain_log(axis):
+    """ticks of a logarithmic axis at 1, 2 and 5, written without powers"""
+    axis.set_major_locator(LogLocator(subs=(1, 2, 5)))
     axis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
-    axis.set_minor_formatter(FuncFormatter(lambda y, _: ""))
+    axis.set_minor_locator(NullLocator())
 
 
 def curve(ax, rows, key, **style):
@@ -175,8 +195,11 @@ def weak_figure(rows, directory):
     fig, axes = plt.subplots(2, 1, figsize=(6, 6.5), sharex=True,
                              height_ratios=[3, 2])
     time_and_efficiency(axes, rows, False)
-    axes[0].set_title("Scalabilité faible : 600 grains (19,8 M DDL) par nœud",
-                      loc="left")
+    n, first = rows[0]
+    axes[0].set_title(
+        f"Scalabilité faible : {first['grains'] / n:.0f} grains"
+        f" ({french(first['unknowns'] / (1e6 * n), 1)} M DDL) par nœud",
+        loc="left")
     axes[0].set_ylabel("Temps jusqu'à la solution (s)")
     axes[1].set_ylabel("Efficacité T(1) / T(N) (%)")
     axes[0].legend()
@@ -214,6 +237,7 @@ def family_figure(strong, directory):
     its name written at its last point, the ideal times dashed"""
     fig, ax = plt.subplots(figsize=(7.5, 5.5))
     nodes = sorted({n for rows in strong.values() for n, _ in rows})
+    names = []
     for (grains, rows), marker in zip(strong.items(), MARKERS):
         for mode, colour in (("gpu", GPU), ("cpu", CPU)):
             xy = curve(ax, rows, f"{mode}_elapsed", color=colour, marker=marker)
@@ -222,8 +246,12 @@ def family_figure(strong, directory):
             n0, t0 = xy[0]
             ax.plot([n0, nodes[-1]], [t0, t0 * n0 / nodes[-1]], color=colour,
                     linewidth=1, linestyle="--")
-            ax.annotate(f"{grains} grains", xy[-1], (8, 0),
-                        textcoords="offset points", va="center")
+            names.append((xy[-1], f"{grains} grains"))
+    # names at the last points, moved apart when two points are close
+    height = 0
+    for (n, t), name in sorted(names, key=lambda x: x[0][1]):
+        height = max(t, 1.35 * height)
+        ax.annotate(name, (n, t), (n * 1.12, height), va="center")
     for mode, colour in (("gpu", GPU), ("cpu", CPU)):
         ax.plot([], [], color=colour, label=NAMES[mode])
     ax.plot([], [], color=MUTED, linewidth=1, linestyle="--", label="idéal")
@@ -250,7 +278,9 @@ def speedup_figure(weak, strong, directory):
         if xy:
             nodes, load, s = zip(*xy)
             axes[0].plot(nodes, s, color=colour, marker=marker, label=name)
-            axes[1].plot(load, s, color=colour, marker=marker)
+            # the weak series has one load: points without a line
+            axes[1].plot(load, s, color=colour, marker=marker,
+                         linestyle="" if rows is weak else "-")
     node_axis(axes[0], [n for n, _ in weak])
     axes[1].set_xscale("log")
     plain_log(axes[1].xaxis)
@@ -273,12 +303,16 @@ def main():
     with open(os.path.join(directory, "tables.md"), "w") as out:
         out.write("## Scalabilité faible\n\n")
         table(weak, False, out)
+        out.write("\nSans le lancement des processus :\n\n")
+        program(weak, False, out)
         for mode in ("gpu", "cpu"):
             out.write(f"\nDécomposition du temps {mode.upper()} :\n\n")
             breakdown(weak, mode, out)
         for grains, rows in strong.items():
             out.write(f"\n## Scalabilité forte, {grains} grains\n\n")
             table(rows, True, out)
+            out.write(f"\nSans le lancement des processus, {grains} grains :\n\n")
+            program(rows, True, out)
             for mode in ("gpu", "cpu"):
                 out.write(f"\nDécomposition du temps {mode.upper()},"
                           f" {grains} grains :\n\n")
