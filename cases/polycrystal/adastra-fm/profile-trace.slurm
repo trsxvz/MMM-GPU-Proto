@@ -46,6 +46,8 @@
 # - trace-zones.txt: time and occupancy of the GPU per zone
 #   (fm-chain/trace-zones.py); api-gaps.txt, kernels.txt: idle time of the
 #   GPUs and kernels (fm-chain/api-gaps.py, fm-chain/kernels.py);
+#   trace-allocations.txt: allocations of arrays on the GPU per zone
+#   (fm-chain/trace-allocations.py);
 # - series.txt: one line per computation
 #   (cases/measure-polycrystal-grains.sh).
 #SBATCH --job-name=fm-profile-trace
@@ -104,4 +106,7 @@ python3 -I "$SLURM_SUBMIT_DIR/fm-chain/api-gaps.py" "$FM_TRACE_DIR" \
 newton=$(tail -1 "$out/series.txt" | awk '{print $11}')
 python3 -I "$SLURM_SUBMIT_DIR/fm-chain/kernels.py" "$FM_TRACE_DIR" "$newton" \
   > "$out/kernels.txt" 2>&1
+python3 -I "$SLURM_SUBMIT_DIR/fm-chain/trace-allocations.py" "$FM_TRACE_DIR" \
+  > "$out/trace-allocations.txt" 2>&1
+log "allocations: $(grep -E '^  (loop|second half)' "$out/trace-allocations.txt" | tr -s ' ' | tr '\n' ';')"
 log end

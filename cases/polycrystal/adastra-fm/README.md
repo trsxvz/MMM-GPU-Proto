@@ -181,6 +181,11 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     occupancy of the GPU.
   - Innermost zones (each instant counted once), calls of the HIP runtime
     and memory copies in the loop; `--steps` adds the time steps.
+- **`trace-allocations.py <directory of the traces>`: allocations on the
+  GPU in each zone.** Calls to `hipMalloc` of at least 2 MB (arrays of the
+  size of the unknowns or of the points), per zone, over the loop and over
+  the second half of the time steps: a loop which keeps its arrays, or
+  takes them in a pool, shows none in its second half.
 - **`pftrace-tracks.py <file.pftrace>`: tracks of a Perfetto trace**, with
   their numbers of slices, decoded without library: what Perfetto will
   show, and whether events were discarded (the number of slices must be
