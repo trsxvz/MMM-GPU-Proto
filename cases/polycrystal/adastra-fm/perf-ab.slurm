@@ -2,9 +2,10 @@
 # Performance of the polycrystal on the GPUs (JOURNAL.md, 2026-11-15): the
 # final computation of the polycrystal (FM_GRAINS grains, mesh partitioned
 # beforehand, one material for all the grains, line search, prediction by
-# linear extrapolation, FM_NSTEPS steps over 20 s) on all the GPUs of the
-# allocation, in the variants FM_VARIANTS, run one after the other at each
-# of the FM_GPU_REPS repetitions, on the same nodes:
+# linear extrapolation, FM_NSTEPS steps over FM_DURATION s, 20 and 20 by
+# default) on all the GPUs of the allocation, in the variants FM_VARIANTS,
+# run one after the other at each of the FM_GPU_REPS repetitions, on the
+# same nodes:
 # - ref: the executable of the measurements of the FM (FM_REFERENCE,
 #   default <scratch>/bin/uniaxial-polycrystal-pred), before the changes;
 # - deployed: the executable of FM_FIX built with the MFEM of the deployed
@@ -19,7 +20,10 @@
 #   with `:` for `=` and `+` for `,`, which sbatch --export does not
 #   accept in a value).
 # With FM_CPU_REPS, the variants ref and umpire are also run on all the
-# cores (the assembly of the global matrix is the same code on the host).
+# cores (the assembly of the global matrix is the same code on the host),
+# to be done in a job of its own with a few steps (FM_GPU_REPS=0,
+# FM_NSTEPS=2, FM_DURATION=2): 20 steps of 400 grains take about 70 min on
+# 96 cores.
 # A line per computation in <results>/series.txt (see
 # cases/measure-polycrystal-grains.sh), the time of the main sections of
 # each computation in <results>/sections.txt (a section timed at several
@@ -49,7 +53,8 @@ mkdir -p "$out"
 reference=${FM_REFERENCE:-$W/bin/uniaxial-polycrystal-pred}
 variants=${FM_VARIANTS:-ref deployed umpire umpire-kernels}
 export vectors=$MESHES/v$n/vectors_${n}crystals.txt
-export refinement=0 nsteps=${FM_NSTEPS:-20} duration=20 solver_label=best
+export refinement=0 nsteps=${FM_NSTEPS:-20} duration=${FM_DURATION:-20}
+export solver_label=best
 export run_timeout_gpu=${FM_TIMEOUT_GPU:-2400}
 export run_timeout_cpu=${FM_TIMEOUT_CPU:-5400}
 solver=${FM_SOLVER:---non-linear-solver NewtonK0 --adaptive-linear-solver-tolerance EisenstatWalker1 --adaptive-linear-solver-initial-tolerance 0.01}
