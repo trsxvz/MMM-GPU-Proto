@@ -1,4 +1,4 @@
-From 82a841c2fac345e33a7d1a79873740272952e8fb Mon Sep 17 00:00:00 2001
+From 879f9a423e262c291c4cde77e5fb3ff505a7d185 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 04:26:44 +0100
 Subject: [PATCH] GlobalStiffnessMatrix: pattern read by the setup without

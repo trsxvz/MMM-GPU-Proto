@@ -152,6 +152,8 @@ namespace mfem_mgis {
                                                    const size_type n) const {
     auto &w = this->work_vectors[static_cast<std::size_t>(v)];
     w.SetSize(n);
+    // as a new vector: its use on the device is chosen by the caller
+    w.UseDevice(false);
     return w;
   }  // end of getWorkVector
 

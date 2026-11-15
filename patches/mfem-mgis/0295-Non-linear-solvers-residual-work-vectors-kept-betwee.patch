@@ -1,4 +1,4 @@
-From db79908f12a783b5259c778f4dd02e2b02615b50 Mon Sep 17 00:00:00 2001
+From 8854a4ce046c36fbb20a00f1cf93249cd4fae386 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 01:47:53 +0100
 Subject: [PATCH] Non linear solvers, residual: work vectors kept between the
@@ -28,14 +28,14 @@ bit for bit.
 ---
  CHANGELOG.md                                  |  5 ++
  ...nearEvolutionProblemImplementationBase.hxx | 31 +++++++++--
- .../NonLinearSolvers/NonLinearSolverBase.hxx  | 34 +++++++++++++
+ .../NonLinearSolvers/NonLinearSolverBase.hxx  | 35 +++++++++++++
  src/FixedPointSolver.cxx                      | 12 +++--
  src/KINSOLSolver.cxx                          |  2 +-
  src/NewtonSolver.cxx                          | 17 ++++---
  ...onLinearEvolutionProblemImplementation.cxx | 51 +++++++++++++------
- src/NonLinearSolverBase.cxx                   |  7 +++
+ src/NonLinearSolverBase.cxx                   |  9 ++++
  src/PETScSNESSolver.cxx                       |  2 +-
- 9 files changed, 126 insertions(+), 35 deletions(-)
+ 9 files changed, 129 insertions(+), 35 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
 index 897b6bc37b..0a1f69eda3 100644
@@ -103,7 +103,7 @@ index f40421cfc1..31635cfe64 100644
       * \brief number of assemblies of the tangent operator by kernels
       * (`assembleTangentOperatorByKernels`), shared with the operators which
 diff --git a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
-index 794e4a4aab..e9280ff198 100644
+index 794e4a4aab..054ba8b865 100644
 --- a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
 +++ b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
 @@ -8,6 +8,7 @@
@@ -114,7 +114,7 @@ index 794e4a4aab..e9280ff198 100644
  #include <ostream>
  #include <functional>
  #include "mfem/linalg/solvers.hpp"
-@@ -84,6 +85,37 @@ namespace mfem_mgis {
+@@ -84,6 +85,38 @@ namespace mfem_mgis {
       * \return true on success
       */
      virtual bool processNewUnknownsEstimate(const mfem::Vector& u) const;
@@ -142,8 +142,9 @@ index 794e4a4aab..e9280ff198 100644
 +     * resolution is allocated again on the device at its first use on a
 +     * GPU, and an allocation on a GPU may take much longer than the
 +     * computations of an iteration when MFEM has no pool of memory (MFEM
-+     * built without Umpire). The values of the vector are unspecified, and
-+     * its use on the device is the one chosen by its previous user.
++     * built without Umpire). The values of the vector are unspecified; as
++     * for a new vector, its use on the device is not requested (see
++     * `mfem::Vector::UseDevice`).
 +     * \param[in] v: vector
 +     * \param[in] n: size
 +     */
@@ -152,7 +153,7 @@ index 794e4a4aab..e9280ff198 100644
      /*!
       * \return if messages shall be displayed: if the print level is
       * non-negative, on the first process only (on all processes in a
-@@ -128,6 +160,8 @@ namespace mfem_mgis {
+@@ -128,6 +161,8 @@ namespace mfem_mgis {
       * the residual at the first iteration.
       */
      mutable std::optional<real> reference_residual_norm;
@@ -404,10 +405,10 @@ index 18bdb6930a..40bcb6b002 100644
    }  // end of Mult
  
 diff --git a/src/NonLinearSolverBase.cxx b/src/NonLinearSolverBase.cxx
-index c07ea44e3a..5e9c579614 100644
+index c07ea44e3a..5d6c54338b 100644
 --- a/src/NonLinearSolverBase.cxx
 +++ b/src/NonLinearSolverBase.cxx
-@@ -148,6 +148,13 @@ namespace mfem_mgis {
+@@ -148,6 +148,15 @@ namespace mfem_mgis {
      this->oper->Mult(u, r);
    }  // end of computeResidual
  
@@ -415,6 +416,8 @@ index c07ea44e3a..5e9c579614 100644
 +                                                   const size_type n) const {
 +    auto &w = this->work_vectors[static_cast<std::size_t>(v)];
 +    w.SetSize(n);
++    // as a new vector: its use on the device is chosen by the caller
++    w.UseDevice(false);
 +    return w;
 +  }  // end of getWorkVector
 +

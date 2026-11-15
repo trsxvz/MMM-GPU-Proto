@@ -1,4 +1,4 @@
-From 8a2766badc8967023279c870a1824d93c85b697b Mon Sep 17 00:00:00 2001
+From 650cdd0dd7e992ee76665097c0fb148e393586b7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 01:48:18 +0100
 Subject: [PATCH] Mean thermodynamic forces: sums computed by kernels

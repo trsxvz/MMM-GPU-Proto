@@ -1,4 +1,4 @@
-From 00caf3c21b317ed78b046b50da050f3a48cef3d4 Mon Sep 17 00:00:00 2001
+From f14b9965bc0c4da0311ead4760bb1d1290d15195 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 01:48:18 +0100
 Subject: [PATCH] GlobalStiffnessMatrix: values assembled where hypre computes,

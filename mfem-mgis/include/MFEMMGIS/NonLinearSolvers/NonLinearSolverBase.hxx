@@ -109,8 +109,9 @@ namespace mfem_mgis {
      * resolution is allocated again on the device at its first use on a
      * GPU, and an allocation on a GPU may take much longer than the
      * computations of an iteration when MFEM has no pool of memory (MFEM
-     * built without Umpire). The values of the vector are unspecified, and
-     * its use on the device is the one chosen by its previous user.
+     * built without Umpire). The values of the vector are unspecified; as
+     * for a new vector, its use on the device is not requested (see
+     * `mfem::Vector::UseDevice`).
      * \param[in] v: vector
      * \param[in] n: size
      */
