@@ -581,12 +581,18 @@ The plan provides three options for the tangent operator
   Done in mfem-mgis: on the GPU, the kernels add the blocks of the
   element matrices directly into the local sparse matrix (pattern
   of the first assembly of MFEM; atomic additions, or fixed order with
-  the parameter `TangentOperatorAssembly` set to `Ordered`), then the product
-  `PᵀAP` and the elimination of the imposed degrees of freedom (`EliminateBC`) are
-  done on the GPU. When hypre computes on the host, the global matrix
-  keeps its pattern and its exchange scheme from one iteration to the next
-  (`batch::GlobalStiffnessMatrix`,
-  `results/global-matrix-end-to-end-2026-10-11`).
+  the parameter `TangentOperatorAssembly` set to `Ordered`), then the
+  global matrix is assembled and the imposed degrees of freedom are
+  eliminated (`EliminateBC`) on the GPU. For a conforming space, the global
+  matrix keeps its pattern and its exchange scheme from one iteration to
+  the next (`batch::GlobalStiffnessMatrix`,
+  `results/global-matrix-end-to-end-2026-10-11`): each of its values is the
+  sum of its contributions, added in the same order by the same kernel on
+  the host and on the GPU, so that the matrix is the same bit for bit on
+  both. Until 15/11/2026 this was only done when hypre computes on the
+  host, and the GPU made the product `PᵀAP` of hypre at each iteration,
+  which computes the pattern again each time. The product of hypre remains
+  for the non conforming spaces.
 - **Element assembly** (addition, interest 6): keep the element
   matrices and apply the tangent element by element (level
   `ELEMENT` of MFEM for the bilinear forms). Intermediate between

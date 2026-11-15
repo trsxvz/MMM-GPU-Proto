@@ -7202,3 +7202,226 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   tracks and its numbers of events are read by `pftrace-tracks.py`); the
   suite of mfem-mgis on the GPU was not run again with the option; NVTX is
   not connected to the markers.
+
+### 2026-11-15, polycrystal on the GPUs: allocations, global matrix, mean stresses
+
+- Context: the final computation of 38,400 grains on 64 nodes of Adastra
+  (256 MI300A, 4.9 M unknowns per GPU) took 391.5 s, 2.4 times the one of
+  12,800 grains on 32 nodes for 1.5 times more unknowns per GPU (job
+  5988537). A study of the traces of rocprofv3 of 14/11 (outside this
+  repository) explained it and proposed five actions, done here.
+  - MFEM was built without Umpire on Adastra: each temporary array of MFEM
+    on the GPU was a call to `hipMalloc`, about 630 of more than 2 MB in the
+    loop over the time steps (vectors of the unknowns, array of the stresses
+    in the global frame).
+  - On one or two processes out of 256, each of these calls took a fixed
+    time (0.21 s without profiler, 0.45 s on the traced process), whatever
+    its size, and all the processes waited for them: about 125 s. The cause
+    of this latency is not known; it is not the amount of memory used (it
+    does not appear with 76 GB per GPU on 4 GPUs).
+  - The product `Pᵀ A P` of hypre took 61 to 68 % of the assembly of the
+    tangent operator; the mean stresses were copied to the host and summed
+    there by one thread after each resolution.
+- Action 1, MFEM with Umpire on Adastra (`deps/machines/adastra-mi300`).
+  - `MFEM_USE_UMPIRE=YES` with the Umpire of the stack (2026.07.1), as
+    hypre. MFEM is then compiled in C++20 by hipcc (its makefile selects
+    it), which had never been done here: no error. The headers of Umpire
+    include the ones of camp and of fmt, found from the spack specification
+    of Umpire; fmt is used without its library (`FMT_HEADER_ONLY`, as Umpire
+    does), the flag being given to the programs using MFEM by its
+    `MFEM_TPLFLAGS`.
+  - mfem-mgis already chooses the memory types (standard memory for the
+    host, pool of Umpire for the GPU) and creates the allocators of Umpire
+    on the GPU of each process when a process sees several GPUs (resources
+    `DEVICE::<id>`), which had never run: the polycrystal
+    of the tests gives the same axial stress with the 4 GPUs seen by its 4
+    processes, and the same memory is used on each of the 4 GPUs (8.4 GiB
+    at most, job 5990232), which pools all created on the GPU 0 would not
+    give.
+  - The installation of `/lus/work` is not modified: `build-perf.sh` builds
+    MFEM, MGIS, mfem-mgis and the polycrystal on the local disk of a node
+    and keeps the installation of MFEM (346 files) and the executables on
+    the scratch. `deploy.sh mfem adastra-mi300` will build the deployed MFEM
+    again with the new options.
+- Action 2, work vectors (mfem-mgis, patch 0295; mm-opera-hpc, patch 0053).
+  - A loop which allocates nothing must not depend on a pool: upstream MFEM
+    is built without Umpire by default.
+  - The traces gave, per resolution, 4 allocations of a vector of unknowns
+    in `NS::computeResidual` for 3 evaluations of the residual, 3 in the
+    linear solves and 1 in `FPS::Mult`: the vectors of
+    `FixedPointSolver::Mult` (allocated on the device at their first use),
+    the residual of the linear solve of the adaptive tolerance, and one
+    vector per evaluation of the residual, which is not in mfem-mgis: the
+    `AddMultTranspose` of `mfem::Operator`, used for the prolongation of a
+    conforming parallel space, creates a vector at each call.
+  - `NonLinearSolverBase::getWorkVector` keeps the vectors of the
+    resolutions of the Newton and fixed point solvers (and the residual of
+    the KINSOL and SNES solvers, whose other vectors belong to SUNDIALS and
+    PETSc); `ResidualWorkVectors` keeps the ones of the residual of the
+    problem: the inner forces on the true degrees of freedom (the
+    `AddMultTranspose` of MFEM is still called for the other prolongations,
+    which have their own, so that the operations are the same in every
+    case) and the residual of the prediction by linear extrapolation. The
+    polycrystal keeps the stresses in the global frame of its averages per
+    grain.
+  - Same operations on the same values: results unchanged bit for bit.
+- Action 3, global matrix assembled on the GPU (mfem-mgis, patches 0296
+  and 0298).
+  - `batch::GlobalStiffnessMatrix` (pattern and exchanges computed once,
+    11/10/2026) was refused when hypre computes on a GPU, because it added
+    the values on the host. Its setup now gives, for each entry of the
+    global matrix, the list of its contributions (entries of the local
+    matrix, then received values); one kernel sums them in this order, on
+    the host or on the GPU. No concurrent addition, hence no atomic
+    operation; one code for both.
+  - Decision: one assembly, the same on the CPU and on the GPU. The product
+    of hypre is no longer used for the conforming spaces; it remains for
+    the non conforming ones, which the class does not handle. The results on
+    the GPUs change by round-off errors (sums in another order than the
+    product of hypre); the results on the CPU do not change, bit for bit.
+  - The values of the rows owned by other processes are exchanged by non
+    blocking messages between the processes concerned (instead of
+    `MPI_Alltoallv`), given to MPI on the GPU with GPU-aware MPI after the
+    synchronization of the stream, as `mfem::GroupCommunicator` does.
+  - Defect of hypre avoided: on a GPU, the Gauss-Seidel relaxations keep in
+    the matrix a copy of its values with sorted columns and the one of their
+    triangular solves, built only if they do not exist
+    (`hypre_CSRMatrixSortRowOutOfPlace`, `csrsv_data`). The global matrix
+    being the same object at each assembly, hypre would relax with the
+    values of the first assembly: these copies are freed by each assembly.
+    Without this call, the smoother of `GlobalStiffnessMatrixTest` uses the
+    values of the first assembly on a MI300A (mutation g1).
+  - The setup reads the prolongation and the pattern on the host, then gives
+    them back to hypre (`HypreRead`): hypre does not check where the arrays
+    of a matrix are.
+  - The setup of the 3.3 M unknowns of a GPU (400 grains on 4 GPUs) took
+    10 s on one thread of the host, half of it searching the row of the
+    global matrix for each entry of the local matrix (290 M entries). The
+    positions of the entries of the current row are now kept by column:
+    2.0 s instead of 5.2 s. The first assembly of the tangent operator
+    still takes 16 s against 10.4 s with the product of hypre.
+- Action 4, mean stresses summed by kernels (mfem-mgis, patch 0297).
+  - `computeMeanThermodynamicForcesValues` asks the problem to add the
+    integrals by kernels (`addThermodynamicForcesIntegralsByKernels`), which
+    it does when the post-processings are computed by kernels (existing
+    choice: `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels`, or
+    post-processings placed on the GPU by `--execution`); otherwise the loop
+    of the host is unchanged.
+  - One reduction per component over the points (`batch::addWeightedSums`),
+    with the weights kept by the problem, copied once for the kernels. The
+    stresses in the global frame are computed on the GPU as before, in a
+    vector kept between the calls; nothing is copied to the host. The
+    volume is the sum of the weights, computed once on the host in the order
+    of the points: the same value as the loop of the host.
+  - Nothing changes in mm-opera-hpc.
+  - Limit: one reduction per component and per material. With one material
+    per grain, thousands of small kernels would be launched: the
+    computation by kernels is meant for `--single-material`.
+- Action 5, options of BoomerAMG of the elastic operator (mm-opera-hpc,
+  patch 0052): `--hypre-boomeramg-parameters name=value,...` with the names
+  of mfem-mgis, as `--amgx-parameters`. Measurements below.
+- Scripts (`cases/polycrystal/adastra-fm/`): `build-perf.sh`,
+  `perf-tests.slurm`, `perf-ab.slurm`, `perf-load.slurm`,
+  `perf-mutations.slurm`, `trace-allocations.py` (calls to `hipMalloc` per
+  zone in a trace). The jobs of a chain fail when a check fails and write a
+  file `passed` otherwise, which the next job requires (`FM_REQUIRE` in
+  `common.sh`, with `sbatch --dependency=afterok`): a large job does not
+  start after a failure, without anybody watching.
+- Validation (details in `docs/validation.md`): 
+  - tests on Adastra (`perf-tests.slurm`, job 5990232, sources of the
+    commits): 133 tests on the host, 116 on a MI300A with the kernels
+    forced and 116 with the computations chosen by each test, 7 tests
+    selecting a device, 16 with the MFEM without Umpire, the 13 tests of the
+    polycrystal: all passed. The same tests pass with the final sources
+    (patch 0298 and work vectors given as new vectors, job 5991005);
+  - global matrices assembled on a MI300A and on the host: same checksums
+    of their entries (29 matrices per run, on 1, 2 and 4 processes, values
+    exchanged on the host and on the GPU);
+  - integrals of the stresses by kernels: the ones of the loop of the host
+    within 3e-15, isotropic and orthotropic behaviours, host, debug device
+    and MI300A; same volumes;
+  - 12 mutations out of 12 detected (`perf-mutations.slurm`, jobs 5990239
+    and 5991010):
+    4 on the global matrix (2 of them only on the GPU: values kept by
+    hypre, prolongation left on the host), 5 on the sums by kernels, 2 on
+    the work vectors, 1 on the options of BoomerAMG;
+  - on the CPU, the outputs of the polycrystal of 100 grains (96 cores, 3
+    steps, line search and extrapolation) are the ones of the executable of
+    the measurements bit for bit, with NewtonK0 and with Newton
+    (`ls-identity.slurm`, jobs 5990233 and 5991006); so are the ones of 400
+    grains on 96 cores (2 steps, 404.6 s against 409.2 s, job 5991009);
+  - allocations: with the MFEM without Umpire, a traced process makes 63
+    calls to `hipMalloc` of more than 2 MB in the loop over the time steps,
+    none in its second half, against 561 and 210 before (job 5990240);
+  - CI (run 43672931725): double (61 tests of MGIS, 271 of mfem-mgis, 23 of
+    the examples, 19 of mm-opera-hpc) and float (61, 267, 22, 19), builds
+    with CUDA and with HIP.
+- Measurements: final configuration (one material, line search,
+  extrapolation, NewtonK0, tolerance of Eisenstat and Walker from 0.01,
+  partitioned mesh), 20 steps of 1 s, with the mean stresses by kernels.
+  - 38,400 grains on 64 nodes (256 MI300A, 1.26 G unknowns, job 5990835, two
+    runs): 203.9 and 203.3 s against 391.5 s (-48 %); loop 176.6 and
+    176.1 s against 331.7 s; 182 and 181 Newton iterations (183); energy
+    28.3 and 25.6 MJ against 44.6 MJ. `NS::computeResidual` 0.58 s against
+    53.4 s; assemblies of the tangent operator after the first one 32.2 and
+    29.6 s against 80.3 s; linear solves 82.4 and 84.1 s against 127.3 s
+    (they waited for the allocations too); mean stresses 2.6 s against
+    23.1 s; post-processings 4.9 s against 15.6 s; first assembly 27.0 and
+    26.2 s against 17.1 s. Minimum, mean and maximum of `FPS::integrate`
+    over the processes are now equal (56.30 s): no process is waited for.
+  - 400 grains on 1 node (4 MI300A, job 5990234, two runs of each): 98.0 and
+    97.8 s against 127.0 and 124.9 s for the executable of 14/11 (-22 %);
+    101.2 and 101.1 s with the MFEM without Umpire and the sums on the
+    host. Assemblies after the first one 14.9 s against 37.1 s (135 ms each
+    against 336 ms), first assembly 15.9 s against 10.5 s, mean stresses
+    1.6 s against 5.7 s. Umpire changes nothing at this size once the work
+    vectors are kept. With the final sources, on another node (job
+    5991007): 99.9 and 99.1 s against 122.3 and 121.0 s (-18 %).
+  - 1600 grains on 4 nodes (job 5990238): 110.7 s against 135.1 and 136.0 s
+    (job 5979614, -18 %).
+  - 6.6 M unknowns per GPU (1600 grains refined once on 2 nodes, 8 steps,
+    `perf-load.slurm`, job 5990834): 168.5 s against 193.5 s,
+    `NS::computeResidual` 0.50 s against 4.36 s. The memory of the nodes is
+    nearly full, as before (1.0 GiB free on a NUMA node at the lowest).
+  - Options of BoomerAMG (400 grains on 1 node, two runs, job 5990237; 1600
+    grains on 4 nodes, one run, job 5990238), loop over the steps in s,
+    default configuration 85.2 and 84.7 / 94.2 (10 and 11 levels): at most
+    8 levels 105.2 and 105.4 / 107.7; at most 6 levels 111.8 and 133.3 /
+    153.0; coarsest level of 2000 rows at most 86.5 / 269.4; one level of
+    aggressive coarsening 94.9 / 108.6; strength threshold of 0.5 85.2 /
+    92.2; aggressive coarsening and 2000 rows 140.7 / 117.8. Cutting the
+    coarse levels costs more iterations of the conjugate gradient than it
+    saves kernels. Only the threshold of 0.5 does not lose, by 2 % on one
+    run at 1600 grains: the default configuration is kept.
+  - Memory of the host: the first version of the patch 0296 read the
+    pattern of the global matrix with `HypreParMatrix::HostRead`, which
+    copies the whole matrix to the host and keeps the copy: 2 to 6 GiB less
+    free memory per NUMA node at 400 grains. The patch 0298 copies the
+    pattern only (`hypre_TMemcpy`): same free memory as the executable of
+    14/11 within 3 GiB, and 38 GiB used per GPU instead of 41 (job
+    5990900). At 6.6 M unknowns per GPU, 8.1 GiB are free on the fullest
+    NUMA node in the steady regime with it (161.2 s, job 5991008), against
+    1.4 to 2.0 GiB without it and 11 GiB with the executable of 14/11: the
+    lists of the contributions (4 bytes per entry of the local matrix and
+    per entry of the global matrix, on the host and on the GPU) remain.
+    The computations of 38,400 grains above were made before this patch.
+- Traps met:
+  - the axial stress of two runs of the same executable on the GPUs differs
+    by 1.4e-6 at most (400 grains, job 5982471: the element matrices are
+    added by atomic operations, in an order which changes): a comparison of
+    two executables on the GPUs can't be tighter than 1e-5;
+  - `sbatch --export` splits its argument at the commas: the options of
+    BoomerAMG are given to `perf-ab.slurm` with `:` and `+` instead of `=`
+    and `,`;
+  - the latency of `hipMalloc` also appears on 4 GPUs, more weakly: 17 ms
+    per evaluation of the residual on the node of the job 5990137, against
+    4 ms on 14/11.
+- Not done: the first assembly of the tangent operator (16 s at 400
+  grains, 27 s at 38,400, one thread of the host) is now the largest part
+  of a computation of 20 steps which does not use the GPU; the sums by
+  kernels launch one reduction per component (36 ms per call at 400
+  grains); the averages per grain are still summed on the host; the deployed
+  installation of MFEM is not built again (`deploy.sh mfem`); the reference
+  results of the GPU computations of the repository were not regenerated:
+  the comparisons of the measurement scripts have tolerances, and no file
+  of reference is compared bit for bit on the GPU.

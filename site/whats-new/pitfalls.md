@@ -205,6 +205,21 @@ against deliberately wrong code revealed them.
   Workaround: standard host memory, Umpire kept for the GPU.
 - **hypre memory pool.** hypre 3.2 reserves 4 GiB on the GPU at once, per
   process. Workaround: option `--hypre-device-pool-size` of mfem-mgis.
+- **Allocations on the GPU without pool.** With MFEM built without Umpire,
+  each temporary array of MFEM on the GPU is a call to the allocator of
+  the GPU. On 256 MI300A (4.9 M unknowns per GPU), each `hipMalloc` of more
+  than 2 MB took a fixed time of about 0.2 s on one or two processes,
+  whatever its size, and all the others waited for them: a third of the
+  computation, invisible on 4 GPUs. `mfem::Operator::AddMultTranspose`
+  allocates such an array at each call. Workaround: MFEM built with Umpire
+  (pool for the GPU), and work vectors kept by the solvers and by the
+  residual in mfem-mgis.
+- **Values kept by hypre in a matrix on the GPU.** The Gauss-Seidel
+  relaxations of hypre on a GPU keep in the matrix a copy of its values
+  with sorted columns, and the one of their triangular solves, built only
+  if they do not exist: after new values are written in the same matrix,
+  hypre relaxes with the former ones. Workaround: these copies are freed
+  after each assembly in the same matrix (`batch::GlobalStiffnessMatrix`).
 
 ## MFEM, hypre and solver libraries
 

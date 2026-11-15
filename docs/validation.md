@@ -815,6 +815,98 @@ the behaviour (`FPS::integrate`) keeps the GPU busy 92.1 % of its time;
 the macroscopic stresses, the post-processings and the end of the time
 step, computed on the host, take 9.0 % of the loop.
 
+Performance of the polycrystal on the GPUs (15/11/2026: MFEM with Umpire on
+Adastra, mfem-mgis patches 0295 to 0298, mm-opera-hpc patches 0052 and
+0053). MFEM 4.10 is built with Umpire, in C++20, by hipcc, then MGIS,
+mfem-mgis and the polycrystal, on the local disk of a node
+(`build-perf.sh`), from the sources of the commits, in two variants:
+`umpire` (this MFEM) and `deployed` (the MFEM of 14/11, without Umpire). The
+jobs form a chain, each one starting only if the previous ones passed
+(`afterok` and file `passed`). The jobs below ran with the sources of
+15/11 at 02:18; the tests, the identity on the CPU, the mutations and the
+measurements of 400 grains were run again with the final sources (patch
+0298, work vectors given as new vectors: jobs 5991005, 5991006, 5991010 and
+5991007), with the same outcomes:
+
+- tests of the changed components and of the non linear solvers
+  (`perf-tests.slurm`, job 5990232), variant `umpire`: 133 tests on the
+  host; on a MI300A, 116 with the kernels forced and 116 with the
+  computations chosen by each test, and 7 tests selecting a device; 16
+  tests on a MI300A with the variant `deployed`; the 13 tests of the
+  polycrystal: all passed;
+- `GlobalStiffnessMatrixTest`: on a MI300A, the global matrices of scalar
+  and vector spaces of orders 1 and 2, on 1, 2 and 4 processes, have the
+  checksums of the ones assembled on the host (29 matrices per run: values
+  equal bit for bit), with the values exchanged given to MPI on the host
+  and on the GPU; a Gauss-Seidel smoother of hypre applied after a second
+  assembly in the same matrix gives the result obtained with the product
+  of hypre (difference 0), and not the one of the first values (difference
+  1.0);
+- `IntegrationPointsWeightsTest`: the integrals of the thermodynamic forces
+  computed by kernels are the ones computed element by element within
+  3e-15 relatively to the largest integral, on the host, on the debug
+  device and on a MI300A, on one and two processes, for an isotropic
+  behaviour and for an orthotropic one with rotated material frames; the
+  volumes are equal; the counter of the post-processings computed by
+  kernels increases by one per material with the kernels, and not without;
+- the polycrystal of the tests on 4 MI300A with the final options (job
+  5990232): same axial stress with one GPU per process, with the 4 GPUs
+  seen by the 4 processes (allocators of Umpire created by mfem-mgis on the
+  GPU of each process: 8.4 GiB used on each of the 4 GPUs) and with the
+  mean stresses computed by kernels;
+- mutations (`perf-mutations.slurm`, job 5990239): 12 out of 12 make their
+  tests fail. On the global matrix: values kept by hypre not freed (the
+  smoother uses the values of the first assembly, on the GPU only),
+  received values ignored, sent values of another entry, prolongation left
+  on the host (the tests stop on the GPU). On the sums by kernels: weights
+  ignored, stride of the points ignored, kernels never selected, measure
+  doubled, thermodynamic forces not rotated. On the work vectors: the same
+  vector for all the uses, inner forces not added on the true degrees of
+  freedom (detected with the kernels forced, which this code requires). On
+  the polycrystal: options of BoomerAMG not given;
+- identity on the CPU (`ls-identity.slurm`, job 5990233; 100 grains, 96
+  cores, 3 steps, one material, line search and extrapolation): the outputs
+  are the ones of the executable of the measurements of 14/11, bit for bit,
+  with NewtonK0 (`.res` of 274 bytes, averages per grain, 120 lines of
+  iterations) and with Newton (275 bytes, 112 lines);
+- allocations (`profile-trace.slurm` and `trace-allocations.py`, job
+  5990240; 400 grains, variant `deployed`, where each array created on the
+  GPU is a call to `hipMalloc`, process 0 traced): 63 calls of more than
+  2 MB in the loop over the time steps, none in its second half, against
+  561 and 210 with the executable of 14/11 (trace of the job 5983078); in
+  the second half of the steps, a kernel runs 81.4 % of the time, against
+  74.2 %, and a step takes 2.4 s against 3.5 s;
+- on the CI (run 43672931725): the whole suite on the CPU, in double (61
+  tests of MGIS, 271 of mfem-mgis, 23 of the examples, 19 of mm-opera-hpc)
+  and in float (61, 267, 22 and 19), all passed; the builds with CUDA and
+  with HIP.
+
+Measurements (final configuration, 20 steps of 1 s, executable built with
+MFEM with Umpire, mean stresses by kernels; before: executable of 14/11):
+
+| Case | Before (s) | After (s) | |
+|---|---|---|---|
+| 38,400 grains, 64 nodes (256 MI300A) | 391.5 (job 5988537) | 203.9, 203.3 (job 5990835) | -48 % |
+| 1600 grains, 4 nodes | 135.1, 136.0 (job 5979614) | 110.7 (job 5990238) | -18 % |
+| 400 grains, 1 node | 127.0, 124.9 | 98.0, 97.8 (job 5990234) | -22 % |
+| 400 grains, 1 node, final sources | 122.3, 121.0 | 99.9, 99.1 (job 5991007) | -18 % |
+| 400 grains, 96 cores, 2 steps | 409.2 | 404.6 (job 5991009), same outputs bit for bit | -1 % |
+| 400 grains, MFEM without Umpire, sums on the host | | 101.2, 101.1 | -20 % |
+
+At 38,400 grains, the loop over the steps takes 176.6 and 176.1 s against
+331.7 s for the same number of Newton iterations (182 and 181 against 183):
+0.58 s in `NS::computeResidual` against 53.4 s, 32.2 and 29.6 s in the
+assemblies of the tangent operator after the first one against 80.3 s, 82.4
+and 84.1 s in the linear solves against 127.3 s, 2.6 s in the mean stresses
+against 23.1 s. The first assembly takes 27.0 and 26.2 s against 17.1 s (setup
+of the global matrix on one thread of the host). The energy of the
+computation is 28.3 and 25.6 MJ against 44.6 MJ. These two computations were
+made before the patch 0298, which only changes the memory of the host used
+by the setup: with it, at 6.6 M unknowns per GPU (1600 grains refined once
+on 2 nodes, `perf-load.slurm`, job 5991008), 8 steps take 161.2 s against
+193.5 s (job 5989504), and 8.1 GiB are free on the fullest NUMA node in the
+steady regime, against 11 GiB before.
+
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of
 mfem-mgis and to the builds of the examples and of mm-opera-hpc): each
