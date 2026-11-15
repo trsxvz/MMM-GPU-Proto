@@ -187,6 +187,7 @@ set(MFEMMGIS_DEVICE_SOURCES
   Batch/FBarKernels.cxx
   Batch/FaltusKernels.cxx
   Batch/ElementsGeometryKernels.cxx
+  Batch/GlobalStiffnessMatrixKernels.cxx
   NodalBlockJacobiKernels.cxx)
 # scaling and conversions of the vectors exchanged with AmgX (single
 # precision)

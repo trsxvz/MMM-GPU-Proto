@@ -10,6 +10,7 @@
 #define LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATIONBASE_HXX
 
 #include <map>
+#include <span>
 #include <memory>
 #include <utility>
 #include <optional>
@@ -46,6 +47,30 @@ namespace mfem_mgis {
   enum struct IntegrationType;
   struct LinearSolverHandler;
   struct AbstractNonLinearSolver;
+
+  /*!
+   * \brief work vectors of the evaluations of the residual of a non linear
+   * evolution problem, kept between them: on a GPU, a vector created at each
+   * evaluation is allocated on the device each time (see
+   * `NonLinearSolverBase::getWorkVector`)
+   */
+  struct ResidualWorkVectors {
+    /*!
+     * \brief inner forces computed by kernels (local vector of the finite
+     * element space)
+     */
+    mfem::Vector inner_forces;
+    /*!
+     * \brief inner forces computed by kernels on the true degrees of
+     * freedom of a conforming parallel space
+     */
+    mfem::Vector assembled_inner_forces;
+    /*!
+     * \brief residual of the default prediction, computed by the prediction
+     * by linear extrapolation
+     */
+    mfem::Vector prediction_residual;
+  };
 
   /*!
    * \brief class for solving non linear evolution problems.
@@ -320,6 +345,39 @@ namespace mfem_mgis {
     getIntegrationPointsWeights(Context& ctx,
                                 const size_type m,
                                 const size_type b) const noexcept;
+    /*!
+     * \brief adds the integrals of the thermodynamic forces at the end of
+     * the time step, in the global frame, over the elements of a behaviour
+     * integrator owned by this process, if the post-processings are computed
+     * by kernels (see `getNumberOfPostProcessingsComputationsByKernels`):
+     * nothing is done otherwise.
+     *
+     * The integrals are the sums over the integration points of the
+     * thermodynamic forces multiplied by the weights of the points (see
+     * `getIntegrationPointsWeights`), computed where the kernels run: on a
+     * GPU, the thermodynamic forces are not copied to the host. The
+     * contributions of the points are accumulated in double, in an order
+     * which depends on the device: the integrals are the ones of a loop on
+     * the points up to round-off errors. The measure is the sum of the
+     * weights, computed once on the host in the order of the points.
+     *
+     * \return true if the integrals were added, false if the
+     * post-processings are not computed by kernels, an invalid value on
+     * error
+     * \param[in, out] ctx: execution context
+     * \param[in, out] integrals: integrals of the components of the
+     * thermodynamic forces
+     * \param[out] measure: measure of the elements, if the integrals were
+     * added
+     * \param[in] m: material identifier
+     * \param[in] b: index of the behaviour integrator of the material
+     */
+    [[nodiscard]] std::optional<bool> addThermodynamicForcesIntegralsByKernels(
+        Context& ctx,
+        std::span<real> integrals,
+        real& measure,
+        const size_type m,
+        const size_type b) const noexcept;
     std::optional<std::map<size_type, size_type>> addBehaviourIntegrator(
         Context& ctx,
         const std::string& n,
@@ -605,11 +663,8 @@ namespace mfem_mgis {
     [[nodiscard]] mfem::Operator& getMatrixFreeTangentOperator(
         const mfem::Array<int>& essential_dofs,
         std::function<mfem::Operator&()> f) const;
-    /*!
-     * \brief inner forces computed by kernels (local vector of the finite
-     * element space), kept between the evaluations of the residual
-     */
-    mutable mfem::Vector inner_forces_by_kernels;
+    //! \brief work vectors of the evaluations of the residual
+    mutable ResidualWorkVectors residual_work_vectors;
     /*!
      * \brief number of assemblies of the tangent operator by kernels
      * (`assembleTangentOperatorByKernels`), shared with the operators which
@@ -638,6 +693,30 @@ namespace mfem_mgis {
      */
     mutable std::map<std::pair<size_type, size_type>, std::vector<real>>
         integration_points_weights;
+    /*!
+     * \brief data of `addThermodynamicForcesIntegralsByKernels` kept between
+     * the calls
+     */
+    struct ThermodynamicForcesIntegralsWorkspace {
+      //! \brief weights of the integration points, read by the kernels
+      mfem::Vector weights;
+      //! \brief sum of the weights
+      real measure = real{};
+      /*!
+       * \brief thermodynamic forces in the global frame (orthotropic
+       * behaviours)
+       */
+      mfem::Vector rotated_thermodynamic_forces;
+      //! \brief workspace of the reductions
+      mfem::Array<double> reduction;
+    };
+    /*!
+     * \brief workspaces by material identifier and index of the behaviour
+     * integrator
+     */
+    mutable std::map<std::pair<size_type, size_type>,
+                     ThermodynamicForcesIntegralsWorkspace>
+        thermodynamic_forces_integrals_workspaces;
     //! \brief tangent operator applied without assembly
     mutable std::unique_ptr<MatrixFreeTangentOperator> tangent_operator;
     //! \brief tangent operator with constrained essential degrees of freedom

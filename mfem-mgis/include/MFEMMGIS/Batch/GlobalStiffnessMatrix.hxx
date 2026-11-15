@@ -41,23 +41,37 @@ namespace mfem_mgis::batch {
    * entry is lost), the position of each entry of the local matrix in the
    * part of the global matrix owned by the process, or its place in the
    * message sent to the process owning its row, and the positions of the
-   * received entries. The following assemblies only copy, exchange and add
-   * the values, as long as, on every process, the local matrix has the same
-   * number of rows, the same number of entries and the same arrays of the
-   * pattern (rows and columns), and the finite element space is not
-   * updated: otherwise, the setup is made again by all the processes. The
-   * contents of the arrays of the pattern are not compared: they must not be
+   * received entries. These positions give the list of the contributions to
+   * each entry of the global matrix: entries of the local matrix, in
+   * increasing order, then received values, in the order of the processes.
+   * The following assemblies only copy, exchange and add the values, as
+   * long as, on every process, the local matrix has the same number of
+   * rows, the same number of entries and the same arrays of the pattern
+   * (rows and columns), and the finite element space is not updated:
+   * otherwise, the setup is made again by all the processes. The contents
+   * of the arrays of the pattern are not compared: they must not be
    * modified between two assemblies.
    *
-   * The values of the global matrix are written on the host: hypre must not
-   * use the GPU (see `isSupported`).
+   * Each value of the global matrix is the sum of its contributions, added
+   * in the order of their list by a kernel run where hypre computes: on the
+   * host, or on the GPU, where the values of the local matrix are read and
+   * the ones of the global matrix written without copy to the host. The
+   * values are the same, bit for bit, on the host and on the GPU. They are
+   * the ones of the product `Pᵀ A P` of hypre up to round-off errors (sums
+   * in another order). The values exchanged between the processes are given
+   * to MPI on the GPU with GPU-aware MPI (`mfem::Device::GetGPUAwareMPI`),
+   * on the host otherwise. The setup is made on the host.
+   *
+   * The global matrix is the same object at each assembly: on the GPU, the
+   * copies of its values that hypre keeps in it (sorted columns and
+   * triangular solves of the Gauss-Seidel relaxations) are freed by each
+   * assembly.
    */
   struct MFEM_MGIS_EXPORT GlobalStiffnessMatrix {
     /*!
      * \return true if the global matrices of a finite element space can be
-     * assembled by this class: hypre does not use the GPU, and each row of
-     * the prolongation has a single entry, equal to one, on all the
-     * processes (collective call)
+     * assembled by this class: each row of the prolongation has a single
+     * entry, equal to one, on all the processes (collective call)
      * \param[in] fes: finite element space
      */
     [[nodiscard]] static bool isSupported(
@@ -117,28 +131,43 @@ namespace mfem_mgis::batch {
     //! \brief number of entries of the diagonal block of the global matrix
     int diagonal_block_entries = 0;
     /*!
-     * \brief positions of the entries of the local matrix whose rows are
-     * owned by the process in the values of the global matrix: positions in
-     * the diagonal block, then, from `diagonal_block_entries`, in the off
-     * diagonal block; -1 for the entries sent to other processes
+     * \brief number of entries of the off diagonal block of the global
+     * matrix
      */
-    std::vector<int> positions;
+    int off_diagonal_block_entries = 0;
+    /*!
+     * \brief offsets of the contributions to each entry of the global
+     * matrix: entries of the diagonal block, then of the off diagonal block
+     */
+    mfem::Array<int> offsets;
+    /*!
+     * \brief contributions to the entries of the global matrix: for each
+     * entry, the entries of the local matrix added to it, in increasing
+     * order, then, from the number of entries of the local matrix, the
+     * received values added to it, in increasing order
+     */
+    mfem::Array<int> contributions;
     //! \brief entries of the local matrix sent, ordered by process
-    std::vector<int> sent_entries;
-    //! \brief number of entries sent to each process
-    std::vector<int> send_counts;
-    //! \brief offsets of the entries sent to each process
-    std::vector<int> send_offsets;
-    //! \brief positions of the received entries in the global matrix
-    std::vector<int> received_positions;
-    //! \brief number of entries received from each process
-    std::vector<int> receive_counts;
-    //! \brief offsets of the entries received from each process
-    std::vector<int> receive_offsets;
+    mfem::Array<int> sent_entries;
+    //! \brief values exchanged with a process
+    struct Message {
+      //! \brief rank of the process
+      int process;
+      //! \brief offset of the values in the values sent or received
+      int offset;
+      //! \brief number of values
+      int size;
+    };
+    //! \brief messages sent to the processes owning rows of the local matrix
+    std::vector<Message> sent_messages;
+    //! \brief messages received from the other processes
+    std::vector<Message> received_messages;
+    //! \brief requests of the exchanges (workspace)
+    std::vector<MPI_Request> requests;
     //! \brief values sent (workspace)
-    std::vector<real> send_buffer;
+    mfem::Vector send_buffer;
     //! \brief values received (workspace)
-    std::vector<real> receive_buffer;
+    mfem::Vector receive_buffer;
   };
 
 }  // end of namespace mfem_mgis::batch

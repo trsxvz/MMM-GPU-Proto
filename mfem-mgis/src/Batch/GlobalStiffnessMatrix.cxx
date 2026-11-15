@@ -15,12 +15,17 @@
 #include <utility>
 #include <algorithm>
 #include <exception>
+#include "mfem/general/forall.hpp"
 #include "mfem/general/communication.hpp"
 #include "mfem/linalg/handle.hpp"
 #include "mfem/linalg/sparsemat.hpp"
 #include "mfem/fem/pfespace.hpp"
+#include "GlobalStiffnessMatrixKernels.hxx"
 
 namespace mfem_mgis::batch {
+
+  //! \brief tag of the messages of the assemblies
+  constexpr int message_tag = 23571;
 
   //! \return true if a value is exactly one
   static bool isOne(const real v) { return (v >= real{1}) && (v <= real{1}); }
@@ -29,7 +34,8 @@ namespace mfem_mgis::batch {
    * \return the global numbers of the true degrees of freedom of the local
    * degrees of freedom of a finite element space, read in the prolongation,
    * or an empty vector if a row of the prolongation has not a single entry
-   * equal to one (on this process)
+   * equal to one (on this process). The prolongation is read on the host,
+   * then given back to hypre where it computes.
    * \param[in] fes: finite element space
    */
   static std::vector<HYPRE_BigInt> getGlobalTrueDegreesOfFreedom(
@@ -57,9 +63,11 @@ namespace mfem_mgis::batch {
       } else if ((nd == 0) && (no == 1) && isOne(ov[oi[r]])) {
         T[static_cast<std::size_t>(r)] = cmap[oj[oi[r]]];
       } else {
-        return {};
+        T.clear();
+        break;
       }
     }
+    P.HypreRead();
     return T;
   }  // end of getGlobalTrueDegreesOfFreedom
 
@@ -115,6 +123,24 @@ namespace mfem_mgis::batch {
     return -1;
   }  // end of findGlobalPosition
 
+  /*!
+   * \brief frees the copies of the values of a block of a matrix that hypre
+   * keeps in it when it computes on a GPU: the block with sorted columns
+   * and the one of the triangular solves (Gauss-Seidel relaxations), which
+   * hypre only builds if they do not exist. Without this call, hypre would
+   * use the values of the previous assembly.
+   * \param[in, out] m: block of a matrix of hypre
+   */
+  static void freeValuesKeptByHypre([[maybe_unused]] hypre_CSRMatrix* const m) {
+#if defined(HYPRE_USING_CUSPARSE) || defined(HYPRE_USING_ROCSPARSE) || \
+    defined(HYPRE_USING_ONEMKLSPARSE)
+    hypre_TFree(hypre_CSRMatrixSortedData(m), HYPRE_MEMORY_DEVICE);
+    hypre_TFree(hypre_CSRMatrixSortedJ(m), HYPRE_MEMORY_DEVICE);
+    hypre_CsrsvDataDestroy(hypre_CSRMatrixCsrsvData(m));
+    hypre_CSRMatrixCsrsvData(m) = nullptr;
+#endif
+  }  // end of freeValuesKeptByHypre
+
   bool GlobalStiffnessMatrix::isSupported(
       const mfem::ParFiniteElementSpace& fes) noexcept {
     auto supported = int{0};
@@ -122,9 +148,8 @@ namespace mfem_mgis::batch {
       // the construction of the prolongation is collective: it is built on
       // all the processes, including the ones without degree of freedom
       static_cast<void>(fes.Dof_TrueDof_Matrix());
-      supported = ((!isHypreUsingGPU()) &&
-                   ((fes.GetVSize() == 0) ||
-                    (!getGlobalTrueDegreesOfFreedom(fes).empty())))
+      supported = ((fes.GetVSize() == 0) ||
+                   (!getGlobalTrueDegreesOfFreedom(fes).empty()))
                       ? 1
                       : 0;
     } catch (...) {
@@ -189,9 +214,10 @@ namespace mfem_mgis::batch {
     const hypre_ParCSRMatrix* const g = *(this->matrix);
     const auto nd = hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixDiag(g));
     const auto no = hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixOffd(g));
-    const auto too_many_entries =
-        static_cast<long long>(nd) + no > std::numeric_limits<int>::max();
+    auto too_many_entries =
+        static_cast<long long>(nd) + no >= std::numeric_limits<int>::max();
     this->diagonal_block_entries = static_cast<int>(nd);
+    this->off_diagonal_block_entries = static_cast<int>(no);
     // first row owned by each process
     auto first_rows =
         std::vector<HYPRE_BigInt>(static_cast<std::size_t>(nprocs) + 1);
@@ -208,8 +234,13 @@ namespace mfem_mgis::batch {
     const auto* const Ai = A.HostReadI();
     const auto* const Aj = A.HostReadJ();
     const auto n = A.NumNonZeroElems();
-    this->positions.assign(static_cast<std::size_t>(n), -1);
-    auto sent = std::vector<std::vector<int>>(static_cast<std::size_t>(nprocs));
+    // positions of the entries of the local matrix whose rows are owned by
+    // the process in the values of the global matrix: positions in the
+    // diagonal block, then, from its number of entries, in the off diagonal
+    // block; -1 for the entries sent to other processes
+    auto positions = std::vector<int>(static_cast<std::size_t>(n), -1);
+    auto sent_to =
+        std::vector<std::vector<int>>(static_cast<std::size_t>(nprocs));
     auto pairs = std::vector<std::vector<HYPRE_BigInt>>(
         static_cast<std::size_t>(nprocs));
     for (int r = 0; r != A.Height(); ++r) {
@@ -220,35 +251,54 @@ namespace mfem_mgis::batch {
         if (o == rank) {
           const auto p = findGlobalPosition(g, I, J);
           found = found && (p >= 0);
-          this->positions[static_cast<std::size_t>(k)] = p;
+          positions[static_cast<std::size_t>(k)] = p;
         } else {
-          sent[static_cast<std::size_t>(o)].push_back(k);
+          sent_to[static_cast<std::size_t>(o)].push_back(k);
           pairs[static_cast<std::size_t>(o)].push_back(I);
           pairs[static_cast<std::size_t>(o)].push_back(J);
         }
       }
     }
-    // exchanges
+    // exchanges: the entries sent, ordered by process
     const auto np = static_cast<std::size_t>(nprocs);
-    this->send_counts.assign(np, 0);
-    this->send_offsets.assign(np, 0);
-    this->sent_entries.clear();
-    auto sent_pairs = std::vector<HYPRE_BigInt>{};
+    auto send_counts = std::vector<int>(np);
+    auto send_offsets = std::vector<int>(np);
+    auto sent = 0;
     for (std::size_t q = 0; q != np; ++q) {
-      this->send_offsets[q] = static_cast<int>(this->sent_entries.size());
-      this->send_counts[q] = static_cast<int>(sent[q].size());
-      this->sent_entries.insert(this->sent_entries.end(), sent[q].begin(),
-                                sent[q].end());
+      send_offsets[q] = sent;
+      send_counts[q] = static_cast<int>(sent_to[q].size());
+      sent += send_counts[q];
+    }
+    this->sent_entries.SetSize(sent);
+    auto* const se = this->sent_entries.HostWrite();
+    auto sent_pairs = std::vector<HYPRE_BigInt>{};
+    sent_pairs.reserve(2 * static_cast<std::size_t>(sent));
+    for (std::size_t q = 0; q != np; ++q) {
+      std::copy(sent_to[q].begin(), sent_to[q].end(), se + send_offsets[q]);
       sent_pairs.insert(sent_pairs.end(), pairs[q].begin(), pairs[q].end());
     }
-    this->receive_counts.assign(np, 0);
-    MPI_Alltoall(this->send_counts.data(), 1, MPI_INT,
-                 this->receive_counts.data(), 1, MPI_INT, comm);
-    this->receive_offsets.assign(np, 0);
+    auto receive_counts = std::vector<int>(np);
+    MPI_Alltoall(send_counts.data(), 1, MPI_INT, receive_counts.data(), 1,
+                 MPI_INT, comm);
+    auto receive_offsets = std::vector<int>(np);
     auto received = 0;
     for (std::size_t q = 0; q != np; ++q) {
-      this->receive_offsets[q] = received;
-      received += this->receive_counts[q];
+      receive_offsets[q] = received;
+      received += receive_counts[q];
+    }
+    // messages of the assemblies: the processes with which values are
+    // exchanged
+    this->sent_messages.clear();
+    this->received_messages.clear();
+    for (std::size_t q = 0; q != np; ++q) {
+      if (send_counts[q] != 0) {
+        this->sent_messages.push_back(
+            {static_cast<int>(q), send_offsets[q], send_counts[q]});
+      }
+      if (receive_counts[q] != 0) {
+        this->received_messages.push_back(
+            {static_cast<int>(q), receive_offsets[q], receive_counts[q]});
+      }
     }
     // pairs of global numbers (two values per entry)
     auto pair_counts = std::vector<int>(np);
@@ -256,10 +306,10 @@ namespace mfem_mgis::batch {
     auto received_pair_counts = std::vector<int>(np);
     auto received_pair_offsets = std::vector<int>(np);
     for (std::size_t q = 0; q != np; ++q) {
-      pair_counts[q] = 2 * this->send_counts[q];
-      pair_offsets[q] = 2 * this->send_offsets[q];
-      received_pair_counts[q] = 2 * this->receive_counts[q];
-      received_pair_offsets[q] = 2 * this->receive_offsets[q];
+      pair_counts[q] = 2 * send_counts[q];
+      pair_offsets[q] = 2 * send_offsets[q];
+      received_pair_counts[q] = 2 * receive_counts[q];
+      received_pair_offsets[q] = 2 * receive_offsets[q];
     }
     auto received_pairs =
         std::vector<HYPRE_BigInt>(2 * static_cast<std::size_t>(received));
@@ -267,15 +317,57 @@ namespace mfem_mgis::batch {
                   HYPRE_MPI_BIG_INT, received_pairs.data(),
                   received_pair_counts.data(), received_pair_offsets.data(),
                   HYPRE_MPI_BIG_INT, comm);
-    this->received_positions.resize(static_cast<std::size_t>(received));
+    // positions of the received entries in the values of the global matrix
+    auto received_positions =
+        std::vector<int>(static_cast<std::size_t>(received));
     for (std::size_t i = 0; i != static_cast<std::size_t>(received); ++i) {
       const auto p = findGlobalPosition(g, received_pairs[2 * i],
                                         received_pairs[2 * i + 1]);
       found = found && (p >= 0);
-      this->received_positions[i] = p;
+      received_positions[i] = p;
     }
-    this->send_buffer.resize(this->sent_entries.size());
-    this->receive_buffer.resize(static_cast<std::size_t>(received));
+    // a contribution is the index of an entry of the local matrix, or the
+    // one of a received value from the number of entries of the local matrix
+    too_many_entries =
+        too_many_entries || (static_cast<long long>(n) + received >
+                             std::numeric_limits<int>::max());
+    if (!too_many_entries) {
+      // contributions to each entry of the global matrix: the entries of
+      // the local matrix, then the received values, in increasing order
+      const auto ng =
+          static_cast<std::size_t>(nd) + static_cast<std::size_t>(no);
+      this->offsets.SetSize(static_cast<int>(ng) + 1);
+      auto* const o = this->offsets.HostWrite();
+      std::fill(o, o + ng + 1, 0);
+      for (const auto* const ps : {&positions, &received_positions}) {
+        for (const auto p : *ps) {
+          if (p >= 0) {
+            ++o[p + 1];
+          }
+        }
+      }
+      for (std::size_t p = 0; p != ng; ++p) {
+        o[p + 1] += o[p];
+      }
+      this->contributions.SetSize(o[ng]);
+      auto* const c = this->contributions.HostWrite();
+      auto next = std::vector<int>(o, o + ng);
+      auto contribution = 0;
+      for (const auto* const ps : {&positions, &received_positions}) {
+        for (const auto p : *ps) {
+          if (p >= 0) {
+            c[next[static_cast<std::size_t>(p)]++] = contribution;
+          }
+          ++contribution;
+        }
+      }
+    }
+    this->send_buffer.UseDevice(true);
+    this->send_buffer.SetSize(sent);
+    this->receive_buffer.UseDevice(true);
+    this->receive_buffer.SetSize(received);
+    this->requests.reserve(this->sent_messages.size() +
+                           this->received_messages.size());
     this->number_of_rows = A.Height();
     this->number_of_entries = n;
     if (too_many_entries) {
@@ -325,38 +417,63 @@ namespace mfem_mgis::batch {
         this->columns = Aj;
         this->sequence = this->fes->GetSequence();
       }
-      this->matrix->HostReadWrite();
+      // the values are computed where hypre computes
+      const auto use_device = isHypreUsingGPU();
+      this->matrix->HypreReadWrite();
       hypre_ParCSRMatrix* const g = *(this->matrix);
-      auto* const dv = hypre_CSRMatrixData(hypre_ParCSRMatrixDiag(g));
-      auto* const ov = hypre_CSRMatrixData(hypre_ParCSRMatrixOffd(g));
-      const auto nd = this->diagonal_block_entries;
-      std::fill(dv, dv + nd, real{0});
-      std::fill(ov, ov + hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixOffd(g)),
-                real{0});
-      const auto add = [dv, ov, nd](const int p, const real v) {
-        if (p < nd) {
-          dv[p] += v;
-        } else {
-          ov[p - nd] += v;
+      auto* const diag = hypre_ParCSRMatrixDiag(g);
+      auto* const offd = hypre_ParCSRMatrixOffd(g);
+      const auto* const a = A.ReadData(use_device);
+      const auto sent = this->send_buffer.Size();
+      const auto received = this->receive_buffer.Size();
+      // exchange of the values of the rows owned by other processes, given
+      // to MPI on the device with GPU-aware MPI, the kernel filling the
+      // values sent being finished (as MFEM does in `GroupCommunicator`)
+      const auto mpi_on_device = use_device && mfem::Device::GetGPUAwareMPI();
+      const auto* s = static_cast<const real*>(nullptr);
+      if (sent != 0) {
+        internals::launchGlobalStiffnessMatrixSentValuesKernel(
+            this->send_buffer.Write(use_device),
+            this->sent_entries.Read(use_device), a, sent, use_device);
+        if (mpi_on_device) {
+          MFEM_STREAM_SYNC;
         }
-      };
-      const auto* const a = A.HostReadData();
-      for (std::size_t k = 0; k != this->positions.size(); ++k) {
-        if (this->positions[k] >= 0) {
-          add(this->positions[k], a[k]);
-        }
+        s = mpi_on_device ? this->send_buffer.Read()
+                          : this->send_buffer.HostRead();
       }
-      for (std::size_t i = 0; i != this->sent_entries.size(); ++i) {
-        this->send_buffer[i] =
-            a[static_cast<std::size_t>(this->sent_entries[i])];
+      auto* r = static_cast<real*>(nullptr);
+      if (received != 0) {
+        r = mpi_on_device ? this->receive_buffer.Write()
+                          : this->receive_buffer.HostWrite();
       }
       const auto mpi_real = mfem::MPITypeMap<real>::mpi_type;
-      MPI_Alltoallv(this->send_buffer.data(), this->send_counts.data(),
-                    this->send_offsets.data(), mpi_real,
-                    this->receive_buffer.data(), this->receive_counts.data(),
-                    this->receive_offsets.data(), mpi_real, comm);
-      for (std::size_t i = 0; i != this->received_positions.size(); ++i) {
-        add(this->received_positions[i], this->receive_buffer[i]);
+      this->requests.clear();
+      for (const auto& m : this->received_messages) {
+        MPI_Irecv(r + m.offset, m.size, mpi_real, m.process, message_tag, comm,
+                  &(this->requests.emplace_back()));
+      }
+      for (const auto& m : this->sent_messages) {
+        MPI_Isend(s + m.offset, m.size, mpi_real, m.process, message_tag, comm,
+                  &(this->requests.emplace_back()));
+      }
+      MPI_Waitall(static_cast<int>(this->requests.size()),
+                  this->requests.data(), MPI_STATUSES_IGNORE);
+      auto k = internals::GlobalStiffnessMatrixKernelArguments{};
+      k.offsets = this->offsets.Read(use_device);
+      k.contributions = this->contributions.Read(use_device);
+      k.local_values = a;
+      if (received != 0) {
+        k.received_values = this->receive_buffer.Read(use_device);
+      }
+      k.diagonal_block = hypre_CSRMatrixData(diag);
+      k.off_diagonal_block = hypre_CSRMatrixData(offd);
+      k.local_entries = this->number_of_entries;
+      k.diagonal_block_entries = this->diagonal_block_entries;
+      k.off_diagonal_block_entries = this->off_diagonal_block_entries;
+      internals::launchGlobalStiffnessMatrixKernel(k, use_device);
+      if (use_device) {
+        freeValuesKeptByHypre(diag);
+        freeValuesKeptByHypre(offd);
       }
       return this->matrix.get();
     } catch (std::exception& e) {

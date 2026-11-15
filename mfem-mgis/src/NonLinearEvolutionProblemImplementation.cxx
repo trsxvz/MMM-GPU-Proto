@@ -447,9 +447,10 @@ namespace mfem_mgis {
    * \param[in] bcs: boundary conditions independent of the unknowns
    * \param[in] fes: finite element space
    * \param[in] essential_dofs: essential true degrees of freedom
-   * \param[out] f: inner forces, contributions of the boundary conditions
-   * and of the other integrators of the non linear form, if any (local
-   * vector of the finite element space)
+   * \param[out] w: work vectors: inner forces, contributions of the boundary
+   * conditions and of the other integrators of the non linear form, if any
+   * (local vector of the finite element space), and their values on the
+   * true degrees of freedom
    * \param[in, out] r: residual
    * \param[in] addOtherContributions: function adding the contributions of
    * the other integrators of the non linear form to `f`, if not empty, on
@@ -461,9 +462,10 @@ namespace mfem_mgis {
       const std::vector<AbstractBoundaryCondition*>& bcs,
       const mfem::FiniteElementSpace& fes,
       const mfem::Array<int>& essential_dofs,
-      mfem::Vector& f,
+      ResidualWorkVectors& w,
       mfem::Vector& r,
       const std::function<void(mfem::Vector&)>& addOtherContributions = {}) {
+    auto& f = w.inner_forces;
     auto ctx = Context{};
     auto success = false;
     try {
@@ -485,7 +487,22 @@ namespace mfem_mgis {
                                "computation of the residual");
     // from the local vector of the finite element space to the true degrees
     // of freedom
-    if (const auto* const P = fes.GetProlongationMatrix(); P != nullptr) {
+    const auto* const P = fes.GetProlongationMatrix();
+    // the prolongation of a conforming parallel space has no
+    // `AddMultTranspose` of its own: the one of `mfem::Operator` creates a
+    // vector at each call, replaced by a work vector (same operations)
+#ifdef MFEM_USE_MPI
+    const auto conforming =
+        dynamic_cast<const mfem::ConformingProlongationOperator*>(P) != nullptr;
+#else  /* MFEM_USE_MPI */
+    const auto conforming = false;
+#endif /* MFEM_USE_MPI */
+    if (conforming) {
+      auto& fa = w.assembled_inner_forces;
+      fa.SetSize(r.Size());
+      P->MultTranspose(f, fa);
+      r += fa;
+    } else if (P != nullptr) {
       P->AddMultTranspose(f, r);
     } else {
       r += f;
@@ -680,8 +697,8 @@ namespace mfem_mgis {
      * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
      */
     std::unique_ptr<mfem::SparseMatrix>* matrix = nullptr;
-    //! \brief inner forces (local vector, workspace)
-    mfem::Vector* inner_forces = nullptr;
+    //! \brief work vectors of the inner forces
+    ResidualWorkVectors* work_vectors = nullptr;
   };
 
   /*!
@@ -844,7 +861,7 @@ namespace mfem_mgis {
         }
         // the boundary conditions contribute to `b` by their linear forms
         addInnerForcesComputedByKernels(fed, &mi, {}, fespace, edofs_list,
-                                        *(kernels.inner_forces), B);
+                                        *(kernels.work_vectors), B);
         // elimination in the local matrix, without prolongation
         const auto eliminateInLocalMatrix = [&X, &B, &edofs_list, &op, m] {
           m->AddMult(X, B, real{-1});
@@ -953,12 +970,14 @@ namespace mfem_mgis {
    * \return the norm of the residual of the default prediction
    * \param[in, out] ctx: execution context
    * \param[in, out] p: non linear evolution problem
+   * \param[out] r: residual of the default prediction (work vector)
    * \param[in] extrapolate: function extrapolating the unknowns
    */
   template <bool parallel>
   [[nodiscard]] static std::optional<real> computeLinearExtrapolationPrediction(
       Context& ctx,
       NonLinearEvolutionProblemImplementation<parallel>& p,
+      mfem::Vector& r,
       const std::function<void()>& extrapolate) noexcept {
     // the integration of the behaviours, the kernels of the residual and the
     // boundary conditions report their errors by exceptions
@@ -975,7 +994,7 @@ namespace mfem_mgis {
       auto norm = real{};
       {
         CatchTimeSection(ctx, "PRED::residual");
-        auto r = mfem::Vector(p.Width());
+        r.SetSize(p.Width());
         r.UseDevice(true);
         p.Mult(u1, r);
         // as `mfem::IterativeSolver::Norm`: the residual is null for the
@@ -1115,7 +1134,8 @@ namespace mfem_mgis {
         PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
       // no linear system is solved
       return computeLinearExtrapolationPrediction<true>(
-          ctx, *this, [this, t, dt] { this->extrapolateUnknowns(t, dt); });
+          ctx, *this, this->residual_work_vectors.prediction_residual,
+          [this, t, dt] { this->extrapolateUnknowns(t, dt); });
     }
     if (this->linear_solver.get() == nullptr) {
       return ctx.registerErrorMessage("linear solver not initialized");
@@ -1133,7 +1153,7 @@ namespace mfem_mgis {
       kernels =
           PredictionKernels{.integrator = this->mgis_integrator,
                             .matrix = &(this->prediction_matrix),
-                            .inner_forces = &(this->inner_forces_by_kernels)};
+                            .work_vectors = &(this->residual_work_vectors)};
     }
     // the non linear solver may provide the linear solver of an elastic
     // prediction at the beginning of the time step
@@ -1199,7 +1219,7 @@ namespace mfem_mgis {
         this->getFiniteElementDiscretization(),
         kernels ? this->mgis_integrator : nullptr,
         this->residual_boundary_conditions, this->getFiniteElementSpace(),
-        this->ess_tdof_list, this->inner_forces_by_kernels, r,
+        this->ess_tdof_list, this->residual_work_vectors, r,
         addOtherContributions);
   }  // end of Mult
 
@@ -1592,7 +1612,8 @@ namespace mfem_mgis {
         PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
       // no linear system is solved
       return computeLinearExtrapolationPrediction<false>(
-          ctx, *this, [this, t, dt] { this->extrapolateUnknowns(t, dt); });
+          ctx, *this, this->residual_work_vectors.prediction_residual,
+          [this, t, dt] { this->extrapolateUnknowns(t, dt); });
     }
     if (this->linear_solver.get() == nullptr) {
       return ctx.registerErrorMessage("linear solver not initialized");
@@ -1610,7 +1631,7 @@ namespace mfem_mgis {
       kernels =
           PredictionKernels{.integrator = this->mgis_integrator,
                             .matrix = &(this->prediction_matrix),
-                            .inner_forces = &(this->inner_forces_by_kernels)};
+                            .work_vectors = &(this->residual_work_vectors)};
     }
     // the non linear solver may provide the linear solver of an elastic
     // prediction at the beginning of the time step
@@ -1671,7 +1692,7 @@ namespace mfem_mgis {
         this->getFiniteElementDiscretization(),
         kernels ? this->mgis_integrator : nullptr,
         this->residual_boundary_conditions, this->getFiniteElementSpace(),
-        this->ess_tdof_list, this->inner_forces_by_kernels, r,
+        this->ess_tdof_list, this->residual_work_vectors, r,
         addOtherContributions);
   }  // end of Mult
 

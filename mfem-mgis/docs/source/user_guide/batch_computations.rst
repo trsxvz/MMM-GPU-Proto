@@ -431,14 +431,26 @@ nonlinear form without interior face integrators nor extension of
   essential degrees of freedom are eliminated, their diagonal being set to
   one.
 
-In parallel, when :code:`hypre` does not compute on a GPU and each row of
-the prolongation of the finite element space has a single entry, equal to
-one (conforming mesh), the pattern of the global matrix and the exchanges
-between the processes are computed at the first assembly and kept: the
-following assemblies only copy, exchange and add the values. This setup is
-performed again if the pattern of the local matrix changes or if the finite
-element space is updated. Otherwise, the global matrix is computed by the
-triple product of :code:`hypre` at each assembly.
+In parallel, when each row of the prolongation of the finite element space
+has a single entry, equal to one (conforming mesh), the pattern of the
+global matrix and the exchanges between the processes are computed at the
+first assembly and kept: the following assemblies only copy, exchange and
+add the values. This setup is performed again if the pattern of the local
+matrix changes or if the finite element space is updated. Otherwise, the
+global matrix is computed by the triple product of :code:`hypre` at each
+assembly.
+
+The values of the global matrix are computed where :code:`hypre` computes:
+on the host, or on the GPU, where the values of the local matrix are read
+and the ones of the global matrix written without copy to the host. Each
+value is the sum of its contributions (entries of the local matrix, then
+values received from the other processes) added in the same order on the
+host and on the GPU: the global matrix is the same, bit for bit. It differs
+from the triple product of :code:`hypre` by round-off errors. With GPU-aware
+MPI, the values exchanged between the processes are given to MPI on the
+GPU. The setup is made on the host. The global matrix is the same object at
+each assembly: on a GPU, the copies of its values kept in it by
+:code:`hypre` (Gauss-Seidel relaxations) are freed by each assembly.
 
 .. _mfem_mgis_batch_computations_matrix_free:
 
@@ -535,6 +547,16 @@ each computation, and an invalid value is reported by
 - :code:`computeMeasure` and :code:`computeIntegral`: reduction over the
   elements, for the behaviour integrators which support kernels (the
   weight of an integration point is then :code:`w det J`);
+- :code:`computeMeanThermodynamicForcesValues` (also used by the
+  :code:`MeanThermodynamicForces` post-processing): for each component, sum
+  over the integration points of the thermodynamic forces at the end of the
+  time step, in the global frame, multiplied by the weights of the points
+  kept by the problem. On a GPU, the thermodynamic forces are neither
+  copied to the host nor summed there. The sums are the ones of the loop of
+  the host up to round-off errors (the contributions are accumulated in
+  double, in an order which depends on the device). One reduction per
+  component is launched for each material: this computation is meant for a
+  few materials with many points;
 - :code:`computeL2Projection` and
   :code:`computeImplicitGradientRegularization`: right-hand sides by a
   kernel; for the L2 projection, mass matrices computed by a kernel and
@@ -1251,8 +1273,6 @@ Limitations
   :code:`getInternalStateVariable`, make this call.
 - The positions of the entries of the stiffness matrices, which avoid
   searching for the entries in the rows of the matrix, are not used with
-  the :code:`CUDA`, :code:`HIP` and :code:`debug` devices of :code:`MFEM`,
-  and the global matrix whose pattern and exchanges are kept is not used
-  when :code:`hypre` computes on the GPU.
+  the :code:`CUDA`, :code:`HIP` and :code:`debug` devices of :code:`MFEM`.
 - :code:`AmgX` requires :code:`MFEM` compiled with :code:`CUDA`; the matrix
   is uploaded from the host at each setup of its solvers.

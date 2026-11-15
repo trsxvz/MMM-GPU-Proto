@@ -1,0 +1,439 @@
+From db79908f12a783b5259c778f4dd02e2b02615b50 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 15 Nov 2026 01:47:53 +0100
+Subject: [PATCH] Non linear solvers, residual: work vectors kept between the
+ calls
+
+On a GPU, a vector of MFEM created in a function is allocated on the device
+at its first use and freed at the end of the function. When MFEM has no
+pool of memory (MFEM built without Umpire), each of these allocations is a
+call to the allocator of the GPU, whose time may be much larger than the
+one of the computations of an iteration: on 256 MI300A, each allocation of
+a vector of unknowns took a fixed time of 0.2 s on one or two processes,
+the others waiting for them.
+
+The vectors of a resolution are now kept by the non linear solvers
+(`NonLinearSolverBase::getWorkVector`: residual, correction, estimates,
+residual of the linear solve), as the residual and the correction of
+`mfem::NewtonSolver`, for the Newton and fixed point solvers and for the
+residual of the KINSOL and SNES solvers. The ones of the evaluations of the
+residual are kept by the problem (`ResidualWorkVectors`): the inner forces
+computed by kernels on the true degrees of freedom, which the
+`AddMultTranspose` of `mfem::Operator` allocated at each call for the
+prolongation of a conforming parallel space, and the residual of the
+default prediction computed by the prediction by linear extrapolation.
+
+The operations are the same, on the same values: the results are unchanged,
+bit for bit.
+---
+ CHANGELOG.md                                  |  5 ++
+ ...nearEvolutionProblemImplementationBase.hxx | 31 +++++++++--
+ .../NonLinearSolvers/NonLinearSolverBase.hxx  | 34 +++++++++++++
+ src/FixedPointSolver.cxx                      | 12 +++--
+ src/KINSOLSolver.cxx                          |  2 +-
+ src/NewtonSolver.cxx                          | 17 ++++---
+ ...onLinearEvolutionProblemImplementation.cxx | 51 +++++++++++++------
+ src/NonLinearSolverBase.cxx                   |  7 +++
+ src/PETScSNESSolver.cxx                       |  2 +-
+ 9 files changed, 126 insertions(+), 35 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 897b6bc37b..0a1f69eda3 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -108,6 +108,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+ 
+ ### Changed
+ 
++- the vectors of the resolutions of the non linear solvers (residual,
++  correction, estimates) and of the evaluations of the residual are kept
++  between the calls (`NonLinearSolverBase::getWorkVector`,
++  `ResidualWorkVectors`): no vector is allocated on the device at each
++  resolution or at each evaluation of the residual
+ - use std::span instead of mgis::span
+ - the arrays of the materials are stored in the memory of MFEM: after a
+   computation on a GPU, a direct access to `s0`, `s1` or `K` on the host
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index f40421cfc1..31635cfe64 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -47,6 +47,30 @@ namespace mfem_mgis {
+   struct LinearSolverHandler;
+   struct AbstractNonLinearSolver;
+ 
++  /*!
++   * \brief work vectors of the evaluations of the residual of a non linear
++   * evolution problem, kept between them: on a GPU, a vector created at each
++   * evaluation is allocated on the device each time (see
++   * `NonLinearSolverBase::getWorkVector`)
++   */
++  struct ResidualWorkVectors {
++    /*!
++     * \brief inner forces computed by kernels (local vector of the finite
++     * element space)
++     */
++    mfem::Vector inner_forces;
++    /*!
++     * \brief inner forces computed by kernels on the true degrees of
++     * freedom of a conforming parallel space
++     */
++    mfem::Vector assembled_inner_forces;
++    /*!
++     * \brief residual of the default prediction, computed by the prediction
++     * by linear extrapolation
++     */
++    mfem::Vector prediction_residual;
++  };
++
+   /*!
+    * \brief class for solving non linear evolution problems.
+    *
+@@ -605,11 +629,8 @@ namespace mfem_mgis {
+     [[nodiscard]] mfem::Operator& getMatrixFreeTangentOperator(
+         const mfem::Array<int>& essential_dofs,
+         std::function<mfem::Operator&()> f) const;
+-    /*!
+-     * \brief inner forces computed by kernels (local vector of the finite
+-     * element space), kept between the evaluations of the residual
+-     */
+-    mutable mfem::Vector inner_forces_by_kernels;
++    //! \brief work vectors of the evaluations of the residual
++    mutable ResidualWorkVectors residual_work_vectors;
+     /*!
+      * \brief number of assemblies of the tangent operator by kernels
+      * (`assembleTangentOperatorByKernels`), shared with the operators which
+diff --git a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
+index 794e4a4aab..e9280ff198 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
+@@ -8,6 +8,7 @@
+ #ifndef LIB_MFEMMGIS_NONLINEARSOLVERS_NONLINEARSOLVERBASE_HXX
+ #define LIB_MFEMMGIS_NONLINEARSOLVERS_NONLINEARSOLVERBASE_HXX
+ 
++#include <array>
+ #include <ostream>
+ #include <functional>
+ #include "mfem/linalg/solvers.hpp"
+@@ -84,6 +85,37 @@ namespace mfem_mgis {
+      * \return true on success
+      */
+     virtual bool processNewUnknownsEstimate(const mfem::Vector& u) const;
++    //! \brief work vectors of a resolution (see `getWorkVector`)
++    enum struct WorkVector : std::size_t {
++      //! \brief residual
++      RESIDUAL,
++      //! \brief correction given by the linear solver
++      CORRECTION,
++      //! \brief new estimate of the unknowns
++      ESTIMATE,
++      /*!
++       * \brief another vector of unknowns: best iterate of the Newton
++       * solver, variation of the estimate given to the acceleration
++       * algorithm of the fixed point solver
++       */
++      AUXILIARY_ESTIMATE,
++      //! \brief residual of the linear solve
++      LINEAR_RESIDUAL
++    };
++    /*!
++     * \return a work vector of the resolutions, with the given size. The
++     * vectors are kept between the resolutions, as the residual and the
++     * correction of `mfem::NewtonSolver`: a vector created at each
++     * resolution is allocated again on the device at its first use on a
++     * GPU, and an allocation on a GPU may take much longer than the
++     * computations of an iteration when MFEM has no pool of memory (MFEM
++     * built without Umpire). The values of the vector are unspecified, and
++     * its use on the device is the one chosen by its previous user.
++     * \param[in] v: vector
++     * \param[in] n: size
++     */
++    [[nodiscard]] mfem::Vector &getWorkVector(const WorkVector v,
++                                              const size_type n) const;
+     /*!
+      * \return if messages shall be displayed: if the print level is
+      * non-negative, on the first process only (on all processes in a
+@@ -128,6 +160,8 @@ namespace mfem_mgis {
+      * the residual at the first iteration.
+      */
+     mutable std::optional<real> reference_residual_norm;
++    //! \brief work vectors of the resolutions (see `getWorkVector`)
++    mutable std::array<mfem::Vector, 5> work_vectors;
+     //! \brief pointer to an execution context
+     Context *ctx_ptr = nullptr;
+     /*!
+diff --git a/src/FixedPointSolver.cxx b/src/FixedPointSolver.cxx
+index 5d7425dc80..bae80d2a2e 100644
+--- a/src/FixedPointSolver.cxx
++++ b/src/FixedPointSolver.cxx
+@@ -598,11 +598,12 @@ namespace mfem_mgis {
+       return;
+     }
+     auto& solver = *solver_ptr;
++    // residual, correction, new estimate and variation of the estimate
+     const auto n = x.Size();
+-    auto r = mfem::Vector(n);
+-    auto c = mfem::Vector(n);
+-    auto xn = mfem::Vector(n);
+-    auto dx = mfem::Vector(n);
++    auto& r = this->getWorkVector(WorkVector::RESIDUAL, n);
++    auto& c = this->getWorkVector(WorkVector::CORRECTION, n);
++    auto& xn = this->getWorkVector(WorkVector::ESTIMATE, n);
++    auto& dx = this->getWorkVector(WorkVector::AUXILIARY_ESTIMATE, n);
+     for (auto* const v : {&r, &c, &xn, &dx}) {
+       v->UseDevice(true);
+     }
+@@ -720,7 +721,8 @@ namespace mfem_mgis {
+             if ((J != nullptr) && (adaptive_tolerance.has_value()) &&
+                 (adaptive_tolerance->requiresLinearResidualNorm())) {
+               // norm of the residual of the linear solve, J c - r
+-              auto lr = mfem::Vector(r.Size());
++              auto& lr =
++                  this->getWorkVector(WorkVector::LINEAR_RESIDUAL, r.Size());
+               lr.UseDevice(true);
+               J->Mult(c, lr);
+               lr -= r;
+diff --git a/src/KINSOLSolver.cxx b/src/KINSOLSolver.cxx
+index 33061a6003..a56e225cc4 100644
+--- a/src/KINSOLSolver.cxx
++++ b/src/KINSOLSolver.cxx
+@@ -444,7 +444,7 @@ namespace mfem_mgis::internals {
+     auto& log = this->getLogStream();
+     const auto shall_print = this->shallPrint();
+     // initial residual
+-    auto r = mfem::Vector(this->Height());
++    auto& r = this->getWorkVector(WorkVector::RESIDUAL, this->Height());
+     r.UseDevice(true);
+     const auto initialized = this->callAndHandleFailures([this, &x, &r] {
+       if (!this->processNewUnknownsEstimate(x)) {
+diff --git a/src/NewtonSolver.cxx b/src/NewtonSolver.cxx
+index ffa61511ad..6bca09e572 100644
+--- a/src/NewtonSolver.cxx
++++ b/src/NewtonSolver.cxx
+@@ -84,14 +84,14 @@ namespace mfem_mgis {
+     auto &log = this->getLogStream();
+     const auto shall_print = this->shallPrint();
+ 
+-    mfem::Vector r;  // residual vector
+-    mfem::Vector c;  // opposite of the Newton's correction
+-    r.SetSize(this->oper->Width());
+-    c.SetSize(this->oper->Width());
++    // residual vector
++    auto &r = this->getWorkVector(WorkVector::RESIDUAL, this->oper->Width());
++    // opposite of the Newton's correction
++    auto &c = this->getWorkVector(WorkVector::CORRECTION, this->oper->Width());
+     // estimate of the unknowns at a trial of the line search, if any
+-    mfem::Vector xn;
++    auto &xn = this->getWorkVector(
++        WorkVector::ESTIMATE, this->line_search.isEnabled() ? x.Size() : 0);
+     if (this->line_search.isEnabled()) {
+-      xn.SetSize(x.Size());
+       xn.UseDevice(true);
+     }
+ 
+@@ -166,7 +166,8 @@ namespace mfem_mgis {
+     auto window_norm = norm;
+     auto iterations_without_decrease = size_type{};
+     auto smallest_norm = norm;
+-    auto best_x = mfem::Vector(x.Size());
++    auto &best_x =
++        this->getWorkVector(WorkVector::AUXILIARY_ESTIMATE, x.Size());
+     best_x.UseDevice(true);
+     best_x = x;
+     auto converged_by_stagnation = false;
+@@ -483,7 +484,7 @@ namespace mfem_mgis {
+       this->prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
+       if ((t != nullptr) && (t->requiresLinearResidualNorm())) {
+         // norm of the residual of the linear solve, J c - r
+-        auto lr = mfem::Vector(r.Size());
++        auto &lr = this->getWorkVector(WorkVector::LINEAR_RESIDUAL, r.Size());
+         lr.UseDevice(true);
+         J.Mult(c, lr);
+         lr -= r;
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 18bdb6930a..40bcb6b002 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -447,9 +447,10 @@ namespace mfem_mgis {
+    * \param[in] bcs: boundary conditions independent of the unknowns
+    * \param[in] fes: finite element space
+    * \param[in] essential_dofs: essential true degrees of freedom
+-   * \param[out] f: inner forces, contributions of the boundary conditions
+-   * and of the other integrators of the non linear form, if any (local
+-   * vector of the finite element space)
++   * \param[out] w: work vectors: inner forces, contributions of the boundary
++   * conditions and of the other integrators of the non linear form, if any
++   * (local vector of the finite element space), and their values on the
++   * true degrees of freedom
+    * \param[in, out] r: residual
+    * \param[in] addOtherContributions: function adding the contributions of
+    * the other integrators of the non linear form to `f`, if not empty, on
+@@ -461,9 +462,10 @@ namespace mfem_mgis {
+       const std::vector<AbstractBoundaryCondition*>& bcs,
+       const mfem::FiniteElementSpace& fes,
+       const mfem::Array<int>& essential_dofs,
+-      mfem::Vector& f,
++      ResidualWorkVectors& w,
+       mfem::Vector& r,
+       const std::function<void(mfem::Vector&)>& addOtherContributions = {}) {
++    auto& f = w.inner_forces;
+     auto ctx = Context{};
+     auto success = false;
+     try {
+@@ -485,7 +487,22 @@ namespace mfem_mgis {
+                                "computation of the residual");
+     // from the local vector of the finite element space to the true degrees
+     // of freedom
+-    if (const auto* const P = fes.GetProlongationMatrix(); P != nullptr) {
++    const auto* const P = fes.GetProlongationMatrix();
++    // the prolongation of a conforming parallel space has no
++    // `AddMultTranspose` of its own: the one of `mfem::Operator` creates a
++    // vector at each call, replaced by a work vector (same operations)
++#ifdef MFEM_USE_MPI
++    const auto conforming =
++        dynamic_cast<const mfem::ConformingProlongationOperator*>(P) != nullptr;
++#else  /* MFEM_USE_MPI */
++    const auto conforming = false;
++#endif /* MFEM_USE_MPI */
++    if (conforming) {
++      auto& fa = w.assembled_inner_forces;
++      fa.SetSize(r.Size());
++      P->MultTranspose(f, fa);
++      r += fa;
++    } else if (P != nullptr) {
+       P->AddMultTranspose(f, r);
+     } else {
+       r += f;
+@@ -680,8 +697,8 @@ namespace mfem_mgis {
+      * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
+      */
+     std::unique_ptr<mfem::SparseMatrix>* matrix = nullptr;
+-    //! \brief inner forces (local vector, workspace)
+-    mfem::Vector* inner_forces = nullptr;
++    //! \brief work vectors of the inner forces
++    ResidualWorkVectors* work_vectors = nullptr;
+   };
+ 
+   /*!
+@@ -844,7 +861,7 @@ namespace mfem_mgis {
+         }
+         // the boundary conditions contribute to `b` by their linear forms
+         addInnerForcesComputedByKernels(fed, &mi, {}, fespace, edofs_list,
+-                                        *(kernels.inner_forces), B);
++                                        *(kernels.work_vectors), B);
+         // elimination in the local matrix, without prolongation
+         const auto eliminateInLocalMatrix = [&X, &B, &edofs_list, &op, m] {
+           m->AddMult(X, B, real{-1});
+@@ -953,12 +970,14 @@ namespace mfem_mgis {
+    * \return the norm of the residual of the default prediction
+    * \param[in, out] ctx: execution context
+    * \param[in, out] p: non linear evolution problem
++   * \param[out] r: residual of the default prediction (work vector)
+    * \param[in] extrapolate: function extrapolating the unknowns
+    */
+   template <bool parallel>
+   [[nodiscard]] static std::optional<real> computeLinearExtrapolationPrediction(
+       Context& ctx,
+       NonLinearEvolutionProblemImplementation<parallel>& p,
++      mfem::Vector& r,
+       const std::function<void()>& extrapolate) noexcept {
+     // the integration of the behaviours, the kernels of the residual and the
+     // boundary conditions report their errors by exceptions
+@@ -975,7 +994,7 @@ namespace mfem_mgis {
+       auto norm = real{};
+       {
+         CatchTimeSection(ctx, "PRED::residual");
+-        auto r = mfem::Vector(p.Width());
++        r.SetSize(p.Width());
+         r.UseDevice(true);
+         p.Mult(u1, r);
+         // as `mfem::IterativeSolver::Norm`: the residual is null for the
+@@ -1115,7 +1134,8 @@ namespace mfem_mgis {
+         PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
+       // no linear system is solved
+       return computeLinearExtrapolationPrediction<true>(
+-          ctx, *this, [this, t, dt] { this->extrapolateUnknowns(t, dt); });
++          ctx, *this, this->residual_work_vectors.prediction_residual,
++          [this, t, dt] { this->extrapolateUnknowns(t, dt); });
+     }
+     if (this->linear_solver.get() == nullptr) {
+       return ctx.registerErrorMessage("linear solver not initialized");
+@@ -1133,7 +1153,7 @@ namespace mfem_mgis {
+       kernels =
+           PredictionKernels{.integrator = this->mgis_integrator,
+                             .matrix = &(this->prediction_matrix),
+-                            .inner_forces = &(this->inner_forces_by_kernels)};
++                            .work_vectors = &(this->residual_work_vectors)};
+     }
+     // the non linear solver may provide the linear solver of an elastic
+     // prediction at the beginning of the time step
+@@ -1199,7 +1219,7 @@ namespace mfem_mgis {
+         this->getFiniteElementDiscretization(),
+         kernels ? this->mgis_integrator : nullptr,
+         this->residual_boundary_conditions, this->getFiniteElementSpace(),
+-        this->ess_tdof_list, this->inner_forces_by_kernels, r,
++        this->ess_tdof_list, this->residual_work_vectors, r,
+         addOtherContributions);
+   }  // end of Mult
+ 
+@@ -1592,7 +1612,8 @@ namespace mfem_mgis {
+         PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
+       // no linear system is solved
+       return computeLinearExtrapolationPrediction<false>(
+-          ctx, *this, [this, t, dt] { this->extrapolateUnknowns(t, dt); });
++          ctx, *this, this->residual_work_vectors.prediction_residual,
++          [this, t, dt] { this->extrapolateUnknowns(t, dt); });
+     }
+     if (this->linear_solver.get() == nullptr) {
+       return ctx.registerErrorMessage("linear solver not initialized");
+@@ -1610,7 +1631,7 @@ namespace mfem_mgis {
+       kernels =
+           PredictionKernels{.integrator = this->mgis_integrator,
+                             .matrix = &(this->prediction_matrix),
+-                            .inner_forces = &(this->inner_forces_by_kernels)};
++                            .work_vectors = &(this->residual_work_vectors)};
+     }
+     // the non linear solver may provide the linear solver of an elastic
+     // prediction at the beginning of the time step
+@@ -1671,7 +1692,7 @@ namespace mfem_mgis {
+         this->getFiniteElementDiscretization(),
+         kernels ? this->mgis_integrator : nullptr,
+         this->residual_boundary_conditions, this->getFiniteElementSpace(),
+-        this->ess_tdof_list, this->inner_forces_by_kernels, r,
++        this->ess_tdof_list, this->residual_work_vectors, r,
+         addOtherContributions);
+   }  // end of Mult
+ 
+diff --git a/src/NonLinearSolverBase.cxx b/src/NonLinearSolverBase.cxx
+index c07ea44e3a..5e9c579614 100644
+--- a/src/NonLinearSolverBase.cxx
++++ b/src/NonLinearSolverBase.cxx
+@@ -148,6 +148,13 @@ namespace mfem_mgis {
+     this->oper->Mult(u, r);
+   }  // end of computeResidual
+ 
++  mfem::Vector &NonLinearSolverBase::getWorkVector(const WorkVector v,
++                                                   const size_type n) const {
++    auto &w = this->work_vectors[static_cast<std::size_t>(v)];
++    w.SetSize(n);
++    return w;
++  }  // end of getWorkVector
++
+   mfem::Operator &NonLinearSolverBase::getJacobian(
+       const mfem::Vector &u) const {
+     auto profiler =
+diff --git a/src/PETScSNESSolver.cxx b/src/PETScSNESSolver.cxx
+index 588dc6fc62..6ea5a15505 100644
+--- a/src/PETScSNESSolver.cxx
++++ b/src/PETScSNESSolver.cxx
+@@ -691,7 +691,7 @@ namespace mfem_mgis::internals {
+     auto& log = this->getLogStream();
+     const auto shall_print = this->shallPrint();
+     // initial residual
+-    auto r = mfem::Vector(this->Height());
++    auto& r = this->getWorkVector(WorkVector::RESIDUAL, this->Height());
+     r.UseDevice(true);
+     const auto initialized = this->callAndHandleFailures([this, &x, &r] {
+       if (!this->processNewUnknownsEstimate(x)) {
+-- 
+2.34.1
+

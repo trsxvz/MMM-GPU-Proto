@@ -8,6 +8,7 @@
 #ifndef LIB_MFEMMGIS_NONLINEARSOLVERS_NONLINEARSOLVERBASE_HXX
 #define LIB_MFEMMGIS_NONLINEARSOLVERS_NONLINEARSOLVERBASE_HXX
 
+#include <array>
 #include <ostream>
 #include <functional>
 #include "mfem/linalg/solvers.hpp"
@@ -84,6 +85,37 @@ namespace mfem_mgis {
      * \return true on success
      */
     virtual bool processNewUnknownsEstimate(const mfem::Vector& u) const;
+    //! \brief work vectors of a resolution (see `getWorkVector`)
+    enum struct WorkVector : std::size_t {
+      //! \brief residual
+      RESIDUAL,
+      //! \brief correction given by the linear solver
+      CORRECTION,
+      //! \brief new estimate of the unknowns
+      ESTIMATE,
+      /*!
+       * \brief another vector of unknowns: best iterate of the Newton
+       * solver, variation of the estimate given to the acceleration
+       * algorithm of the fixed point solver
+       */
+      AUXILIARY_ESTIMATE,
+      //! \brief residual of the linear solve
+      LINEAR_RESIDUAL
+    };
+    /*!
+     * \return a work vector of the resolutions, with the given size. The
+     * vectors are kept between the resolutions, as the residual and the
+     * correction of `mfem::NewtonSolver`: a vector created at each
+     * resolution is allocated again on the device at its first use on a
+     * GPU, and an allocation on a GPU may take much longer than the
+     * computations of an iteration when MFEM has no pool of memory (MFEM
+     * built without Umpire). The values of the vector are unspecified, and
+     * its use on the device is the one chosen by its previous user.
+     * \param[in] v: vector
+     * \param[in] n: size
+     */
+    [[nodiscard]] mfem::Vector &getWorkVector(const WorkVector v,
+                                              const size_type n) const;
     /*!
      * \return if messages shall be displayed: if the print level is
      * non-negative, on the first process only (on all processes in a
@@ -128,6 +160,8 @@ namespace mfem_mgis {
      * the residual at the first iteration.
      */
     mutable std::optional<real> reference_residual_norm;
+    //! \brief work vectors of the resolutions (see `getWorkVector`)
+    mutable std::array<mfem::Vector, 5> work_vectors;
     //! \brief pointer to an execution context
     Context *ctx_ptr = nullptr;
     /*!

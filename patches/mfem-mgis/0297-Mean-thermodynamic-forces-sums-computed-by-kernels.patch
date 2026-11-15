@@ -1,0 +1,744 @@
+From ea43a1322e28a9814f6586c54b1964ba8549ac6a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 15 Nov 2026 01:48:18 +0100
+Subject: [PATCH] Mean thermodynamic forces: sums computed by kernels
+
+`computeMeanThermodynamicForcesValues` read the thermodynamic forces on the
+host and summed them there, point by point: on a GPU, the thermodynamic
+forces (or their values in the global frame, 9 components per point for an
+orthotropic behaviour in finite strain) were copied to the host after each
+resolution, and summed by one thread.
+
+When the post-processings are computed by kernels (environment variable
+`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`, or post-processings placed on the
+GPU by the option `--execution`), the sums are now reductions over the
+integration points, one per component, launched where the kernels run
+(`NonLinearEvolutionProblemImplementationBase::
+addThermodynamicForcesIntegralsByKernels`, `batch::addWeightedSums`): the
+thermodynamic forces are neither synchronized on the host nor copied to
+it. The weights are the ones kept by the problem, copied once for the
+kernels; the measure is their sum, computed once on the host in the order
+of the points, as the loop of the host does. The vector of the
+thermodynamic forces in the global frame and the workspace of the
+reductions are kept between the calls.
+
+The contributions are accumulated in double, in an order which depends on
+the device: the integrals are the ones of the loop of the host up to
+round-off errors. Without kernels for the post-processings (the default),
+the computation and its results are unchanged. One reduction per component
+being launched for each material, the computation by kernels is meant for a
+few materials with many points.
+
+IntegrationPointsWeightsTest: integrals computed element by element then by
+kernels (counter of the post-processings computed by kernels, same
+integrals up to round-off errors, same volumes), for an isotropic behaviour
+and for an orthotropic one with rotated material frames, on the host and on
+the debug device of MFEM.
+---
+ CHANGELOG.md                                  |   6 +
+ docs/source/user_guide/batch_computations.rst |  10 ++
+ .../Batch/IntegrationPointsFunctions.hxx      |  25 ++++
+ ...onLinearEvolutionProblemImplementation.hxx |   4 +-
+ ...onLinearEvolutionProblemImplementation.ixx |  30 +++-
+ ...nearEvolutionProblemImplementationBase.hxx |  58 ++++++++
+ src/Batch/IntegrationPointsFunctions.cxx      |  30 ++++
+ .../IntegrationPointsFunctionsKernels.cxx     |  16 +++
+ .../IntegrationPointsFunctionsKernels.hxx     |  19 +++
+ ...nearEvolutionProblemImplementationBase.cxx |  91 ++++++++++++
+ tests/CMakeLists.txt                          |  19 ++-
+ tests/IntegrationPointsWeightsTest.cxx        | 133 +++++++++++++-----
+ 12 files changed, 398 insertions(+), 43 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 096fbce726..91a940309f 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -105,6 +105,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+   (`rocprofv3`) with the calls of the `HIP` runtime, the kernels and the
+   memory copies (see `mgis::setProfilingMarkers`). Without the option,
+   `roctx` is neither searched nor used.
++- `computeMeanThermodynamicForcesValues` sums the thermodynamic forces by
++  kernels, on the device if a device is enabled, when the post-processings
++  are computed by kernels (`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels`,
++  or post-processings placed on the GPU by `--execution`): on a GPU, the
++  thermodynamic forces are no longer copied to the host
++  (`addThermodynamicForcesIntegralsByKernels`, `batch::addWeightedSums`)
+ 
+ ### Changed
+ 
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index d70ef4efb3..46b81a93d6 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -547,6 +547,16 @@ each computation, and an invalid value is reported by
+ - :code:`computeMeasure` and :code:`computeIntegral`: reduction over the
+   elements, for the behaviour integrators which support kernels (the
+   weight of an integration point is then :code:`w det J`);
++- :code:`computeMeanThermodynamicForcesValues` (also used by the
++  :code:`MeanThermodynamicForces` post-processing): for each component, sum
++  over the integration points of the thermodynamic forces at the end of the
++  time step, in the global frame, multiplied by the weights of the points
++  kept by the problem. On a GPU, the thermodynamic forces are neither
++  copied to the host nor summed there. The sums are the ones of the loop of
++  the host up to round-off errors (the contributions are accumulated in
++  double, in an order which depends on the device). One reduction per
++  component is launched for each material: this computation is meant for a
++  few materials with many points;
+ - :code:`computeL2Projection` and
+   :code:`computeImplicitGradientRegularization`: right-hand sides by a
+   kernel; for the L2 projection, mass matrices computed by a kernel and
+diff --git a/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+index 77c8316f07..55631c8ec4 100644
+--- a/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
++++ b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+@@ -10,8 +10,11 @@
+ #ifndef LIB_MFEM_MGIS_BATCH_INTEGRATIONPOINTSFUNCTIONS_HXX
+ #define LIB_MFEM_MGIS_BATCH_INTEGRATIONPOINTSFUNCTIONS_HXX
+ 
++#include <span>
+ #include <optional>
++#include "mfem/general/array.hpp"
+ #include "mfem/linalg/vector.hpp"
++#include "MGIS/FieldView.hxx"
+ #include "mfem/fem/fespace.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+@@ -63,6 +66,28 @@ namespace mfem_mgis::batch {
+       const mfem::Vector* v,
+       const ElementsGeometry& g) noexcept;
+ 
++  /*!
++   * \brief adds to each value of `s` the sum, over the integration points,
++   * of a component of a field multiplied by the weights of the points,
++   * computed on the device if a device is enabled (the contributions of the
++   * points being accumulated in double), in the order of the points on the
++   * host
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] s: sums, one per component of the field
++   * \param[in] f: field, whose values are located on the device if a device
++   * is enabled (see `mfem::Vector::Read`)
++   * \param[in] w: weights of the points
++   * \param[in, out] workspace: workspace of the reductions, kept by the
++   * caller between the calls
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addWeightedSums(
++      Context& ctx,
++      std::span<real> s,
++      const mgis::FieldView<const real>& f,
++      const mfem::Vector& w,
++      mfem::Array<double>& workspace) noexcept;
++
+   /*!
+    * \brief adds the right-hand side of the L2 projection of a component of a
+    * function given at the integration points of the elements of a partial
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+index c216634e50..192441d62a 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+@@ -305,7 +305,9 @@ namespace mfem_mgis {
+    * \note the weights of the integration points are computed at the first
+    * call and kept by the problem (see `getIntegrationPointsWeights`): the
+    * following calls only sum the weighted values at the points, material by
+-   * material, on the host
++   * material, on the host, or by kernels when the post-processings are
++   * computed by kernels (see `addThermodynamicForcesIntegralsByKernels` of
++   * the problem)
+    */
+   template <bool parallel>
+   [[nodiscard]] std::optional<
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
+index 69d198d5f8..6704a18b37 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
+@@ -171,11 +171,6 @@ namespace mfem_mgis {
+       Context& ctx,
+       NonLinearEvolutionProblemImplementation<parallel>& p,
+       const BehaviourIntegratorsSelection& selection) noexcept {
+-    // the thermodynamic forces are read on the host
+-    if (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
+-                                                                 selection)) {
+-      return {};
+-    }
+     auto nmax = p.getFiniteElementSpace().GetMesh()->attributes.Max() + 1;
+     std::vector<std::vector<mfem_mgis::real>> stress_integrals(nmax);
+     const auto& mis = p.getAssignedMaterialsIdentifiers();
+@@ -225,6 +220,9 @@ namespace mfem_mgis {
+     // Thermodynamic forces in the global frame of the orthotropic behaviours,
+     // rotated at all the points at once
+     auto rotated_thermodynamic_forces = mfem::Vector{};
++    // the thermodynamic forces are read on the host, unless the sums are
++    // computed by kernels
++    auto synchronized_on_host = false;
+     for (const auto& mi : mis) {
+       const auto obis = getSelectedBehaviourIntegrators(ctx, p, mi, selection);
+       if (isInvalid(obis)) {
+@@ -233,6 +231,28 @@ namespace mfem_mgis {
+       auto& s = stress_integrals[mi];
+       auto& v = volumes[mi];
+       for (auto b = obis->first; b != obis->second; ++b) {
++        // sums computed by kernels, if the post-processings are
++        auto measure = real{};
++        const auto by_kernels =
++            p.addThermodynamicForcesIntegralsByKernels(ctx, s, measure, mi, b);
++        if (isInvalid(by_kernels)) {
++          return {};
++        }
++        if (*by_kernels) {
++          // the volume is computed with the first selected behaviour
++          // integrator
++          if (b == obis->first) {
++            v += measure;
++          }
++          continue;
++        }
++        if (!synchronized_on_host) {
++          if (!internals::synchronizeSelectedMaterialsOnHostForReading(
++                  ctx, p, selection)) {
++            return {};
++          }
++          synchronized_on_host = true;
++        }
+         const auto obi = p.getBehaviourIntegrator(ctx, mi, b);
+         if (isInvalid(obi)) {
+           return {};
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index 31635cfe64..79d7f6b94f 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -10,6 +10,7 @@
+ #define LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATIONBASE_HXX
+ 
+ #include <map>
++#include <span>
+ #include <memory>
+ #include <utility>
+ #include <optional>
+@@ -344,6 +345,39 @@ namespace mfem_mgis {
+     getIntegrationPointsWeights(Context& ctx,
+                                 const size_type m,
+                                 const size_type b) const noexcept;
++    /*!
++     * \brief adds the integrals of the thermodynamic forces at the end of
++     * the time step, in the global frame, over the elements of a behaviour
++     * integrator owned by this process, if the post-processings are computed
++     * by kernels (see `getNumberOfPostProcessingsComputationsByKernels`):
++     * nothing is done otherwise.
++     *
++     * The integrals are the sums over the integration points of the
++     * thermodynamic forces multiplied by the weights of the points (see
++     * `getIntegrationPointsWeights`), computed where the kernels run: on a
++     * GPU, the thermodynamic forces are not copied to the host. The
++     * contributions of the points are accumulated in double, in an order
++     * which depends on the device: the integrals are the ones of a loop on
++     * the points up to round-off errors. The measure is the sum of the
++     * weights, computed once on the host in the order of the points.
++     *
++     * \return true if the integrals were added, false if the
++     * post-processings are not computed by kernels, an invalid value on
++     * error
++     * \param[in, out] ctx: execution context
++     * \param[in, out] integrals: integrals of the components of the
++     * thermodynamic forces
++     * \param[out] measure: measure of the elements, if the integrals were
++     * added
++     * \param[in] m: material identifier
++     * \param[in] b: index of the behaviour integrator of the material
++     */
++    [[nodiscard]] std::optional<bool> addThermodynamicForcesIntegralsByKernels(
++        Context& ctx,
++        std::span<real> integrals,
++        real& measure,
++        const size_type m,
++        const size_type b) const noexcept;
+     std::optional<std::map<size_type, size_type>> addBehaviourIntegrator(
+         Context& ctx,
+         const std::string& n,
+@@ -659,6 +693,30 @@ namespace mfem_mgis {
+      */
+     mutable std::map<std::pair<size_type, size_type>, std::vector<real>>
+         integration_points_weights;
++    /*!
++     * \brief data of `addThermodynamicForcesIntegralsByKernels` kept between
++     * the calls
++     */
++    struct ThermodynamicForcesIntegralsWorkspace {
++      //! \brief weights of the integration points, read by the kernels
++      mfem::Vector weights;
++      //! \brief sum of the weights
++      real measure = real{};
++      /*!
++       * \brief thermodynamic forces in the global frame (orthotropic
++       * behaviours)
++       */
++      mfem::Vector rotated_thermodynamic_forces;
++      //! \brief workspace of the reductions
++      mfem::Array<double> reduction;
++    };
++    /*!
++     * \brief workspaces by material identifier and index of the behaviour
++     * integrator
++     */
++    mutable std::map<std::pair<size_type, size_type>,
++                     ThermodynamicForcesIntegralsWorkspace>
++        thermodynamic_forces_integrals_workspaces;
+     //! \brief tangent operator applied without assembly
+     mutable std::unique_ptr<MatrixFreeTangentOperator> tangent_operator;
+     //! \brief tangent operator with constrained essential degrees of freedom
+diff --git a/src/Batch/IntegrationPointsFunctions.cxx b/src/Batch/IntegrationPointsFunctions.cxx
+index e8b3db02c2..cb2831205a 100644
+--- a/src/Batch/IntegrationPointsFunctions.cxx
++++ b/src/Batch/IntegrationPointsFunctions.cxx
+@@ -296,4 +296,34 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of computeMassMatrices
+ 
++  bool addWeightedSums(Context& ctx,
++                       std::span<real> s,
++                       const mgis::FieldView<const real>& f,
++                       const mfem::Vector& w,
++                       mfem::Array<double>& workspace) noexcept {
++    const auto* const name = "addWeightedSums";
++    if ((f.getNumberOfPoints() != static_cast<size_type>(w.Size())) ||
++        (static_cast<std::size_t>(f.getNumberOfComponents()) != s.size())) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": unexpected number of points or of components of the field");
++    }
++    if (w.Size() == 0) {
++      return true;
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      const auto* const weights = w.Read(use_device);
++      for (std::size_t c = 0; c != s.size(); ++c) {
++        s[c] += static_cast<real>(internals::launchWeightedSumKernel(
++            f.data() + c * f.getComponentStride(),
++            static_cast<long long>(f.getPointStride()), weights, w.Size(),
++            workspace, use_device));
++      }
++    } catch (...) {
++      return ctx.registerErrorMessage(getExceptionMessage(name));
++    }
++    return true;
++  }  // end of addWeightedSums
++
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.cxx b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+index 75b7392c6e..94c5c3d040 100644
+--- a/src/Batch/IntegrationPointsFunctionsKernels.cxx
++++ b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+@@ -42,6 +42,22 @@ namespace mfem_mgis::batch::internals {
+     return r;
+   }  // end of launchIntegralKernel
+ 
++  double launchWeightedSumKernel(const real* const v,
++                                 const long long stride,
++                                 const real* const weights,
++                                 const int n,
++                                 mfem::Array<double>& w,
++                                 const bool use_device) {
++    auto r = double{};
++    mfem::reduce(
++        n, r,
++        [v, stride, weights] MFEM_HOST_DEVICE(const int i, double& s) {
++          s += weights[i] * v[i * stride];
++        },
++        mfem::SumReducer<double>{}, use_device, w);
++    return r;
++  }  // end of launchWeightedSumKernel
++
+   void launchL2ProjectionRightHandSideKernel(
+       const IntegrationPointsFunctionsKernelArguments& a,
+       const int c,
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.hxx b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+index 05660fa2d2..948ac2f698 100644
+--- a/src/Batch/IntegrationPointsFunctionsKernels.hxx
++++ b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+@@ -71,6 +71,25 @@ namespace mfem_mgis::batch::internals {
+       mfem::Array<double>& w,
+       const bool use_device);
+ 
++  /*!
++   * \return the sum of the values of a component of a field at the
++   * integration points multiplied by the weights of the points, accumulated
++   * in double (see `launchIntegralKernel`)
++   * \param[in] v: values of the component, `v[i * stride]` at the point `i`
++   * \param[in] stride: stride between two points
++   * \param[in] weights: weights of the points
++   * \param[in] n: number of points
++   * \param[in, out] w: workspace of the reduction
++   * \param[in] use_device: if true, the kernel runs on the device (if a device
++   * is enabled), and the pointers are located on the device
++   */
++  [[nodiscard]] double launchWeightedSumKernel(const real* const,
++                                               const long long,
++                                               const real* const,
++                                               const int,
++                                               mfem::Array<double>&,
++                                               const bool);
++
+   /*!
+    * \brief launches the kernel adding the right-hand side of the L2
+    * projection of a component of a function to values element by element
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index ed5f2c5df1..84cf963258 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -28,8 +28,11 @@
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
+ #include "MFEMMGIS/QuadratureDataLayout.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx"
+ #include "ExecutionSettings.hxx"
++#include "PostProcessingsComputation.hxx"
+ #include "SolverOverrides.hxx"
+ 
+ namespace mfem_mgis {
+@@ -577,6 +580,94 @@ namespace mfem_mgis {
+                  .first->second);
+   }  // end of getIntegrationPointsWeights
+ 
++  std::optional<bool> NonLinearEvolutionProblemImplementationBase::
++      addThermodynamicForcesIntegralsByKernels(
++          Context& ctx,
++          std::span<real> integrals,
++          real& measure,
++          const size_type m,
++          const size_type b) const noexcept {
++    using StateArray = MaterialArrays::StateArray;
++    try {
++      if (!internals::usePostProcessingsKernels(may_throw)) {
++        return false;
++      }
++      const auto ow = this->getIntegrationPointsWeights(ctx, m, b);
++      if (isInvalid(ow)) {
++        return {};
++      }
++      const auto obi = this->getBehaviourIntegrator(ctx, m, b);
++      if (isInvalid(obi)) {
++        return {};
++      }
++      const auto om = obi->getMaterial(ctx);
++      if (isInvalid(om)) {
++        return {};
++      }
++      const auto& w = *ow;
++      const auto np = static_cast<size_type>(om->n);
++      const auto nc = om->s1.thermodynamic_forces_stride;
++      if ((w.size() != static_cast<std::size_t>(np)) ||
++          (integrals.size() != static_cast<std::size_t>(nc))) {
++        return ctx.registerErrorMessage(
++            "addThermodynamicForcesIntegralsByKernels: inconsistent number "
++            "of weights of the integration points or of integrals of "
++            "material '" +
++            std::to_string(m) + "'");
++      }
++      if (np == 0) {
++        // no element owned by this process
++        measure = real{0};
++        internals::countPostProcessingComputationByKernels();
++        return true;
++      }
++      // the weights do not change (see `getIntegrationPointsWeights`): they
++      // are copied once for the kernels, and summed once
++      const auto [p, created] =
++          this->thermodynamic_forces_integrals_workspaces.try_emplace(
++              std::make_pair(m, b));
++      auto& workspace = p->second;
++      if (created) {
++        workspace.weights.SetSize(static_cast<int>(w.size()));
++        std::copy(w.begin(), w.end(), workspace.weights.HostWrite());
++        for (const auto wi : w) {
++          workspace.measure += wi;
++        }
++      }
++      const auto use_device = mfem::Device::IsEnabled();
++      // thermodynamic forces where the kernels run: the ones of the
++      // material, or, for an orthotropic behaviour, their values in the
++      // global frame, computed at all the points at once
++      auto forces = mgis::FieldView<const real>{};
++      if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
++        auto& v = workspace.rotated_thermodynamic_forces;
++        om->computeThermodynamicForcesInGlobalFrame(v);
++        forces = mgis::makePointByPointFieldView(
++            std::span<const real>(v.Read(use_device),
++                                  static_cast<std::size_t>(v.Size())),
++            np, nc, nc);
++      } else {
++        const auto a = StateArray::THERMODYNAMIC_FORCES;
++        const auto s = TimeStepStage::END_OF_TIME_STEP;
++        const auto& arrays = om->getArrays();
++        forces = relocate(
++            mgis::FieldView<const real>(
++                mgis::behaviour::getThermodynamicForcesView(om->s1)),
++            arrays.read(a, s, use_device), arrays.getArray(a, s).Size());
++      }
++      if (!batch::addWeightedSums(ctx, integrals, forces, workspace.weights,
++                                  workspace.reduction)) {
++        return {};
++      }
++      measure = workspace.measure;
++      internals::countPostProcessingComputationByKernels();
++      return true;
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
++    }
++    return {};
++  }  // end of addThermodynamicForcesIntegralsByKernels
++
+   void NonLinearEvolutionProblemImplementationBase::setTimeIncrement(
+       const real dt) {
+     if (this->mgis_integrator != nullptr) {
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 7d895ed285..b6364d37b9 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -689,14 +689,17 @@ if(MFEM_MGIS_HAVE_TFEL)
+ 
+   # IntegrationPointsWeightsTest executable: weights of the integration
+   # points kept by the non linear evolution problems and mean values of the
+-  # thermodynamic forces, which use them
++  # thermodynamic forces, which use them, computed element by element and
++  # by kernels, for an isotropic behaviour and for an orthotropic one
++  # (thermodynamic forces rotated in the global frame), on the host and on
++  # the debug device of MFEM
+   add_test_executable(IntegrationPointsWeightsTest)
+ 
+   # Helper function for IntegrationPointsWeightsTest
+-  function(add_integration_points_weights_test)
+-    set(test "IntegrationPointsWeightsTest")
++  function(add_integration_points_weights_test suffix)
++    set(test "IntegrationPointsWeightsTest${suffix}")
+     set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh"
+-               "--library" "$<TARGET_FILE:BehaviourTest>")
++               "--library" "$<TARGET_FILE:BehaviourTest>" ${ARGN})
+     add_test(NAME ${test} COMMAND ./IntegrationPointsWeightsTest ${params})
+     set_property(TEST ${test} PROPERTY DEPENDS BehaviourTest)
+     if(MFEM_USE_MPI)
+@@ -707,7 +710,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+     endif(MFEM_USE_MPI)
+   endfunction()
+ 
+-  add_integration_points_weights_test()
++  add_integration_points_weights_test("")
++  add_integration_points_weights_test("-debug" --device debug)
++  add_integration_points_weights_test("-orthotropic"
++                                      --behaviour OrthotropicElasticity)
++  add_integration_points_weights_test("-orthotropic-debug"
++                                      --behaviour OrthotropicElasticity
++                                      --device debug)
+ 
+   # StateManagerTest executable
+   add_tfel_test_executable(StateManagerTest)
+diff --git a/tests/IntegrationPointsWeightsTest.cxx b/tests/IntegrationPointsWeightsTest.cxx
+index da91e986e1..121f1dc4cf 100644
+--- a/tests/IntegrationPointsWeightsTest.cxx
++++ b/tests/IntegrationPointsWeightsTest.cxx
+@@ -19,6 +19,16 @@
+  *   depend on x, and the volumes, are the analytical ones: the mean values
+  *   follow the states, the weights being the kept ones.
+  *
++ * The integrals are computed twice: by the loop on the points of the host
++ * (post-processings element by element), then by kernels (environment
++ * variable `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels`), on the device
++ * if a device is enabled. The counter of the post-processings computed by
++ * kernels tells which computation is made; the integrals of each process
++ * are the same up to round-off errors, and the volumes are the same. With
++ * an orthotropic behaviour (option `--behaviour`), the materials are
++ * rotated: the thermodynamic forces are summed in the global frame, the
++ * integrals are compared between the two computations only.
++ *
+  * The weights are not computed again by the following calls, which is only
+  * visible if the mesh is modified (the documentation of
+  * `getIntegrationPointsWeights` forbids it): the vertices are moved again
+@@ -49,6 +59,8 @@
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
++#include "MFEMMGIS/PostProcessingsComputation.hxx"
++#include "MFEMMGIS/RotationMatrix.hxx"
+ #include "Tolerance.hxx"
+ 
+ //! \brief number of failed checks
+@@ -107,11 +119,13 @@ static bool areClose(const double a, const double b, const double eps) {
+  * \param[in, out] ctx: execution context
+  * \param[in] mesh: mesh of the unit cube made of two materials
+  * \param[in] library: behaviour library
++ * \param[in] behaviour: behaviour
+  */
+ template <bool parallel>
+ static void test(mfem_mgis::Context& ctx,
+                  const char* const mesh,
+-                 const char* const library) {
++                 const char* const library,
++                 const char* const behaviour) {
+   using namespace mfem_mgis;
+   auto or_die = ctx.getFatalFailureHandler();
+   auto problem = construct<NonLinearEvolutionProblem>(
+@@ -131,10 +145,21 @@ static void test(mfem_mgis::Context& ctx,
+   // weights and of the sums made by the library
+   constexpr auto eps = double{mfem_mgis::unit_tests::tolerance(1e-12, 1e-4)};
+   for (const size_type m : {1, 2}) {
+-    problem.addBehaviourIntegrator(ctx, "Mechanics", m, library,
+-                                   "IsotropicLinearHardeningPlasticity") |
++    problem.addBehaviourIntegrator(ctx, "Mechanics", m, library, behaviour) |
+         or_die;
+   }
++  // orthotropic behaviours: material frames rotated about two axes
++  auto orthotropic = false;
++  for (const size_type m : {1, 2}) {
++    auto& mat = problem.getMaterial(ctx, m, 0) | or_die;
++    if (mat.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
++      orthotropic = true;
++      const auto c = real{3} / 5;
++      const auto s = real{4} / 5;
++      mat.setRotationMatrix(RotationMatrix3D{
++          std::array<real, 9u>{c, -s * c, s * s, s, c * c, -c * s, 0, s, c}});
++    }
++  }
+   auto& impl = problem.template getImplementation<parallel>();
+   const auto& fes = fed.template getFiniteElementSpace<parallel>();
+   // first coordinate of the integration points of each material
+@@ -220,36 +245,78 @@ static void test(mfem_mgis::Context& ctx,
+         }
+       }
+     }
+-    const auto ores = computeMeanThermodynamicForcesValues<parallel>(ctx, impl);
+-    if (isInvalid(ores)) {
+-      std::cerr << ctx.getErrorMessage() << '\n';
+-      check(false, state + ": mean values of the thermodynamic forces");
+-      return;
+-    }
+-    const auto& [integrals, material_volumes] = *ores;
+-    for (const size_type m : {1, 2}) {
+-      const auto im = static_cast<std::size_t>(m - 1);
+-      const auto name = state + ", material " + std::to_string(m);
+-      const auto mi = static_cast<std::size_t>(m);
+-      if ((integrals.size() <= mi) || (material_volumes.size() <= mi)) {
+-        check(false, name + ": no integral");
+-        continue;
++    // integrals of this process computed element by element
++    auto reference = std::vector<std::vector<real>>{};
++    auto reference_volumes = std::vector<real>{};
++    for (const auto kernels : {false, true}) {
++      ::setenv("MFEM_MGIS_POST_PROCESSINGS_COMPUTATION",
++               kernels ? "Kernels" : "ElementByElement", 1);
++      const auto computation =
++          state + (kernels ? ", by kernels" : ", element by element");
++      const auto n0 = getNumberOfPostProcessingsComputationsByKernels();
++      const auto ores =
++          computeMeanThermodynamicForcesValues<parallel>(ctx, impl);
++      if (isInvalid(ores)) {
++        std::cerr << ctx.getErrorMessage() << '\n';
++        check(false, computation + ": mean values of the thermodynamic forces");
++        return;
++      }
++      // one computation by kernels per material
++      const auto n = getNumberOfPostProcessingsComputationsByKernels() - n0;
++      check(n == (kernels ? 2 : 0), computation + ": " + std::to_string(n) +
++                                        " computations made by kernels");
++      const auto& [integrals, material_volumes] = *ores;
++      for (const size_type m : {1, 2}) {
++        const auto im = static_cast<std::size_t>(m - 1);
++        const auto name = computation + ", material " + std::to_string(m);
++        const auto mi = static_cast<std::size_t>(m);
++        if ((integrals.size() <= mi) || (material_volumes.size() <= mi)) {
++          check(false, name + ": no integral");
++          continue;
++        }
++        check(areClose(sum<parallel>(material_volumes[mi]), volumes[im], eps),
++              name + ": volume");
++        auto ok = !orthotropic;
++        for (std::size_t k = 0; (!orthotropic) && (k != integrals[mi].size());
++             ++k) {
++          const auto expected =
++              k == 0 ? m * (a * volumes[im] + b * x_integrals[im])
++                     : m * a * static_cast<double>(k + 1) * volumes[im];
++          ok = ok && areClose(sum<parallel>(integrals[mi][k]), expected, eps);
++        }
++        check((ok || orthotropic) && (!integrals[mi].empty()),
++              name + ": integrals of the thermodynamic forces");
++        // the weights are the kept ones
++        const auto& w = impl.getIntegrationPointsWeights(ctx, m, 0) | or_die;
++        check(&w == addresses[im], name + ": weights computed again");
++        if (!kernels) {
++          continue;
++        }
++        // same integrals of this process as element by element, up to
++        // round-off errors (relatively to the largest integral), and same
++        // volume
++        auto largest = real{};
++        auto difference = real{};
++        for (std::size_t k = 0; k != integrals[mi].size(); ++k) {
++          largest = std::max(largest, std::abs(reference[mi][k]));
++          difference = std::max(difference,
++                                std::abs(integrals[mi][k] - reference[mi][k]));
++        }
++        std::cout << name << ": largest difference with the integrals "
++                  << "computed element by element " << difference
++                  << " (largest integral " << largest << ")\n";
++        check(difference <=
++                  mfem_mgis::unit_tests::tolerance(1e-13, 1e-5) * largest,
++              name + ": integrals computed element by element");
++        check(areClose(material_volumes[mi], reference_volumes[mi], 0),
++              name + ": volume computed element by element");
+       }
+-      check(areClose(sum<parallel>(material_volumes[mi]), volumes[im], eps),
+-            name + ": volume");
+-      auto ok = true;
+-      for (std::size_t k = 0; k != integrals[mi].size(); ++k) {
+-        const auto expected =
+-            k == 0 ? m * (a * volumes[im] + b * x_integrals[im])
+-                   : m * a * static_cast<double>(k + 1) * volumes[im];
+-        ok = ok && areClose(sum<parallel>(integrals[mi][k]), expected, eps);
++      if (!kernels) {
++        reference = integrals;
++        reference_volumes = material_volumes;
+       }
+-      check(ok && (!integrals[mi].empty()),
+-            name + ": integrals of the thermodynamic forces");
+-      // the weights are the kept ones
+-      const auto& w = impl.getIntegrationPointsWeights(ctx, m, 0) | or_die;
+-      check(&w == addresses[im], name + ": weights computed again");
+     }
++    ::unsetenv("MFEM_MGIS_POST_PROCESSINGS_COMPUTATION");
+   };
+   check_integrals(1e6, 0, "uniform thermodynamic forces");
+   check_integrals(-3e6, 5e6, "thermodynamic forces depending on x");
+@@ -277,6 +344,7 @@ int main(int argc, char** argv) {
+   initialize(argc, argv);
+   const char* mesh = "cube-two-materials.mesh";
+   const char* library = "src/libBehaviourTest.so";
++  const char* behaviour = "IsotropicLinearHardeningPlasticity";
+   auto parallel = false;
+   auto args = mfem::OptionsParser(argc, argv);
+   declareDefaultOptions(args);
+@@ -284,6 +352,7 @@ int main(int argc, char** argv) {
+                  "mesh of the unit cube made of two materials (1 for "
+                  "x < 1/2, 2 for x > 1/2)");
+   args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.AddOption(&behaviour, "-b", "--behaviour", "behaviour");
+   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                  "parallel computations");
+   args.Parse();
+@@ -294,12 +363,12 @@ int main(int argc, char** argv) {
+   auto ctx = Context{};
+   if (parallel) {
+ #ifdef MFEM_USE_MPI
+-    test<true>(ctx, mesh, library);
++    test<true>(ctx, mesh, library, behaviour);
+ #else  /* MFEM_USE_MPI */
+     check(false, "parallel computations require MPI");
+ #endif /* MFEM_USE_MPI */
+   } else {
+-    test<false>(ctx, mesh, library);
++    test<false>(ctx, mesh, library, behaviour);
+   }
+   std::cout << (failures == 0 ? "success" : "failure") << '\n';
+   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+-- 
+2.34.1
+

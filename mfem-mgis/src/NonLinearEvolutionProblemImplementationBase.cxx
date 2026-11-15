@@ -28,8 +28,11 @@
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
 #include "MFEMMGIS/QuadratureDataLayout.hxx"
+#include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx"
 #include "ExecutionSettings.hxx"
+#include "PostProcessingsComputation.hxx"
 #include "SolverOverrides.hxx"
 
 namespace mfem_mgis {
@@ -576,6 +579,94 @@ namespace mfem_mgis {
     return &(this->integration_points_weights.emplace(key, std::move(w))
                  .first->second);
   }  // end of getIntegrationPointsWeights
+
+  std::optional<bool> NonLinearEvolutionProblemImplementationBase::
+      addThermodynamicForcesIntegralsByKernels(
+          Context& ctx,
+          std::span<real> integrals,
+          real& measure,
+          const size_type m,
+          const size_type b) const noexcept {
+    using StateArray = MaterialArrays::StateArray;
+    try {
+      if (!internals::usePostProcessingsKernels(may_throw)) {
+        return false;
+      }
+      const auto ow = this->getIntegrationPointsWeights(ctx, m, b);
+      if (isInvalid(ow)) {
+        return {};
+      }
+      const auto obi = this->getBehaviourIntegrator(ctx, m, b);
+      if (isInvalid(obi)) {
+        return {};
+      }
+      const auto om = obi->getMaterial(ctx);
+      if (isInvalid(om)) {
+        return {};
+      }
+      const auto& w = *ow;
+      const auto np = static_cast<size_type>(om->n);
+      const auto nc = om->s1.thermodynamic_forces_stride;
+      if ((w.size() != static_cast<std::size_t>(np)) ||
+          (integrals.size() != static_cast<std::size_t>(nc))) {
+        return ctx.registerErrorMessage(
+            "addThermodynamicForcesIntegralsByKernels: inconsistent number "
+            "of weights of the integration points or of integrals of "
+            "material '" +
+            std::to_string(m) + "'");
+      }
+      if (np == 0) {
+        // no element owned by this process
+        measure = real{0};
+        internals::countPostProcessingComputationByKernels();
+        return true;
+      }
+      // the weights do not change (see `getIntegrationPointsWeights`): they
+      // are copied once for the kernels, and summed once
+      const auto [p, created] =
+          this->thermodynamic_forces_integrals_workspaces.try_emplace(
+              std::make_pair(m, b));
+      auto& workspace = p->second;
+      if (created) {
+        workspace.weights.SetSize(static_cast<int>(w.size()));
+        std::copy(w.begin(), w.end(), workspace.weights.HostWrite());
+        for (const auto wi : w) {
+          workspace.measure += wi;
+        }
+      }
+      const auto use_device = mfem::Device::IsEnabled();
+      // thermodynamic forces where the kernels run: the ones of the
+      // material, or, for an orthotropic behaviour, their values in the
+      // global frame, computed at all the points at once
+      auto forces = mgis::FieldView<const real>{};
+      if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+        auto& v = workspace.rotated_thermodynamic_forces;
+        om->computeThermodynamicForcesInGlobalFrame(v);
+        forces = mgis::makePointByPointFieldView(
+            std::span<const real>(v.Read(use_device),
+                                  static_cast<std::size_t>(v.Size())),
+            np, nc, nc);
+      } else {
+        const auto a = StateArray::THERMODYNAMIC_FORCES;
+        const auto s = TimeStepStage::END_OF_TIME_STEP;
+        const auto& arrays = om->getArrays();
+        forces = relocate(
+            mgis::FieldView<const real>(
+                mgis::behaviour::getThermodynamicForcesView(om->s1)),
+            arrays.read(a, s, use_device), arrays.getArray(a, s).Size());
+      }
+      if (!batch::addWeightedSums(ctx, integrals, forces, workspace.weights,
+                                  workspace.reduction)) {
+        return {};
+      }
+      measure = workspace.measure;
+      internals::countPostProcessingComputationByKernels();
+      return true;
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
+    }
+    return {};
+  }  // end of addThermodynamicForcesIntegralsByKernels
 
   void NonLinearEvolutionProblemImplementationBase::setTimeIncrement(
       const real dt) {

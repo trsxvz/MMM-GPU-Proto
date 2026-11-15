@@ -689,14 +689,17 @@ if(MFEM_MGIS_HAVE_TFEL)
 
   # IntegrationPointsWeightsTest executable: weights of the integration
   # points kept by the non linear evolution problems and mean values of the
-  # thermodynamic forces, which use them
+  # thermodynamic forces, which use them, computed element by element and
+  # by kernels, for an isotropic behaviour and for an orthotropic one
+  # (thermodynamic forces rotated in the global frame), on the host and on
+  # the debug device of MFEM
   add_test_executable(IntegrationPointsWeightsTest)
 
   # Helper function for IntegrationPointsWeightsTest
-  function(add_integration_points_weights_test)
-    set(test "IntegrationPointsWeightsTest")
+  function(add_integration_points_weights_test suffix)
+    set(test "IntegrationPointsWeightsTest${suffix}")
     set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh"
-               "--library" "$<TARGET_FILE:BehaviourTest>")
+               "--library" "$<TARGET_FILE:BehaviourTest>" ${ARGN})
     add_test(NAME ${test} COMMAND ./IntegrationPointsWeightsTest ${params})
     set_property(TEST ${test} PROPERTY DEPENDS BehaviourTest)
     if(MFEM_USE_MPI)
@@ -707,7 +710,13 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif(MFEM_USE_MPI)
   endfunction()
 
-  add_integration_points_weights_test()
+  add_integration_points_weights_test("")
+  add_integration_points_weights_test("-debug" --device debug)
+  add_integration_points_weights_test("-orthotropic"
+                                      --behaviour OrthotropicElasticity)
+  add_integration_points_weights_test("-orthotropic-debug"
+                                      --behaviour OrthotropicElasticity
+                                      --device debug)
 
   # StateManagerTest executable
   add_tfel_test_executable(StateManagerTest)
@@ -1671,9 +1680,20 @@ if(MFEM_MGIS_HAVE_TFEL)
   endif()
   # GlobalStiffnessMatrixTest executable: global matrix assembled from the
   # local matrices with a pattern and exchanges computed once, compared to
-  # the product of hypre, on one, two and four processes
+  # the product of hypre, on one, two and four processes. With a GPU, the
+  # values assembled on the host and on the GPU must be the same bit for
+  # bit, also when the values exchanged are given to MPI on the GPU
+  # (GlobalStiffnessMatrixTest.cmake)
   if(MFEM_USE_MPI)
     add_test_executable(GlobalStiffnessMatrixTest)
+    set(global_stiffness_matrix_test_device "")
+    if(enable-gpu-tests)
+      if(MFEM_USE_CUDA STREQUAL "YES")
+        set(global_stiffness_matrix_test_device cuda)
+      elseif(MFEM_USE_HIP STREQUAL "YES")
+        set(global_stiffness_matrix_test_device hip)
+      endif()
+    endif()
     foreach(_np 1 2 4)
       add_test(NAME GlobalStiffnessMatrixTest-np${_np}
                COMMAND mpirun -n ${_np} ./GlobalStiffnessMatrixTest
@@ -1681,6 +1701,19 @@ if(MFEM_MGIS_HAVE_TFEL)
                        ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh)
       set_tests_properties(GlobalStiffnessMatrixTest-np${_np}
                            PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+      if(global_stiffness_matrix_test_device)
+        foreach(_mpi host gpu-aware-mpi)
+          add_test(NAME GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
+                   COMMAND ${CMAKE_COMMAND}
+                           -DNP=${_np} -DMPI=${_mpi}
+                           -DDEVICE=${global_stiffness_matrix_test_device}
+                           -DTEST=$<TARGET_FILE:GlobalStiffnessMatrixTest>
+                           -DMESH=${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
+                           -P ${CMAKE_CURRENT_SOURCE_DIR}/GlobalStiffnessMatrixTest.cmake)
+          set_tests_properties(GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
+                               PROPERTIES RESOURCE_LOCK gpu)
+        endforeach()
+      endif()
     endforeach()
   endif()
   # IntegrationRuleOrderTest executable: order of the integration rules

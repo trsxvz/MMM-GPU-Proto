@@ -10,8 +10,11 @@
 #ifndef LIB_MFEM_MGIS_BATCH_INTEGRATIONPOINTSFUNCTIONS_HXX
 #define LIB_MFEM_MGIS_BATCH_INTEGRATIONPOINTSFUNCTIONS_HXX
 
+#include <span>
 #include <optional>
+#include "mfem/general/array.hpp"
 #include "mfem/linalg/vector.hpp"
+#include "MGIS/FieldView.hxx"
 #include "mfem/fem/fespace.hpp"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
@@ -62,6 +65,28 @@ namespace mfem_mgis::batch {
       const PartialQuadratureSpace& qs,
       const mfem::Vector* v,
       const ElementsGeometry& g) noexcept;
+
+  /*!
+   * \brief adds to each value of `s` the sum, over the integration points,
+   * of a component of a field multiplied by the weights of the points,
+   * computed on the device if a device is enabled (the contributions of the
+   * points being accumulated in double), in the order of the points on the
+   * host
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in, out] s: sums, one per component of the field
+   * \param[in] f: field, whose values are located on the device if a device
+   * is enabled (see `mfem::Vector::Read`)
+   * \param[in] w: weights of the points
+   * \param[in, out] workspace: workspace of the reductions, kept by the
+   * caller between the calls
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool addWeightedSums(
+      Context& ctx,
+      std::span<real> s,
+      const mgis::FieldView<const real>& f,
+      const mfem::Vector& w,
+      mfem::Array<double>& workspace) noexcept;
 
   /*!
    * \brief adds the right-hand side of the L2 projection of a component of a

@@ -42,6 +42,22 @@ namespace mfem_mgis::batch::internals {
     return r;
   }  // end of launchIntegralKernel
 
+  double launchWeightedSumKernel(const real* const v,
+                                 const long long stride,
+                                 const real* const weights,
+                                 const int n,
+                                 mfem::Array<double>& w,
+                                 const bool use_device) {
+    auto r = double{};
+    mfem::reduce(
+        n, r,
+        [v, stride, weights] MFEM_HOST_DEVICE(const int i, double& s) {
+          s += weights[i] * v[i * stride];
+        },
+        mfem::SumReducer<double>{}, use_device, w);
+    return r;
+  }  // end of launchWeightedSumKernel
+
   void launchL2ProjectionRightHandSideKernel(
       const IntegrationPointsFunctionsKernelArguments& a,
       const int c,

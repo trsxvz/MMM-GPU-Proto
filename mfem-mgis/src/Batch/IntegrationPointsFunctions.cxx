@@ -296,4 +296,34 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of computeMassMatrices
 
+  bool addWeightedSums(Context& ctx,
+                       std::span<real> s,
+                       const mgis::FieldView<const real>& f,
+                       const mfem::Vector& w,
+                       mfem::Array<double>& workspace) noexcept {
+    const auto* const name = "addWeightedSums";
+    if ((f.getNumberOfPoints() != static_cast<size_type>(w.Size())) ||
+        (static_cast<std::size_t>(f.getNumberOfComponents()) != s.size())) {
+      return ctx.registerErrorMessage(
+          std::string{name} +
+          ": unexpected number of points or of components of the field");
+    }
+    if (w.Size() == 0) {
+      return true;
+    }
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      const auto* const weights = w.Read(use_device);
+      for (std::size_t c = 0; c != s.size(); ++c) {
+        s[c] += static_cast<real>(internals::launchWeightedSumKernel(
+            f.data() + c * f.getComponentStride(),
+            static_cast<long long>(f.getPointStride()), weights, w.Size(),
+            workspace, use_device));
+      }
+    } catch (...) {
+      return ctx.registerErrorMessage(getExceptionMessage(name));
+    }
+    return true;
+  }  // end of addWeightedSums
+
 }  // end of namespace mfem_mgis::batch

@@ -171,11 +171,6 @@ namespace mfem_mgis {
       Context& ctx,
       NonLinearEvolutionProblemImplementation<parallel>& p,
       const BehaviourIntegratorsSelection& selection) noexcept {
-    // the thermodynamic forces are read on the host
-    if (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
-                                                                 selection)) {
-      return {};
-    }
     auto nmax = p.getFiniteElementSpace().GetMesh()->attributes.Max() + 1;
     std::vector<std::vector<mfem_mgis::real>> stress_integrals(nmax);
     const auto& mis = p.getAssignedMaterialsIdentifiers();
@@ -225,6 +220,9 @@ namespace mfem_mgis {
     // Thermodynamic forces in the global frame of the orthotropic behaviours,
     // rotated at all the points at once
     auto rotated_thermodynamic_forces = mfem::Vector{};
+    // the thermodynamic forces are read on the host, unless the sums are
+    // computed by kernels
+    auto synchronized_on_host = false;
     for (const auto& mi : mis) {
       const auto obis = getSelectedBehaviourIntegrators(ctx, p, mi, selection);
       if (isInvalid(obis)) {
@@ -233,6 +231,28 @@ namespace mfem_mgis {
       auto& s = stress_integrals[mi];
       auto& v = volumes[mi];
       for (auto b = obis->first; b != obis->second; ++b) {
+        // sums computed by kernels, if the post-processings are
+        auto measure = real{};
+        const auto by_kernels =
+            p.addThermodynamicForcesIntegralsByKernels(ctx, s, measure, mi, b);
+        if (isInvalid(by_kernels)) {
+          return {};
+        }
+        if (*by_kernels) {
+          // the volume is computed with the first selected behaviour
+          // integrator
+          if (b == obis->first) {
+            v += measure;
+          }
+          continue;
+        }
+        if (!synchronized_on_host) {
+          if (!internals::synchronizeSelectedMaterialsOnHostForReading(
+                  ctx, p, selection)) {
+            return {};
+          }
+          synchronized_on_host = true;
+        }
         const auto obi = p.getBehaviourIntegrator(ctx, mi, b);
         if (isInvalid(obi)) {
           return {};

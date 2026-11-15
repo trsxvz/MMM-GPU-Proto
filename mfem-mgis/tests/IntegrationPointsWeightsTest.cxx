@@ -19,6 +19,16 @@
  *   depend on x, and the volumes, are the analytical ones: the mean values
  *   follow the states, the weights being the kept ones.
  *
+ * The integrals are computed twice: by the loop on the points of the host
+ * (post-processings element by element), then by kernels (environment
+ * variable `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels`), on the device
+ * if a device is enabled. The counter of the post-processings computed by
+ * kernels tells which computation is made; the integrals of each process
+ * are the same up to round-off errors, and the volumes are the same. With
+ * an orthotropic behaviour (option `--behaviour`), the materials are
+ * rotated: the thermodynamic forces are summed in the global frame, the
+ * integrals are compared between the two computations only.
+ *
  * The weights are not computed again by the following calls, which is only
  * visible if the mesh is modified (the documentation of
  * `getIntegrationPointsWeights` forbids it): the vertices are moved again
@@ -49,6 +59,8 @@
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+#include "MFEMMGIS/PostProcessingsComputation.hxx"
+#include "MFEMMGIS/RotationMatrix.hxx"
 #include "Tolerance.hxx"
 
 //! \brief number of failed checks
@@ -107,11 +119,13 @@ static bool areClose(const double a, const double b, const double eps) {
  * \param[in, out] ctx: execution context
  * \param[in] mesh: mesh of the unit cube made of two materials
  * \param[in] library: behaviour library
+ * \param[in] behaviour: behaviour
  */
 template <bool parallel>
 static void test(mfem_mgis::Context& ctx,
                  const char* const mesh,
-                 const char* const library) {
+                 const char* const library,
+                 const char* const behaviour) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
   auto problem = construct<NonLinearEvolutionProblem>(
@@ -131,9 +145,20 @@ static void test(mfem_mgis::Context& ctx,
   // weights and of the sums made by the library
   constexpr auto eps = double{mfem_mgis::unit_tests::tolerance(1e-12, 1e-4)};
   for (const size_type m : {1, 2}) {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", m, library,
-                                   "IsotropicLinearHardeningPlasticity") |
+    problem.addBehaviourIntegrator(ctx, "Mechanics", m, library, behaviour) |
         or_die;
+  }
+  // orthotropic behaviours: material frames rotated about two axes
+  auto orthotropic = false;
+  for (const size_type m : {1, 2}) {
+    auto& mat = problem.getMaterial(ctx, m, 0) | or_die;
+    if (mat.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+      orthotropic = true;
+      const auto c = real{3} / 5;
+      const auto s = real{4} / 5;
+      mat.setRotationMatrix(RotationMatrix3D{
+          std::array<real, 9u>{c, -s * c, s * s, s, c * c, -c * s, 0, s, c}});
+    }
   }
   auto& impl = problem.template getImplementation<parallel>();
   const auto& fes = fed.template getFiniteElementSpace<parallel>();
@@ -220,36 +245,78 @@ static void test(mfem_mgis::Context& ctx,
         }
       }
     }
-    const auto ores = computeMeanThermodynamicForcesValues<parallel>(ctx, impl);
-    if (isInvalid(ores)) {
-      std::cerr << ctx.getErrorMessage() << '\n';
-      check(false, state + ": mean values of the thermodynamic forces");
-      return;
-    }
-    const auto& [integrals, material_volumes] = *ores;
-    for (const size_type m : {1, 2}) {
-      const auto im = static_cast<std::size_t>(m - 1);
-      const auto name = state + ", material " + std::to_string(m);
-      const auto mi = static_cast<std::size_t>(m);
-      if ((integrals.size() <= mi) || (material_volumes.size() <= mi)) {
-        check(false, name + ": no integral");
-        continue;
+    // integrals of this process computed element by element
+    auto reference = std::vector<std::vector<real>>{};
+    auto reference_volumes = std::vector<real>{};
+    for (const auto kernels : {false, true}) {
+      ::setenv("MFEM_MGIS_POST_PROCESSINGS_COMPUTATION",
+               kernels ? "Kernels" : "ElementByElement", 1);
+      const auto computation =
+          state + (kernels ? ", by kernels" : ", element by element");
+      const auto n0 = getNumberOfPostProcessingsComputationsByKernels();
+      const auto ores =
+          computeMeanThermodynamicForcesValues<parallel>(ctx, impl);
+      if (isInvalid(ores)) {
+        std::cerr << ctx.getErrorMessage() << '\n';
+        check(false, computation + ": mean values of the thermodynamic forces");
+        return;
       }
-      check(areClose(sum<parallel>(material_volumes[mi]), volumes[im], eps),
-            name + ": volume");
-      auto ok = true;
-      for (std::size_t k = 0; k != integrals[mi].size(); ++k) {
-        const auto expected =
-            k == 0 ? m * (a * volumes[im] + b * x_integrals[im])
-                   : m * a * static_cast<double>(k + 1) * volumes[im];
-        ok = ok && areClose(sum<parallel>(integrals[mi][k]), expected, eps);
+      // one computation by kernels per material
+      const auto n = getNumberOfPostProcessingsComputationsByKernels() - n0;
+      check(n == (kernels ? 2 : 0), computation + ": " + std::to_string(n) +
+                                        " computations made by kernels");
+      const auto& [integrals, material_volumes] = *ores;
+      for (const size_type m : {1, 2}) {
+        const auto im = static_cast<std::size_t>(m - 1);
+        const auto name = computation + ", material " + std::to_string(m);
+        const auto mi = static_cast<std::size_t>(m);
+        if ((integrals.size() <= mi) || (material_volumes.size() <= mi)) {
+          check(false, name + ": no integral");
+          continue;
+        }
+        check(areClose(sum<parallel>(material_volumes[mi]), volumes[im], eps),
+              name + ": volume");
+        auto ok = !orthotropic;
+        for (std::size_t k = 0; (!orthotropic) && (k != integrals[mi].size());
+             ++k) {
+          const auto expected =
+              k == 0 ? m * (a * volumes[im] + b * x_integrals[im])
+                     : m * a * static_cast<double>(k + 1) * volumes[im];
+          ok = ok && areClose(sum<parallel>(integrals[mi][k]), expected, eps);
+        }
+        check((ok || orthotropic) && (!integrals[mi].empty()),
+              name + ": integrals of the thermodynamic forces");
+        // the weights are the kept ones
+        const auto& w = impl.getIntegrationPointsWeights(ctx, m, 0) | or_die;
+        check(&w == addresses[im], name + ": weights computed again");
+        if (!kernels) {
+          continue;
+        }
+        // same integrals of this process as element by element, up to
+        // round-off errors (relatively to the largest integral), and same
+        // volume
+        auto largest = real{};
+        auto difference = real{};
+        for (std::size_t k = 0; k != integrals[mi].size(); ++k) {
+          largest = std::max(largest, std::abs(reference[mi][k]));
+          difference = std::max(difference,
+                                std::abs(integrals[mi][k] - reference[mi][k]));
+        }
+        std::cout << name << ": largest difference with the integrals "
+                  << "computed element by element " << difference
+                  << " (largest integral " << largest << ")\n";
+        check(difference <=
+                  mfem_mgis::unit_tests::tolerance(1e-13, 1e-5) * largest,
+              name + ": integrals computed element by element");
+        check(areClose(material_volumes[mi], reference_volumes[mi], 0),
+              name + ": volume computed element by element");
       }
-      check(ok && (!integrals[mi].empty()),
-            name + ": integrals of the thermodynamic forces");
-      // the weights are the kept ones
-      const auto& w = impl.getIntegrationPointsWeights(ctx, m, 0) | or_die;
-      check(&w == addresses[im], name + ": weights computed again");
+      if (!kernels) {
+        reference = integrals;
+        reference_volumes = material_volumes;
+      }
     }
+    ::unsetenv("MFEM_MGIS_POST_PROCESSINGS_COMPUTATION");
   };
   check_integrals(1e6, 0, "uniform thermodynamic forces");
   check_integrals(-3e6, 5e6, "thermodynamic forces depending on x");
@@ -277,6 +344,7 @@ int main(int argc, char** argv) {
   initialize(argc, argv);
   const char* mesh = "cube-two-materials.mesh";
   const char* library = "src/libBehaviourTest.so";
+  const char* behaviour = "IsotropicLinearHardeningPlasticity";
   auto parallel = false;
   auto args = mfem::OptionsParser(argc, argv);
   declareDefaultOptions(args);
@@ -284,6 +352,7 @@ int main(int argc, char** argv) {
                  "mesh of the unit cube made of two materials (1 for "
                  "x < 1/2, 2 for x > 1/2)");
   args.AddOption(&library, "-l", "--library", "behaviour library");
+  args.AddOption(&behaviour, "-b", "--behaviour", "behaviour");
   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
                  "parallel computations");
   args.Parse();
@@ -294,12 +363,12 @@ int main(int argc, char** argv) {
   auto ctx = Context{};
   if (parallel) {
 #ifdef MFEM_USE_MPI
-    test<true>(ctx, mesh, library);
+    test<true>(ctx, mesh, library, behaviour);
 #else  /* MFEM_USE_MPI */
     check(false, "parallel computations require MPI");
 #endif /* MFEM_USE_MPI */
   } else {
-    test<false>(ctx, mesh, library);
+    test<false>(ctx, mesh, library, behaviour);
   }
   std::cout << (failures == 0 ? "success" : "failure") << '\n';
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

@@ -148,6 +148,13 @@ namespace mfem_mgis {
     this->oper->Mult(u, r);
   }  // end of computeResidual
 
+  mfem::Vector &NonLinearSolverBase::getWorkVector(const WorkVector v,
+                                                   const size_type n) const {
+    auto &w = this->work_vectors[static_cast<std::size_t>(v)];
+    w.SetSize(n);
+    return w;
+  }  // end of getWorkVector
+
   mfem::Operator &NonLinearSolverBase::getJacobian(
       const mfem::Vector &u) const {
     auto profiler =

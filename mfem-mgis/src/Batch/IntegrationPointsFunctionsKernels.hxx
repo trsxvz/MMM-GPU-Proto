@@ -72,6 +72,25 @@ namespace mfem_mgis::batch::internals {
       const bool use_device);
 
   /*!
+   * \return the sum of the values of a component of a field at the
+   * integration points multiplied by the weights of the points, accumulated
+   * in double (see `launchIntegralKernel`)
+   * \param[in] v: values of the component, `v[i * stride]` at the point `i`
+   * \param[in] stride: stride between two points
+   * \param[in] weights: weights of the points
+   * \param[in] n: number of points
+   * \param[in, out] w: workspace of the reduction
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers are located on the device
+   */
+  [[nodiscard]] double launchWeightedSumKernel(const real* const,
+                                               const long long,
+                                               const real* const,
+                                               const int,
+                                               mfem::Array<double>&,
+                                               const bool);
+
+  /*!
    * \brief launches the kernel adding the right-hand side of the L2
    * projection of a component of a function to values element by element
    * (`nd x ne`)

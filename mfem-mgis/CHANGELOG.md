@@ -105,9 +105,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   (`rocprofv3`) with the calls of the `HIP` runtime, the kernels and the
   memory copies (see `mgis::setProfilingMarkers`). Without the option,
   `roctx` is neither searched nor used.
+- `computeMeanThermodynamicForcesValues` sums the thermodynamic forces by
+  kernels, on the device if a device is enabled, when the post-processings
+  are computed by kernels (`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels`,
+  or post-processings placed on the GPU by `--execution`): on a GPU, the
+  thermodynamic forces are no longer copied to the host
+  (`addThermodynamicForcesIntegralsByKernels`, `batch::addWeightedSums`)
 
 ### Changed
 
+- the global matrix of a conforming parallel space whose pattern and
+  exchanges are computed once (`batch::GlobalStiffnessMatrix`) is also used
+  when `hypre` computes on a GPU, where its values are assembled: the
+  tangent operator assembled by kernels is no longer the triple product of
+  `hypre`, from which it differs by round-off errors, and it is the same,
+  bit for bit, on the host and on the GPU
+- the vectors of the resolutions of the non linear solvers (residual,
+  correction, estimates) and of the evaluations of the residual are kept
+  between the calls (`NonLinearSolverBase::getWorkVector`,
+  `ResidualWorkVectors`): no vector is allocated on the device at each
+  resolution or at each evaluation of the residual
 - use std::span instead of mgis::span
 - the arrays of the materials are stored in the memory of MFEM: after a
   computation on a GPU, a direct access to `s0`, `s1` or `K` on the host

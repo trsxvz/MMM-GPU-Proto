@@ -84,14 +84,14 @@ namespace mfem_mgis {
     auto &log = this->getLogStream();
     const auto shall_print = this->shallPrint();
 
-    mfem::Vector r;  // residual vector
-    mfem::Vector c;  // opposite of the Newton's correction
-    r.SetSize(this->oper->Width());
-    c.SetSize(this->oper->Width());
+    // residual vector
+    auto &r = this->getWorkVector(WorkVector::RESIDUAL, this->oper->Width());
+    // opposite of the Newton's correction
+    auto &c = this->getWorkVector(WorkVector::CORRECTION, this->oper->Width());
     // estimate of the unknowns at a trial of the line search, if any
-    mfem::Vector xn;
+    auto &xn = this->getWorkVector(
+        WorkVector::ESTIMATE, this->line_search.isEnabled() ? x.Size() : 0);
     if (this->line_search.isEnabled()) {
-      xn.SetSize(x.Size());
       xn.UseDevice(true);
     }
 
@@ -166,7 +166,8 @@ namespace mfem_mgis {
     auto window_norm = norm;
     auto iterations_without_decrease = size_type{};
     auto smallest_norm = norm;
-    auto best_x = mfem::Vector(x.Size());
+    auto &best_x =
+        this->getWorkVector(WorkVector::AUXILIARY_ESTIMATE, x.Size());
     best_x.UseDevice(true);
     best_x = x;
     auto converged_by_stagnation = false;
@@ -483,7 +484,7 @@ namespace mfem_mgis {
       this->prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
       if ((t != nullptr) && (t->requiresLinearResidualNorm())) {
         // norm of the residual of the linear solve, J c - r
-        auto lr = mfem::Vector(r.Size());
+        auto &lr = this->getWorkVector(WorkVector::LINEAR_RESIDUAL, r.Size());
         lr.UseDevice(true);
         J.Mult(c, lr);
         lr -= r;

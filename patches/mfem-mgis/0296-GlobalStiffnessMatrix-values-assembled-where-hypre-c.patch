@@ -1,0 +1,1057 @@
+From d3e6e9b43ebdc1a93d84063f7c6854dd8b5cde23 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 15 Nov 2026 01:48:18 +0100
+Subject: [PATCH] GlobalStiffnessMatrix: values assembled where hypre computes,
+ on the GPU too
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The global matrix of a conforming parallel space whose pattern and exchanges
+between the processes are computed once was refused when hypre computes on
+a GPU, its values being added on the host: the tangent operator assembled
+by kernels was then the product `Pᵀ A P` of hypre at each assembly, which
+computes the pattern again each time (about 60 % of the assembly of the
+tangent operator of a polycrystal on MI300A).
+
+The setup now gives, for each entry of the global matrix, the list of its
+contributions: entries of the local matrix, then received values. A kernel
+computes each value as the sum of its contributions in the order of the
+list, on the host or on the GPU, where the values of the local matrix are
+read and the ones of the global matrix written without copy to the host:
+there is one assembly, without concurrent additions. The values are the
+ones of the former loop of the host, bit for bit, on the host and on the
+GPU. On a GPU, the tangent operator differs from the product of hypre by
+round-off errors: the results of the computations on a GPU change
+accordingly.
+
+The values of the rows owned by other processes are exchanged by non
+blocking messages between the processes concerned, given to MPI on the GPU
+with GPU-aware MPI. The prolongation and the pattern, read on the host by
+the setup, are given back to hypre. The global matrix being the same object
+at each assembly, the copies of its values that hypre keeps in it on a GPU
+(sorted columns, triangular solves of the Gauss-Seidel relaxations) are
+freed by each assembly: hypre would otherwise relax with the values of the
+previous assembly.
+
+GlobalStiffnessMatrixTest: no longer refused on a GPU; checksum of the
+entries of each global matrix, the same on the host and on the GPU, without
+and with GPU-aware MPI (GlobalStiffnessMatrixTest.cmake); Gauss-Seidel
+smoother of hypre applied after a second assembly.
+---
+ CHANGELOG.md                                  |   6 +
+ docs/source/user_guide/batch_computations.rst |  32 ++-
+ .../MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx  |  87 ++++---
+ src/Batch/GlobalStiffnessMatrix.cxx           | 237 +++++++++++++-----
+ src/Batch/GlobalStiffnessMatrixKernels.cxx    |  45 ++++
+ src/Batch/GlobalStiffnessMatrixKernels.hxx    |  75 ++++++
+ src/CMakeLists.txt                            |   1 +
+ tests/CMakeLists.txt                          |  26 +-
+ tests/GlobalStiffnessMatrixTest.cmake         |  37 +++
+ tests/GlobalStiffnessMatrixTest.cxx           | 178 ++++++++++++-
+ 10 files changed, 612 insertions(+), 112 deletions(-)
+ create mode 100644 src/Batch/GlobalStiffnessMatrixKernels.cxx
+ create mode 100644 src/Batch/GlobalStiffnessMatrixKernels.hxx
+ create mode 100644 tests/GlobalStiffnessMatrixTest.cmake
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 0a1f69eda3..096fbce726 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -108,6 +108,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+ 
+ ### Changed
+ 
++- the global matrix of a conforming parallel space whose pattern and
++  exchanges are computed once (`batch::GlobalStiffnessMatrix`) is also used
++  when `hypre` computes on a GPU, where its values are assembled: the
++  tangent operator assembled by kernels is no longer the triple product of
++  `hypre`, from which it differs by round-off errors, and it is the same,
++  bit for bit, on the host and on the GPU
+ - the vectors of the resolutions of the non linear solvers (residual,
+   correction, estimates) and of the evaluations of the residual are kept
+   between the calls (`NonLinearSolverBase::getWorkVector`,
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 818d390f0b..d70ef4efb3 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -431,14 +431,26 @@ nonlinear form without interior face integrators nor extension of
+   essential degrees of freedom are eliminated, their diagonal being set to
+   one.
+ 
+-In parallel, when :code:`hypre` does not compute on a GPU and each row of
+-the prolongation of the finite element space has a single entry, equal to
+-one (conforming mesh), the pattern of the global matrix and the exchanges
+-between the processes are computed at the first assembly and kept: the
+-following assemblies only copy, exchange and add the values. This setup is
+-performed again if the pattern of the local matrix changes or if the finite
+-element space is updated. Otherwise, the global matrix is computed by the
+-triple product of :code:`hypre` at each assembly.
++In parallel, when each row of the prolongation of the finite element space
++has a single entry, equal to one (conforming mesh), the pattern of the
++global matrix and the exchanges between the processes are computed at the
++first assembly and kept: the following assemblies only copy, exchange and
++add the values. This setup is performed again if the pattern of the local
++matrix changes or if the finite element space is updated. Otherwise, the
++global matrix is computed by the triple product of :code:`hypre` at each
++assembly.
++
++The values of the global matrix are computed where :code:`hypre` computes:
++on the host, or on the GPU, where the values of the local matrix are read
++and the ones of the global matrix written without copy to the host. Each
++value is the sum of its contributions (entries of the local matrix, then
++values received from the other processes) added in the same order on the
++host and on the GPU: the global matrix is the same, bit for bit. It differs
++from the triple product of :code:`hypre` by round-off errors. With GPU-aware
++MPI, the values exchanged between the processes are given to MPI on the
++GPU. The setup is made on the host. The global matrix is the same object at
++each assembly: on a GPU, the copies of its values kept in it by
++:code:`hypre` (Gauss-Seidel relaxations) are freed by each assembly.
+ 
+ .. _mfem_mgis_batch_computations_matrix_free:
+ 
+@@ -1251,8 +1263,6 @@ Limitations
+   :code:`getInternalStateVariable`, make this call.
+ - The positions of the entries of the stiffness matrices, which avoid
+   searching for the entries in the rows of the matrix, are not used with
+-  the :code:`CUDA`, :code:`HIP` and :code:`debug` devices of :code:`MFEM`,
+-  and the global matrix whose pattern and exchanges are kept is not used
+-  when :code:`hypre` computes on the GPU.
++  the :code:`CUDA`, :code:`HIP` and :code:`debug` devices of :code:`MFEM`.
+ - :code:`AmgX` requires :code:`MFEM` compiled with :code:`CUDA`; the matrix
+   is uploaded from the host at each setup of its solvers.
+diff --git a/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx b/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx
+index cfc09d2b6a..bddd4e26ee 100644
+--- a/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx
++++ b/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx
+@@ -41,23 +41,37 @@ namespace mfem_mgis::batch {
+    * entry is lost), the position of each entry of the local matrix in the
+    * part of the global matrix owned by the process, or its place in the
+    * message sent to the process owning its row, and the positions of the
+-   * received entries. The following assemblies only copy, exchange and add
+-   * the values, as long as, on every process, the local matrix has the same
+-   * number of rows, the same number of entries and the same arrays of the
+-   * pattern (rows and columns), and the finite element space is not
+-   * updated: otherwise, the setup is made again by all the processes. The
+-   * contents of the arrays of the pattern are not compared: they must not be
++   * received entries. These positions give the list of the contributions to
++   * each entry of the global matrix: entries of the local matrix, in
++   * increasing order, then received values, in the order of the processes.
++   * The following assemblies only copy, exchange and add the values, as
++   * long as, on every process, the local matrix has the same number of
++   * rows, the same number of entries and the same arrays of the pattern
++   * (rows and columns), and the finite element space is not updated:
++   * otherwise, the setup is made again by all the processes. The contents
++   * of the arrays of the pattern are not compared: they must not be
+    * modified between two assemblies.
+    *
+-   * The values of the global matrix are written on the host: hypre must not
+-   * use the GPU (see `isSupported`).
++   * Each value of the global matrix is the sum of its contributions, added
++   * in the order of their list by a kernel run where hypre computes: on the
++   * host, or on the GPU, where the values of the local matrix are read and
++   * the ones of the global matrix written without copy to the host. The
++   * values are the same, bit for bit, on the host and on the GPU. They are
++   * the ones of the product `Pᵀ A P` of hypre up to round-off errors (sums
++   * in another order). The values exchanged between the processes are given
++   * to MPI on the GPU with GPU-aware MPI (`mfem::Device::GetGPUAwareMPI`),
++   * on the host otherwise. The setup is made on the host.
++   *
++   * The global matrix is the same object at each assembly: on the GPU, the
++   * copies of its values that hypre keeps in it (sorted columns and
++   * triangular solves of the Gauss-Seidel relaxations) are freed by each
++   * assembly.
+    */
+   struct MFEM_MGIS_EXPORT GlobalStiffnessMatrix {
+     /*!
+      * \return true if the global matrices of a finite element space can be
+-     * assembled by this class: hypre does not use the GPU, and each row of
+-     * the prolongation has a single entry, equal to one, on all the
+-     * processes (collective call)
++     * assembled by this class: each row of the prolongation has a single
++     * entry, equal to one, on all the processes (collective call)
+      * \param[in] fes: finite element space
+      */
+     [[nodiscard]] static bool isSupported(
+@@ -117,28 +131,43 @@ namespace mfem_mgis::batch {
+     //! \brief number of entries of the diagonal block of the global matrix
+     int diagonal_block_entries = 0;
+     /*!
+-     * \brief positions of the entries of the local matrix whose rows are
+-     * owned by the process in the values of the global matrix: positions in
+-     * the diagonal block, then, from `diagonal_block_entries`, in the off
+-     * diagonal block; -1 for the entries sent to other processes
++     * \brief number of entries of the off diagonal block of the global
++     * matrix
++     */
++    int off_diagonal_block_entries = 0;
++    /*!
++     * \brief offsets of the contributions to each entry of the global
++     * matrix: entries of the diagonal block, then of the off diagonal block
++     */
++    mfem::Array<int> offsets;
++    /*!
++     * \brief contributions to the entries of the global matrix: for each
++     * entry, the entries of the local matrix added to it, in increasing
++     * order, then, from the number of entries of the local matrix, the
++     * received values added to it, in increasing order
+      */
+-    std::vector<int> positions;
++    mfem::Array<int> contributions;
+     //! \brief entries of the local matrix sent, ordered by process
+-    std::vector<int> sent_entries;
+-    //! \brief number of entries sent to each process
+-    std::vector<int> send_counts;
+-    //! \brief offsets of the entries sent to each process
+-    std::vector<int> send_offsets;
+-    //! \brief positions of the received entries in the global matrix
+-    std::vector<int> received_positions;
+-    //! \brief number of entries received from each process
+-    std::vector<int> receive_counts;
+-    //! \brief offsets of the entries received from each process
+-    std::vector<int> receive_offsets;
++    mfem::Array<int> sent_entries;
++    //! \brief values exchanged with a process
++    struct Message {
++      //! \brief rank of the process
++      int process;
++      //! \brief offset of the values in the values sent or received
++      int offset;
++      //! \brief number of values
++      int size;
++    };
++    //! \brief messages sent to the processes owning rows of the local matrix
++    std::vector<Message> sent_messages;
++    //! \brief messages received from the other processes
++    std::vector<Message> received_messages;
++    //! \brief requests of the exchanges (workspace)
++    std::vector<MPI_Request> requests;
+     //! \brief values sent (workspace)
+-    std::vector<real> send_buffer;
++    mfem::Vector send_buffer;
+     //! \brief values received (workspace)
+-    std::vector<real> receive_buffer;
++    mfem::Vector receive_buffer;
+   };
+ 
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/GlobalStiffnessMatrix.cxx b/src/Batch/GlobalStiffnessMatrix.cxx
+index b00ab5518c..683956cbaf 100644
+--- a/src/Batch/GlobalStiffnessMatrix.cxx
++++ b/src/Batch/GlobalStiffnessMatrix.cxx
+@@ -15,13 +15,18 @@
+ #include <utility>
+ #include <algorithm>
+ #include <exception>
++#include "mfem/general/forall.hpp"
+ #include "mfem/general/communication.hpp"
+ #include "mfem/linalg/handle.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
+ #include "mfem/fem/pfespace.hpp"
++#include "GlobalStiffnessMatrixKernels.hxx"
+ 
+ namespace mfem_mgis::batch {
+ 
++  //! \brief tag of the messages of the assemblies
++  constexpr int message_tag = 23571;
++
+   //! \return true if a value is exactly one
+   static bool isOne(const real v) { return (v >= real{1}) && (v <= real{1}); }
+ 
+@@ -29,7 +34,8 @@ namespace mfem_mgis::batch {
+    * \return the global numbers of the true degrees of freedom of the local
+    * degrees of freedom of a finite element space, read in the prolongation,
+    * or an empty vector if a row of the prolongation has not a single entry
+-   * equal to one (on this process)
++   * equal to one (on this process). The prolongation is read on the host,
++   * then given back to hypre where it computes.
+    * \param[in] fes: finite element space
+    */
+   static std::vector<HYPRE_BigInt> getGlobalTrueDegreesOfFreedom(
+@@ -57,9 +63,11 @@ namespace mfem_mgis::batch {
+       } else if ((nd == 0) && (no == 1) && isOne(ov[oi[r]])) {
+         T[static_cast<std::size_t>(r)] = cmap[oj[oi[r]]];
+       } else {
+-        return {};
++        T.clear();
++        break;
+       }
+     }
++    P.HypreRead();
+     return T;
+   }  // end of getGlobalTrueDegreesOfFreedom
+ 
+@@ -115,6 +123,24 @@ namespace mfem_mgis::batch {
+     return -1;
+   }  // end of findGlobalPosition
+ 
++  /*!
++   * \brief frees the copies of the values of a block of a matrix that hypre
++   * keeps in it when it computes on a GPU: the block with sorted columns
++   * and the one of the triangular solves (Gauss-Seidel relaxations), which
++   * hypre only builds if they do not exist. Without this call, hypre would
++   * use the values of the previous assembly.
++   * \param[in, out] m: block of a matrix of hypre
++   */
++  static void freeValuesKeptByHypre([[maybe_unused]] hypre_CSRMatrix* const m) {
++#if defined(HYPRE_USING_CUSPARSE) || defined(HYPRE_USING_ROCSPARSE) || \
++    defined(HYPRE_USING_ONEMKLSPARSE)
++    hypre_TFree(hypre_CSRMatrixSortedData(m), HYPRE_MEMORY_DEVICE);
++    hypre_TFree(hypre_CSRMatrixSortedJ(m), HYPRE_MEMORY_DEVICE);
++    hypre_CsrsvDataDestroy(hypre_CSRMatrixCsrsvData(m));
++    hypre_CSRMatrixCsrsvData(m) = nullptr;
++#endif
++  }  // end of freeValuesKeptByHypre
++
+   bool GlobalStiffnessMatrix::isSupported(
+       const mfem::ParFiniteElementSpace& fes) noexcept {
+     auto supported = int{0};
+@@ -122,9 +148,8 @@ namespace mfem_mgis::batch {
+       // the construction of the prolongation is collective: it is built on
+       // all the processes, including the ones without degree of freedom
+       static_cast<void>(fes.Dof_TrueDof_Matrix());
+-      supported = ((!isHypreUsingGPU()) &&
+-                   ((fes.GetVSize() == 0) ||
+-                    (!getGlobalTrueDegreesOfFreedom(fes).empty())))
++      supported = ((fes.GetVSize() == 0) ||
++                   (!getGlobalTrueDegreesOfFreedom(fes).empty()))
+                       ? 1
+                       : 0;
+     } catch (...) {
+@@ -189,9 +214,10 @@ namespace mfem_mgis::batch {
+     const hypre_ParCSRMatrix* const g = *(this->matrix);
+     const auto nd = hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixDiag(g));
+     const auto no = hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixOffd(g));
+-    const auto too_many_entries =
+-        static_cast<long long>(nd) + no > std::numeric_limits<int>::max();
++    auto too_many_entries =
++        static_cast<long long>(nd) + no >= std::numeric_limits<int>::max();
+     this->diagonal_block_entries = static_cast<int>(nd);
++    this->off_diagonal_block_entries = static_cast<int>(no);
+     // first row owned by each process
+     auto first_rows =
+         std::vector<HYPRE_BigInt>(static_cast<std::size_t>(nprocs) + 1);
+@@ -208,8 +234,13 @@ namespace mfem_mgis::batch {
+     const auto* const Ai = A.HostReadI();
+     const auto* const Aj = A.HostReadJ();
+     const auto n = A.NumNonZeroElems();
+-    this->positions.assign(static_cast<std::size_t>(n), -1);
+-    auto sent = std::vector<std::vector<int>>(static_cast<std::size_t>(nprocs));
++    // positions of the entries of the local matrix whose rows are owned by
++    // the process in the values of the global matrix: positions in the
++    // diagonal block, then, from its number of entries, in the off diagonal
++    // block; -1 for the entries sent to other processes
++    auto positions = std::vector<int>(static_cast<std::size_t>(n), -1);
++    auto sent_to =
++        std::vector<std::vector<int>>(static_cast<std::size_t>(nprocs));
+     auto pairs = std::vector<std::vector<HYPRE_BigInt>>(
+         static_cast<std::size_t>(nprocs));
+     for (int r = 0; r != A.Height(); ++r) {
+@@ -220,35 +251,54 @@ namespace mfem_mgis::batch {
+         if (o == rank) {
+           const auto p = findGlobalPosition(g, I, J);
+           found = found && (p >= 0);
+-          this->positions[static_cast<std::size_t>(k)] = p;
++          positions[static_cast<std::size_t>(k)] = p;
+         } else {
+-          sent[static_cast<std::size_t>(o)].push_back(k);
++          sent_to[static_cast<std::size_t>(o)].push_back(k);
+           pairs[static_cast<std::size_t>(o)].push_back(I);
+           pairs[static_cast<std::size_t>(o)].push_back(J);
+         }
+       }
+     }
+-    // exchanges
++    // exchanges: the entries sent, ordered by process
+     const auto np = static_cast<std::size_t>(nprocs);
+-    this->send_counts.assign(np, 0);
+-    this->send_offsets.assign(np, 0);
+-    this->sent_entries.clear();
++    auto send_counts = std::vector<int>(np);
++    auto send_offsets = std::vector<int>(np);
++    auto sent = 0;
++    for (std::size_t q = 0; q != np; ++q) {
++      send_offsets[q] = sent;
++      send_counts[q] = static_cast<int>(sent_to[q].size());
++      sent += send_counts[q];
++    }
++    this->sent_entries.SetSize(sent);
++    auto* const se = this->sent_entries.HostWrite();
+     auto sent_pairs = std::vector<HYPRE_BigInt>{};
++    sent_pairs.reserve(2 * static_cast<std::size_t>(sent));
+     for (std::size_t q = 0; q != np; ++q) {
+-      this->send_offsets[q] = static_cast<int>(this->sent_entries.size());
+-      this->send_counts[q] = static_cast<int>(sent[q].size());
+-      this->sent_entries.insert(this->sent_entries.end(), sent[q].begin(),
+-                                sent[q].end());
++      std::copy(sent_to[q].begin(), sent_to[q].end(), se + send_offsets[q]);
+       sent_pairs.insert(sent_pairs.end(), pairs[q].begin(), pairs[q].end());
+     }
+-    this->receive_counts.assign(np, 0);
+-    MPI_Alltoall(this->send_counts.data(), 1, MPI_INT,
+-                 this->receive_counts.data(), 1, MPI_INT, comm);
+-    this->receive_offsets.assign(np, 0);
++    auto receive_counts = std::vector<int>(np);
++    MPI_Alltoall(send_counts.data(), 1, MPI_INT, receive_counts.data(), 1,
++                 MPI_INT, comm);
++    auto receive_offsets = std::vector<int>(np);
+     auto received = 0;
+     for (std::size_t q = 0; q != np; ++q) {
+-      this->receive_offsets[q] = received;
+-      received += this->receive_counts[q];
++      receive_offsets[q] = received;
++      received += receive_counts[q];
++    }
++    // messages of the assemblies: the processes with which values are
++    // exchanged
++    this->sent_messages.clear();
++    this->received_messages.clear();
++    for (std::size_t q = 0; q != np; ++q) {
++      if (send_counts[q] != 0) {
++        this->sent_messages.push_back(
++            {static_cast<int>(q), send_offsets[q], send_counts[q]});
++      }
++      if (receive_counts[q] != 0) {
++        this->received_messages.push_back(
++            {static_cast<int>(q), receive_offsets[q], receive_counts[q]});
++      }
+     }
+     // pairs of global numbers (two values per entry)
+     auto pair_counts = std::vector<int>(np);
+@@ -256,10 +306,10 @@ namespace mfem_mgis::batch {
+     auto received_pair_counts = std::vector<int>(np);
+     auto received_pair_offsets = std::vector<int>(np);
+     for (std::size_t q = 0; q != np; ++q) {
+-      pair_counts[q] = 2 * this->send_counts[q];
+-      pair_offsets[q] = 2 * this->send_offsets[q];
+-      received_pair_counts[q] = 2 * this->receive_counts[q];
+-      received_pair_offsets[q] = 2 * this->receive_offsets[q];
++      pair_counts[q] = 2 * send_counts[q];
++      pair_offsets[q] = 2 * send_offsets[q];
++      received_pair_counts[q] = 2 * receive_counts[q];
++      received_pair_offsets[q] = 2 * receive_offsets[q];
+     }
+     auto received_pairs =
+         std::vector<HYPRE_BigInt>(2 * static_cast<std::size_t>(received));
+@@ -267,15 +317,57 @@ namespace mfem_mgis::batch {
+                   HYPRE_MPI_BIG_INT, received_pairs.data(),
+                   received_pair_counts.data(), received_pair_offsets.data(),
+                   HYPRE_MPI_BIG_INT, comm);
+-    this->received_positions.resize(static_cast<std::size_t>(received));
++    // positions of the received entries in the values of the global matrix
++    auto received_positions =
++        std::vector<int>(static_cast<std::size_t>(received));
+     for (std::size_t i = 0; i != static_cast<std::size_t>(received); ++i) {
+       const auto p = findGlobalPosition(g, received_pairs[2 * i],
+                                         received_pairs[2 * i + 1]);
+       found = found && (p >= 0);
+-      this->received_positions[i] = p;
++      received_positions[i] = p;
+     }
+-    this->send_buffer.resize(this->sent_entries.size());
+-    this->receive_buffer.resize(static_cast<std::size_t>(received));
++    // a contribution is the index of an entry of the local matrix, or the
++    // one of a received value from the number of entries of the local matrix
++    too_many_entries =
++        too_many_entries || (static_cast<long long>(n) + received >
++                             std::numeric_limits<int>::max());
++    if (!too_many_entries) {
++      // contributions to each entry of the global matrix: the entries of
++      // the local matrix, then the received values, in increasing order
++      const auto ng =
++          static_cast<std::size_t>(nd) + static_cast<std::size_t>(no);
++      this->offsets.SetSize(static_cast<int>(ng) + 1);
++      auto* const o = this->offsets.HostWrite();
++      std::fill(o, o + ng + 1, 0);
++      for (const auto* const ps : {&positions, &received_positions}) {
++        for (const auto p : *ps) {
++          if (p >= 0) {
++            ++o[p + 1];
++          }
++        }
++      }
++      for (std::size_t p = 0; p != ng; ++p) {
++        o[p + 1] += o[p];
++      }
++      this->contributions.SetSize(o[ng]);
++      auto* const c = this->contributions.HostWrite();
++      auto next = std::vector<int>(o, o + ng);
++      auto contribution = 0;
++      for (const auto* const ps : {&positions, &received_positions}) {
++        for (const auto p : *ps) {
++          if (p >= 0) {
++            c[next[static_cast<std::size_t>(p)]++] = contribution;
++          }
++          ++contribution;
++        }
++      }
++    }
++    this->send_buffer.UseDevice(true);
++    this->send_buffer.SetSize(sent);
++    this->receive_buffer.UseDevice(true);
++    this->receive_buffer.SetSize(received);
++    this->requests.reserve(this->sent_messages.size() +
++                           this->received_messages.size());
+     this->number_of_rows = A.Height();
+     this->number_of_entries = n;
+     if (too_many_entries) {
+@@ -325,38 +417,63 @@ namespace mfem_mgis::batch {
+         this->columns = Aj;
+         this->sequence = this->fes->GetSequence();
+       }
+-      this->matrix->HostReadWrite();
++      // the values are computed where hypre computes
++      const auto use_device = isHypreUsingGPU();
++      this->matrix->HypreReadWrite();
+       hypre_ParCSRMatrix* const g = *(this->matrix);
+-      auto* const dv = hypre_CSRMatrixData(hypre_ParCSRMatrixDiag(g));
+-      auto* const ov = hypre_CSRMatrixData(hypre_ParCSRMatrixOffd(g));
+-      const auto nd = this->diagonal_block_entries;
+-      std::fill(dv, dv + nd, real{0});
+-      std::fill(ov, ov + hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixOffd(g)),
+-                real{0});
+-      const auto add = [dv, ov, nd](const int p, const real v) {
+-        if (p < nd) {
+-          dv[p] += v;
+-        } else {
+-          ov[p - nd] += v;
+-        }
+-      };
+-      const auto* const a = A.HostReadData();
+-      for (std::size_t k = 0; k != this->positions.size(); ++k) {
+-        if (this->positions[k] >= 0) {
+-          add(this->positions[k], a[k]);
++      auto* const diag = hypre_ParCSRMatrixDiag(g);
++      auto* const offd = hypre_ParCSRMatrixOffd(g);
++      const auto* const a = A.ReadData(use_device);
++      const auto sent = this->send_buffer.Size();
++      const auto received = this->receive_buffer.Size();
++      // exchange of the values of the rows owned by other processes, given
++      // to MPI on the device with GPU-aware MPI, the kernel filling the
++      // values sent being finished (as MFEM does in `GroupCommunicator`)
++      const auto mpi_on_device = use_device && mfem::Device::GetGPUAwareMPI();
++      const auto* s = static_cast<const real*>(nullptr);
++      if (sent != 0) {
++        internals::launchGlobalStiffnessMatrixSentValuesKernel(
++            this->send_buffer.Write(use_device),
++            this->sent_entries.Read(use_device), a, sent, use_device);
++        if (mpi_on_device) {
++          MFEM_STREAM_SYNC;
+         }
++        s = mpi_on_device ? this->send_buffer.Read()
++                          : this->send_buffer.HostRead();
+       }
+-      for (std::size_t i = 0; i != this->sent_entries.size(); ++i) {
+-        this->send_buffer[i] =
+-            a[static_cast<std::size_t>(this->sent_entries[i])];
++      auto* r = static_cast<real*>(nullptr);
++      if (received != 0) {
++        r = mpi_on_device ? this->receive_buffer.Write()
++                          : this->receive_buffer.HostWrite();
+       }
+       const auto mpi_real = mfem::MPITypeMap<real>::mpi_type;
+-      MPI_Alltoallv(this->send_buffer.data(), this->send_counts.data(),
+-                    this->send_offsets.data(), mpi_real,
+-                    this->receive_buffer.data(), this->receive_counts.data(),
+-                    this->receive_offsets.data(), mpi_real, comm);
+-      for (std::size_t i = 0; i != this->received_positions.size(); ++i) {
+-        add(this->received_positions[i], this->receive_buffer[i]);
++      this->requests.clear();
++      for (const auto& m : this->received_messages) {
++        MPI_Irecv(r + m.offset, m.size, mpi_real, m.process, message_tag, comm,
++                  &(this->requests.emplace_back()));
++      }
++      for (const auto& m : this->sent_messages) {
++        MPI_Isend(s + m.offset, m.size, mpi_real, m.process, message_tag, comm,
++                  &(this->requests.emplace_back()));
++      }
++      MPI_Waitall(static_cast<int>(this->requests.size()),
++                  this->requests.data(), MPI_STATUSES_IGNORE);
++      auto k = internals::GlobalStiffnessMatrixKernelArguments{};
++      k.offsets = this->offsets.Read(use_device);
++      k.contributions = this->contributions.Read(use_device);
++      k.local_values = a;
++      if (received != 0) {
++        k.received_values = this->receive_buffer.Read(use_device);
++      }
++      k.diagonal_block = hypre_CSRMatrixData(diag);
++      k.off_diagonal_block = hypre_CSRMatrixData(offd);
++      k.local_entries = this->number_of_entries;
++      k.diagonal_block_entries = this->diagonal_block_entries;
++      k.off_diagonal_block_entries = this->off_diagonal_block_entries;
++      internals::launchGlobalStiffnessMatrixKernel(k, use_device);
++      if (use_device) {
++        freeValuesKeptByHypre(diag);
++        freeValuesKeptByHypre(offd);
+       }
+       return this->matrix.get();
+     } catch (std::exception& e) {
+diff --git a/src/Batch/GlobalStiffnessMatrixKernels.cxx b/src/Batch/GlobalStiffnessMatrixKernels.cxx
+new file mode 100644
+index 0000000000..6df50e35d7
+--- /dev/null
++++ b/src/Batch/GlobalStiffnessMatrixKernels.cxx
+@@ -0,0 +1,45 @@
++/*!
++ * \file   src/Batch/GlobalStiffnessMatrixKernels.cxx
++ * \brief  This file implements the kernels assembling the values of the
++ * global matrix of a parallel finite element space from the local matrix of
++ * the process and from the values received from the other processes. It
++ * contains kernels of MFEM: it is compiled as CUDA or HIP code when MFEM is
++ * compiled with CUDA or HIP.
++ * \date   15/11/2026
++ */
++
++#include "mfem/general/forall.hpp"
++#include "GlobalStiffnessMatrixKernels.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  void launchGlobalStiffnessMatrixSentValuesKernel(real* const s,
++                                                   const int* const entries,
++                                                   const real* const a,
++                                                   const int n,
++                                                   const bool use_device) {
++    mfem::forall_switch(use_device, n, [s, entries, a] MFEM_HOST_DEVICE(int i) {
++      s[i] = a[entries[i]];
++    });
++  }  // end of launchGlobalStiffnessMatrixSentValuesKernel
++
++  void launchGlobalStiffnessMatrixKernel(
++      const GlobalStiffnessMatrixKernelArguments& a, const bool use_device) {
++    mfem::forall_switch(
++        use_device, a.diagonal_block_entries + a.off_diagonal_block_entries,
++        [a] MFEM_HOST_DEVICE(int p) {
++          auto v = real{0};
++          for (auto t = a.offsets[p]; t != a.offsets[p + 1]; ++t) {
++            const auto c = a.contributions[t];
++            v += (c < a.local_entries) ? a.local_values[c]
++                                       : a.received_values[c - a.local_entries];
++          }
++          if (p < a.diagonal_block_entries) {
++            a.diagonal_block[p] = v;
++          } else {
++            a.off_diagonal_block[p - a.diagonal_block_entries] = v;
++          }
++        });
++  }  // end of launchGlobalStiffnessMatrixKernel
++
++}  // end of namespace mfem_mgis::batch::internals
+diff --git a/src/Batch/GlobalStiffnessMatrixKernels.hxx b/src/Batch/GlobalStiffnessMatrixKernels.hxx
+new file mode 100644
+index 0000000000..89345c5750
+--- /dev/null
++++ b/src/Batch/GlobalStiffnessMatrixKernels.hxx
+@@ -0,0 +1,75 @@
++/*!
++ * \file   src/Batch/GlobalStiffnessMatrixKernels.hxx
++ * \brief  This file declares the kernels assembling the values of the
++ * global matrix of a parallel finite element space from the local matrix of
++ * the process and from the values received from the other processes
++ * (internal header)
++ * \date   15/11/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_BATCH_GLOBALSTIFFNESSMATRIXKERNELS_HXX
++#define LIB_MFEM_MGIS_SRC_BATCH_GLOBALSTIFFNESSMATRIXKERNELS_HXX
++
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  /*!
++   * \brief arguments of the kernel computing the values of the part of the
++   * global matrix owned by the process (see `GlobalStiffnessMatrix`)
++   */
++  struct GlobalStiffnessMatrixKernelArguments {
++    /*!
++     * \brief offsets of the contributions to each entry of the global
++     * matrix (entries of the diagonal block, then of the off diagonal
++     * block)
++     */
++    const int* offsets = nullptr;
++    /*!
++     * \brief contributions to the entries of the global matrix: indices of
++     * entries of the local matrix, then, from the number of entries of the
++     * local matrix, indices of received values
++     */
++    const int* contributions = nullptr;
++    //! \brief values of the local matrix
++    const real* local_values = nullptr;
++    //! \brief values received from the other processes
++    const real* received_values = nullptr;
++    //! \brief values of the diagonal block of the global matrix
++    real* diagonal_block = nullptr;
++    //! \brief values of the off diagonal block of the global matrix
++    real* off_diagonal_block = nullptr;
++    //! \brief number of entries of the local matrix
++    int local_entries = 0;
++    //! \brief number of entries of the diagonal block
++    int diagonal_block_entries = 0;
++    //! \brief number of entries of the off diagonal block
++    int off_diagonal_block_entries = 0;
++  };
++
++  /*!
++   * \brief copies the values of the local matrix sent to the other
++   * processes
++   * \param[out] s: values sent
++   * \param[in] entries: entries of the local matrix sent
++   * \param[in] a: values of the local matrix
++   * \param[in] n: number of values sent
++   * \param[in] use_device: if true, the kernel is run on the device and
++   * the pointers are located on the device
++   */
++  void launchGlobalStiffnessMatrixSentValuesKernel(
++      real* const, const int* const, const real* const, const int, const bool);
++
++  /*!
++   * \brief computes each value of the part of the global matrix owned by
++   * the process as the sum of its contributions, added in their order
++   * \param[in] a: arguments
++   * \param[in] use_device: if true, the kernel is run on the device and
++   * the pointers are located on the device
++   */
++  void launchGlobalStiffnessMatrixKernel(
++      const GlobalStiffnessMatrixKernelArguments&, const bool);
++
++}  // end of namespace mfem_mgis::batch::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_BATCH_GLOBALSTIFFNESSMATRIXKERNELS_HXX */
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index e42dcd8833..58203611d9 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -187,6 +187,7 @@ set(MFEMMGIS_DEVICE_SOURCES
+   Batch/FBarKernels.cxx
+   Batch/FaltusKernels.cxx
+   Batch/ElementsGeometryKernels.cxx
++  Batch/GlobalStiffnessMatrixKernels.cxx
+   NodalBlockJacobiKernels.cxx)
+ # scaling and conversions of the vectors exchanged with AmgX (single
+ # precision)
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index c8baeb231a..7d895ed285 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1671,9 +1671,20 @@ if(MFEM_MGIS_HAVE_TFEL)
+   endif()
+   # GlobalStiffnessMatrixTest executable: global matrix assembled from the
+   # local matrices with a pattern and exchanges computed once, compared to
+-  # the product of hypre, on one, two and four processes
++  # the product of hypre, on one, two and four processes. With a GPU, the
++  # values assembled on the host and on the GPU must be the same bit for
++  # bit, also when the values exchanged are given to MPI on the GPU
++  # (GlobalStiffnessMatrixTest.cmake)
+   if(MFEM_USE_MPI)
+     add_test_executable(GlobalStiffnessMatrixTest)
++    set(global_stiffness_matrix_test_device "")
++    if(enable-gpu-tests)
++      if(MFEM_USE_CUDA STREQUAL "YES")
++        set(global_stiffness_matrix_test_device cuda)
++      elseif(MFEM_USE_HIP STREQUAL "YES")
++        set(global_stiffness_matrix_test_device hip)
++      endif()
++    endif()
+     foreach(_np 1 2 4)
+       add_test(NAME GlobalStiffnessMatrixTest-np${_np}
+                COMMAND mpirun -n ${_np} ./GlobalStiffnessMatrixTest
+@@ -1681,6 +1692,19 @@ if(MFEM_MGIS_HAVE_TFEL)
+                        ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh)
+       set_tests_properties(GlobalStiffnessMatrixTest-np${_np}
+                            PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++      if(global_stiffness_matrix_test_device)
++        foreach(_mpi host gpu-aware-mpi)
++          add_test(NAME GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
++                   COMMAND ${CMAKE_COMMAND}
++                           -DNP=${_np} -DMPI=${_mpi}
++                           -DDEVICE=${global_stiffness_matrix_test_device}
++                           -DTEST=$<TARGET_FILE:GlobalStiffnessMatrixTest>
++                           -DMESH=${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
++                           -P ${CMAKE_CURRENT_SOURCE_DIR}/GlobalStiffnessMatrixTest.cmake)
++          set_tests_properties(GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
++                               PROPERTIES RESOURCE_LOCK gpu)
++        endforeach()
++      endif()
+     endforeach()
+   endif()
+   # IntegrationRuleOrderTest executable: order of the integration rules
+diff --git a/tests/GlobalStiffnessMatrixTest.cmake b/tests/GlobalStiffnessMatrixTest.cmake
+new file mode 100644
+index 0000000000..e0a75d4278
+--- /dev/null
++++ b/tests/GlobalStiffnessMatrixTest.cmake
+@@ -0,0 +1,37 @@
++# Runs GlobalStiffnessMatrixTest on the host, then on a GPU, and checks that
++# the checksums of the global matrices are the same: the values assembled on
++# the GPU are the ones of the host, bit for bit. With MPI=gpu-aware-mpi, the
++# values exchanged between the processes are given to MPI on the GPU.
++#
++# usage: cmake -DNP=<processes> -DDEVICE=<cuda|hip> -DMPI=<host|gpu-aware-mpi>
++#          -DTEST=<executable> -DMESH=<mesh>
++#          -P GlobalStiffnessMatrixTest.cmake
++set(ENV{OMP_NUM_THREADS} 1)
++if(MPI STREQUAL "gpu-aware-mpi")
++  set(ENV{MFEM_MGIS_GPU_AWARE_MPI} 1)
++endif()
++foreach(_device cpu ${DEVICE})
++  set(ENV{MFEM_MGIS_DEVICE} ${_device})
++  execute_process(
++    COMMAND mpirun -n ${NP} "${TEST}" --mesh "${MESH}"
++    RESULT_VARIABLE _status
++    OUTPUT_VARIABLE _output)
++  message("${_output}")
++  if(NOT _status EQUAL 0)
++    message(FATAL_ERROR "GlobalStiffnessMatrixTest failed on the device "
++            "${_device} (${_status})")
++  endif()
++  string(REGEX MATCHALL "[^\n]*: checksum [0-9a-f]+" _checksums_${_device}
++         "${_output}")
++endforeach()
++list(LENGTH _checksums_cpu _n)
++if(_n EQUAL 0)
++  message(FATAL_ERROR "no checksum in the output of GlobalStiffnessMatrixTest")
++endif()
++if(NOT "${_checksums_cpu}" STREQUAL "${_checksums_${DEVICE}}")
++  message(FATAL_ERROR "the global matrices assembled on the host and on the "
++          "device ${DEVICE} differ:\n${_checksums_cpu}\n"
++          "${_checksums_${DEVICE}}")
++endif()
++message(STATUS "${_n} global matrices: same values on the host and on the "
++        "device ${DEVICE}")
+diff --git a/tests/GlobalStiffnessMatrixTest.cxx b/tests/GlobalStiffnessMatrixTest.cxx
+index 0890071a18..653aa9d633 100644
+--- a/tests/GlobalStiffnessMatrixTest.cxx
++++ b/tests/GlobalStiffnessMatrixTest.cxx
+@@ -8,16 +8,24 @@
+  * problems), for scalar and vector spaces of orders 1 and 2; a local matrix
+  * with another pattern or other arrays on one process, or with its columns
+  * sorted in other arrays, makes all the processes compute the pattern
+- * again; a non conforming space is refused, as any space when hypre
+- * computes on the GPU (device given by the MFEM_MGIS_DEVICE environment
+- * variable). To be run on several processes.
++ * again; a non conforming space is refused. A checksum of the entries of
++ * each global matrix is printed: it does not depend on the order of the
++ * entries, and it is the same when hypre computes on the host and on the
++ * GPU (device given by the MFEM_MGIS_DEVICE environment variable), the
++ * values being the same bit for bit (see GlobalStiffnessMatrixTest.cmake).
++ * Last, a Gauss-Seidel smoother of hypre is applied after a second assembly
++ * in the same global matrix: it must use the new values (on a GPU, hypre
++ * keeps copies of the values in the matrix). To be run on several
++ * processes.
+  * \date   11/10/2026
+  */
+ 
+ #include <cmath>
+ #include <memory>
+ #include <string>
++#include <cstdint>
+ #include <cstdlib>
++#include <cstring>
+ #include <iostream>
+ #include <algorithm>
+ #include "mfem/general/optparser.hpp"
+@@ -91,6 +99,50 @@ static mfem_mgis::real compareMatrices(const mfem::HypreParMatrix& K,
+   return d;
+ }  // end of compareMatrices
+ 
++/*!
++ * \return a checksum of the entries of a global matrix (global row, global
++ * column and bits of the value of each entry), which does not depend on the
++ * order of the entries nor on the process owning them
++ * \param[in] K: matrix
++ */
++static std::uint64_t computeChecksum(const mfem::HypreParMatrix& K) {
++  // mixing function of splitmix64
++  const auto mix = [](std::uint64_t x) {
++    x += 0x9e3779b97f4a7c15ULL;
++    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
++    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
++    return x ^ (x >> 31);
++  };
++  K.HostRead();
++  const hypre_ParCSRMatrix* const k = K;
++  const auto first_row = hypre_ParCSRMatrixFirstRowIndex(k);
++  const auto first_column = hypre_ParCSRMatrixFirstColDiag(k);
++  const auto* const cmap = hypre_ParCSRMatrixColMapOffd(k);
++  auto checksum = std::uint64_t{};
++  const auto add = [&checksum, &mix, first_row](const hypre_CSRMatrix* const b,
++                                                const auto& column) {
++    const auto* const i = hypre_CSRMatrixI(b);
++    const auto* const j = hypre_CSRMatrixJ(b);
++    const auto* const v = hypre_CSRMatrixData(b);
++    for (HYPRE_Int r = 0; r != hypre_CSRMatrixNumRows(b); ++r) {
++      for (auto p = i[r]; p != i[r + 1]; ++p) {
++        auto bits = std::uint64_t{};
++        std::memcpy(&bits, v + p, sizeof(v[p]));
++        checksum ^= mix(mix(mix(static_cast<std::uint64_t>(first_row + r)) ^
++                            static_cast<std::uint64_t>(column(j[p]))) ^
++                        bits);
++      }
++    }
++  };
++  add(hypre_ParCSRMatrixDiag(k),
++      [first_column](const HYPRE_Int c) { return first_column + c; });
++  add(hypre_ParCSRMatrixOffd(k), [cmap](const HYPRE_Int c) { return cmap[c]; });
++  K.HypreRead();
++  auto all = std::uint64_t{};
++  MPI_Allreduce(&checksum, &all, 1, MPI_UINT64_T, MPI_BXOR, MPI_COMM_WORLD);
++  return all;
++}  // end of computeChecksum
++
+ /*!
+  * \brief compares the global matrices assembled by
+  * `batch::GlobalStiffnessMatrix` and by hypre
+@@ -107,13 +159,6 @@ static void testCase(mfem::ParMesh& mesh,
+   auto ctx = Context{};
+   auto fec = mfem::H1_FECollection(order, mesh.Dimension());
+   auto fes = mfem::ParFiniteElementSpace(&mesh, &fec, vdim);
+-  // when hypre computes on the GPU, the global matrix is the product of
+-  // hypre on the GPU: the space is refused
+-  if (isHypreUsingGPU()) {
+-    check(!batch::GlobalStiffnessMatrix::isSupported(fes),
+-          name + ": space accepted while hypre computes on the GPU");
+-    return;
+-  }
+   check(batch::GlobalStiffnessMatrix::isSupported(fes),
+         name + ": conforming space not supported");
+   auto dofs = mfem::Array<int>{};
+@@ -154,9 +199,12 @@ static void testCase(mfem::ParMesh& mesh,
+       return nullptr;
+     }
+     const auto d = compareMatrices(*K, *(R.As<mfem::HypreParMatrix>()));
++    const auto checksum = computeChecksum(*K);
+     if (mfem::Mpi::Root()) {
+       std::cout << name << ", " << what << ": maximum relative difference " << d
+-                << '\n';
++                << '\n'
++                << name << ", " << what << ": checksum " << std::hex << checksum
++                << std::dec << '\n';
+     }
+     // in float, the relative difference reaches 1e-7 (sums in another
+     // order)
+@@ -205,6 +253,113 @@ static void testCase(mfem::ParMesh& mesh,
+       assemble(mfem::Mpi::Root() ? copy : *A, "other arrays on one process"));
+ }  // end of testCase
+ 
++/*!
++ * \brief sets the values of a local matrix of symmetric pattern: a
++ * symmetric matrix with a dominant diagonal
++ * \param[in, out] A: matrix
++ * \param[in] d: factor of the diagonal
++ */
++static void setDiagonallyDominantValues(mfem::SparseMatrix& A,
++                                        const mfem_mgis::real d) {
++  const auto* const I = A.HostReadI();
++  const auto* const J = A.HostReadJ();
++  auto* const v = A.HostWriteData();
++  for (int r = 0; r != A.Height(); ++r) {
++    for (auto k = I[r]; k != I[r + 1]; ++k) {
++      v[k] = (J[k] == r) ? d * (100 + r % 7) : -(1 + (r + J[k]) % 3) / 10.;
++    }
++  }
++}  // end of setDiagonallyDominantValues
++
++/*!
++ * \brief checks that a Gauss-Seidel smoother of hypre applied to the global
++ * matrix after a second assembly uses its new values: same result as with
++ * the product of hypre, a new matrix. On a GPU, hypre keeps in a matrix the
++ * copies of its values used by the triangular solves of this smoother.
++ * \param[in] mesh: mesh
++ */
++static void testSmootherAfterAssembly(mfem::ParMesh& mesh) {
++  using namespace mfem_mgis;
++  const auto name = std::string{"smoother after a second assembly"};
++  auto ctx = Context{};
++  auto fec = mfem::H1_FECollection(1, mesh.Dimension());
++  auto fes = mfem::ParFiniteElementSpace(&mesh, &fec, 3);
++  auto dofs = mfem::Array<int>{};
++  check(batch::computeElementsDegreesOfFreedom(ctx, dofs, fes),
++        name + ": degrees of freedom of the elements");
++  const auto A = batch::makeAssembledStiffnessMatrix(ctx, fes, dofs);
++  check(A != nullptr, name + ": local matrix");
++  if (A == nullptr) {
++    return;
++  }
++  auto b = mfem::Vector(fes.GetTrueVSize());
++  b.UseDevice(true);
++  auto* const bv = b.HostWrite();
++  for (int i = 0; i != b.Size(); ++i) {
++    bv[i] = std::cos(0.11 * static_cast<real>(fes.GetMyTDofOffset() + i));
++  }
++  // two sweeps of the symmetric Gauss-Seidel smoother of hypre from zero
++  const auto smooth = [&b](const mfem::HypreParMatrix& K) {
++    auto x = mfem::Vector(b.Size());
++    x.UseDevice(true);
++    x = real{0};
++    auto smoother = mfem::HypreSmoother(K, mfem::HypreSmoother::GS, 2);
++    smoother.Mult(b, x);
++    return x;
++  };
++  // maximum relative difference between two vectors
++  const auto compare = [](const mfem::Vector& x, const mfem::Vector& y) {
++    auto ld = real{};
++    auto lm = real{};
++    const auto* const xv = x.HostRead();
++    const auto* const yv = y.HostRead();
++    for (int i = 0; i != x.Size(); ++i) {
++      ld = std::max(ld, std::abs(xv[i] - yv[i]));
++      lm = std::max(lm, std::abs(yv[i]));
++    }
++    auto gd = real{};
++    auto gm = real{};
++    const auto mpi_real = mfem::MPITypeMap<real>::mpi_type;
++    MPI_Allreduce(&ld, &gd, 1, mpi_real, MPI_MAX, MPI_COMM_WORLD);
++    MPI_Allreduce(&lm, &gm, 1, mpi_real, MPI_MAX, MPI_COMM_WORLD);
++    return gd / gm;
++  };
++  auto g = batch::GlobalStiffnessMatrix(fes);
++  setDiagonallyDominantValues(*A, 1);
++  auto* K = g.assemble(ctx, *A);
++  check(K != nullptr, name + ": first assembly");
++  if (K == nullptr) {
++    return;
++  }
++  const auto x1 = smooth(*K);
++  setDiagonallyDominantValues(*A, 2);
++  K = g.assemble(ctx, *A);
++  check(K != nullptr, name + ": second assembly");
++  if (K == nullptr) {
++    return;
++  }
++  const auto x2 = smooth(*K);
++  auto dA = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
++  auto Ph = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
++  auto R = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
++  auto copy = mfem::SparseMatrix(*A);
++  dA.MakeSquareBlockDiag(fes.GetComm(), fes.GlobalVSize(), fes.GetDofOffsets(),
++                         &copy);
++  Ph.ConvertFrom(fes.Dof_TrueDof_Matrix());
++  R.MakePtAP(dA, Ph);
++  const auto xr = smooth(*(R.As<mfem::HypreParMatrix>()));
++  const auto d = compare(x2, xr);
++  const auto d1 = compare(x1, xr);
++  if (mfem::Mpi::Root()) {
++    std::cout << name << ": maximum relative difference " << d
++              << " with the product of hypre (" << d1
++              << " for the first values)\n";
++  }
++  check(d < mfem_mgis::unit_tests::tolerance(1e-12, 1e-5),
++        name + ": values of the first assembly used");
++  check(d1 > 0.1, name + ": the two assemblies give close results");
++}  // end of testSmootherAfterAssembly
++
+ int main(int argc, char** argv) {
+   using namespace mfem_mgis;
+   initialize(argc, argv);
+@@ -226,6 +381,7 @@ int main(int argc, char** argv) {
+                    " components");
+     }
+   }
++  testSmootherAfterAssembly(mesh);
+   // non conforming space: the prolongation has several entries per row
+   {
+     auto nc = mfem::Mesh(mesh_file, 1, 1);
+-- 
+2.34.1
+

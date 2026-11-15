@@ -691,7 +691,7 @@ namespace mfem_mgis::internals {
     auto& log = this->getLogStream();
     const auto shall_print = this->shallPrint();
     // initial residual
-    auto r = mfem::Vector(this->Height());
+    auto& r = this->getWorkVector(WorkVector::RESIDUAL, this->Height());
     r.UseDevice(true);
     const auto initialized = this->callAndHandleFailures([this, &x, &r] {
       if (!this->processNewUnknownsEstimate(x)) {

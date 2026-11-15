@@ -598,11 +598,12 @@ namespace mfem_mgis {
       return;
     }
     auto& solver = *solver_ptr;
+    // residual, correction, new estimate and variation of the estimate
     const auto n = x.Size();
-    auto r = mfem::Vector(n);
-    auto c = mfem::Vector(n);
-    auto xn = mfem::Vector(n);
-    auto dx = mfem::Vector(n);
+    auto& r = this->getWorkVector(WorkVector::RESIDUAL, n);
+    auto& c = this->getWorkVector(WorkVector::CORRECTION, n);
+    auto& xn = this->getWorkVector(WorkVector::ESTIMATE, n);
+    auto& dx = this->getWorkVector(WorkVector::AUXILIARY_ESTIMATE, n);
     for (auto* const v : {&r, &c, &xn, &dx}) {
       v->UseDevice(true);
     }
@@ -720,7 +721,8 @@ namespace mfem_mgis {
             if ((J != nullptr) && (adaptive_tolerance.has_value()) &&
                 (adaptive_tolerance->requiresLinearResidualNorm())) {
               // norm of the residual of the linear solve, J c - r
-              auto lr = mfem::Vector(r.Size());
+              auto& lr =
+                  this->getWorkVector(WorkVector::LINEAR_RESIDUAL, r.Size());
               lr.UseDevice(true);
               J->Mult(c, lr);
               lr -= r;

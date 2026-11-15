@@ -8,16 +8,24 @@
  * problems), for scalar and vector spaces of orders 1 and 2; a local matrix
  * with another pattern or other arrays on one process, or with its columns
  * sorted in other arrays, makes all the processes compute the pattern
- * again; a non conforming space is refused, as any space when hypre
- * computes on the GPU (device given by the MFEM_MGIS_DEVICE environment
- * variable). To be run on several processes.
+ * again; a non conforming space is refused. A checksum of the entries of
+ * each global matrix is printed: it does not depend on the order of the
+ * entries, and it is the same when hypre computes on the host and on the
+ * GPU (device given by the MFEM_MGIS_DEVICE environment variable), the
+ * values being the same bit for bit (see GlobalStiffnessMatrixTest.cmake).
+ * Last, a Gauss-Seidel smoother of hypre is applied after a second assembly
+ * in the same global matrix: it must use the new values (on a GPU, hypre
+ * keeps copies of the values in the matrix). To be run on several
+ * processes.
  * \date   11/10/2026
  */
 
 #include <cmath>
 #include <memory>
 #include <string>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <algorithm>
 #include "mfem/general/optparser.hpp"
@@ -92,6 +100,50 @@ static mfem_mgis::real compareMatrices(const mfem::HypreParMatrix& K,
 }  // end of compareMatrices
 
 /*!
+ * \return a checksum of the entries of a global matrix (global row, global
+ * column and bits of the value of each entry), which does not depend on the
+ * order of the entries nor on the process owning them
+ * \param[in] K: matrix
+ */
+static std::uint64_t computeChecksum(const mfem::HypreParMatrix& K) {
+  // mixing function of splitmix64
+  const auto mix = [](std::uint64_t x) {
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+  };
+  K.HostRead();
+  const hypre_ParCSRMatrix* const k = K;
+  const auto first_row = hypre_ParCSRMatrixFirstRowIndex(k);
+  const auto first_column = hypre_ParCSRMatrixFirstColDiag(k);
+  const auto* const cmap = hypre_ParCSRMatrixColMapOffd(k);
+  auto checksum = std::uint64_t{};
+  const auto add = [&checksum, &mix, first_row](const hypre_CSRMatrix* const b,
+                                                const auto& column) {
+    const auto* const i = hypre_CSRMatrixI(b);
+    const auto* const j = hypre_CSRMatrixJ(b);
+    const auto* const v = hypre_CSRMatrixData(b);
+    for (HYPRE_Int r = 0; r != hypre_CSRMatrixNumRows(b); ++r) {
+      for (auto p = i[r]; p != i[r + 1]; ++p) {
+        auto bits = std::uint64_t{};
+        std::memcpy(&bits, v + p, sizeof(v[p]));
+        checksum ^= mix(mix(mix(static_cast<std::uint64_t>(first_row + r)) ^
+                            static_cast<std::uint64_t>(column(j[p]))) ^
+                        bits);
+      }
+    }
+  };
+  add(hypre_ParCSRMatrixDiag(k),
+      [first_column](const HYPRE_Int c) { return first_column + c; });
+  add(hypre_ParCSRMatrixOffd(k), [cmap](const HYPRE_Int c) { return cmap[c]; });
+  K.HypreRead();
+  auto all = std::uint64_t{};
+  MPI_Allreduce(&checksum, &all, 1, MPI_UINT64_T, MPI_BXOR, MPI_COMM_WORLD);
+  return all;
+}  // end of computeChecksum
+
+/*!
  * \brief compares the global matrices assembled by
  * `batch::GlobalStiffnessMatrix` and by hypre
  * \param[in] mesh: mesh
@@ -107,13 +159,6 @@ static void testCase(mfem::ParMesh& mesh,
   auto ctx = Context{};
   auto fec = mfem::H1_FECollection(order, mesh.Dimension());
   auto fes = mfem::ParFiniteElementSpace(&mesh, &fec, vdim);
-  // when hypre computes on the GPU, the global matrix is the product of
-  // hypre on the GPU: the space is refused
-  if (isHypreUsingGPU()) {
-    check(!batch::GlobalStiffnessMatrix::isSupported(fes),
-          name + ": space accepted while hypre computes on the GPU");
-    return;
-  }
   check(batch::GlobalStiffnessMatrix::isSupported(fes),
         name + ": conforming space not supported");
   auto dofs = mfem::Array<int>{};
@@ -154,9 +199,12 @@ static void testCase(mfem::ParMesh& mesh,
       return nullptr;
     }
     const auto d = compareMatrices(*K, *(R.As<mfem::HypreParMatrix>()));
+    const auto checksum = computeChecksum(*K);
     if (mfem::Mpi::Root()) {
       std::cout << name << ", " << what << ": maximum relative difference " << d
-                << '\n';
+                << '\n'
+                << name << ", " << what << ": checksum " << std::hex << checksum
+                << std::dec << '\n';
     }
     // in float, the relative difference reaches 1e-7 (sums in another
     // order)
@@ -205,6 +253,113 @@ static void testCase(mfem::ParMesh& mesh,
       assemble(mfem::Mpi::Root() ? copy : *A, "other arrays on one process"));
 }  // end of testCase
 
+/*!
+ * \brief sets the values of a local matrix of symmetric pattern: a
+ * symmetric matrix with a dominant diagonal
+ * \param[in, out] A: matrix
+ * \param[in] d: factor of the diagonal
+ */
+static void setDiagonallyDominantValues(mfem::SparseMatrix& A,
+                                        const mfem_mgis::real d) {
+  const auto* const I = A.HostReadI();
+  const auto* const J = A.HostReadJ();
+  auto* const v = A.HostWriteData();
+  for (int r = 0; r != A.Height(); ++r) {
+    for (auto k = I[r]; k != I[r + 1]; ++k) {
+      v[k] = (J[k] == r) ? d * (100 + r % 7) : -(1 + (r + J[k]) % 3) / 10.;
+    }
+  }
+}  // end of setDiagonallyDominantValues
+
+/*!
+ * \brief checks that a Gauss-Seidel smoother of hypre applied to the global
+ * matrix after a second assembly uses its new values: same result as with
+ * the product of hypre, a new matrix. On a GPU, hypre keeps in a matrix the
+ * copies of its values used by the triangular solves of this smoother.
+ * \param[in] mesh: mesh
+ */
+static void testSmootherAfterAssembly(mfem::ParMesh& mesh) {
+  using namespace mfem_mgis;
+  const auto name = std::string{"smoother after a second assembly"};
+  auto ctx = Context{};
+  auto fec = mfem::H1_FECollection(1, mesh.Dimension());
+  auto fes = mfem::ParFiniteElementSpace(&mesh, &fec, 3);
+  auto dofs = mfem::Array<int>{};
+  check(batch::computeElementsDegreesOfFreedom(ctx, dofs, fes),
+        name + ": degrees of freedom of the elements");
+  const auto A = batch::makeAssembledStiffnessMatrix(ctx, fes, dofs);
+  check(A != nullptr, name + ": local matrix");
+  if (A == nullptr) {
+    return;
+  }
+  auto b = mfem::Vector(fes.GetTrueVSize());
+  b.UseDevice(true);
+  auto* const bv = b.HostWrite();
+  for (int i = 0; i != b.Size(); ++i) {
+    bv[i] = std::cos(0.11 * static_cast<real>(fes.GetMyTDofOffset() + i));
+  }
+  // two sweeps of the symmetric Gauss-Seidel smoother of hypre from zero
+  const auto smooth = [&b](const mfem::HypreParMatrix& K) {
+    auto x = mfem::Vector(b.Size());
+    x.UseDevice(true);
+    x = real{0};
+    auto smoother = mfem::HypreSmoother(K, mfem::HypreSmoother::GS, 2);
+    smoother.Mult(b, x);
+    return x;
+  };
+  // maximum relative difference between two vectors
+  const auto compare = [](const mfem::Vector& x, const mfem::Vector& y) {
+    auto ld = real{};
+    auto lm = real{};
+    const auto* const xv = x.HostRead();
+    const auto* const yv = y.HostRead();
+    for (int i = 0; i != x.Size(); ++i) {
+      ld = std::max(ld, std::abs(xv[i] - yv[i]));
+      lm = std::max(lm, std::abs(yv[i]));
+    }
+    auto gd = real{};
+    auto gm = real{};
+    const auto mpi_real = mfem::MPITypeMap<real>::mpi_type;
+    MPI_Allreduce(&ld, &gd, 1, mpi_real, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&lm, &gm, 1, mpi_real, MPI_MAX, MPI_COMM_WORLD);
+    return gd / gm;
+  };
+  auto g = batch::GlobalStiffnessMatrix(fes);
+  setDiagonallyDominantValues(*A, 1);
+  auto* K = g.assemble(ctx, *A);
+  check(K != nullptr, name + ": first assembly");
+  if (K == nullptr) {
+    return;
+  }
+  const auto x1 = smooth(*K);
+  setDiagonallyDominantValues(*A, 2);
+  K = g.assemble(ctx, *A);
+  check(K != nullptr, name + ": second assembly");
+  if (K == nullptr) {
+    return;
+  }
+  const auto x2 = smooth(*K);
+  auto dA = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+  auto Ph = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+  auto R = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+  auto copy = mfem::SparseMatrix(*A);
+  dA.MakeSquareBlockDiag(fes.GetComm(), fes.GlobalVSize(), fes.GetDofOffsets(),
+                         &copy);
+  Ph.ConvertFrom(fes.Dof_TrueDof_Matrix());
+  R.MakePtAP(dA, Ph);
+  const auto xr = smooth(*(R.As<mfem::HypreParMatrix>()));
+  const auto d = compare(x2, xr);
+  const auto d1 = compare(x1, xr);
+  if (mfem::Mpi::Root()) {
+    std::cout << name << ": maximum relative difference " << d
+              << " with the product of hypre (" << d1
+              << " for the first values)\n";
+  }
+  check(d < mfem_mgis::unit_tests::tolerance(1e-12, 1e-5),
+        name + ": values of the first assembly used");
+  check(d1 > 0.1, name + ": the two assemblies give close results");
+}  // end of testSmootherAfterAssembly
+
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
@@ -226,6 +381,7 @@ int main(int argc, char** argv) {
                    " components");
     }
   }
+  testSmootherAfterAssembly(mesh);
   // non conforming space: the prolongation has several entries per row
   {
     auto nc = mfem::Mesh(mesh_file, 1, 1);

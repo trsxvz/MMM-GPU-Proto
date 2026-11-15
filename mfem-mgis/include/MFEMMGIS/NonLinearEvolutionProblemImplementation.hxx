@@ -305,7 +305,9 @@ namespace mfem_mgis {
    * \note the weights of the integration points are computed at the first
    * call and kept by the problem (see `getIntegrationPointsWeights`): the
    * following calls only sum the weighted values at the points, material by
-   * material, on the host
+   * material, on the host, or by kernels when the post-processings are
+   * computed by kernels (see `addThermodynamicForcesIntegralsByKernels` of
+   * the problem)
    */
   template <bool parallel>
   [[nodiscard]] std::optional<
