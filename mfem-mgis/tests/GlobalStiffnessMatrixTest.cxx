@@ -13,17 +13,19 @@
  * entries, and it is the same when hypre computes on the host and on the
  * GPU (device given by the MFEM_MGIS_DEVICE environment variable), the
  * values being the same bit for bit (see GlobalStiffnessMatrixTest.cmake).
- * Last, a Gauss-Seidel smoother of hypre is applied after a second assembly
- * in the same global matrix: it must use the new values (on a GPU, hypre
- * keeps copies of the values in the matrix). To be run on several
- * processes.
+ * Last, products and smoothers of hypre are applied after a second assembly
+ * in the same global matrix: they must use the new values (on a GPU, MFEM
+ * and hypre keep in the matrix data computed from its values). To be run on
+ * several processes.
  * \date   11/10/2026
  */
 
 #include <cmath>
 #include <memory>
 #include <string>
+#include <vector>
 #include <cstdint>
+#include <functional>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -272,15 +274,19 @@ static void setDiagonallyDominantValues(mfem::SparseMatrix& A,
 }  // end of setDiagonallyDominantValues
 
 /*!
- * \brief checks that a Gauss-Seidel smoother of hypre applied to the global
- * matrix after a second assembly uses its new values: same result as with
- * the product of hypre, a new matrix. On a GPU, hypre keeps in a matrix the
- * copies of its values used by the triangular solves of this smoother.
+ * \brief checks that the products and the smoothers of hypre applied to the
+ * global matrix after a second assembly use its new values: same results
+ * as with the product of hypre, a new matrix. On a GPU, MFEM and hypre keep
+ * in a matrix data computed from its values: the transposed blocks of the
+ * transposed product, the copies used by the triangular solves of the
+ * Gauss-Seidel smoother. Each operation is applied after the first
+ * assembly, so that these data exist when the values change.
  * \param[in] mesh: mesh
  */
-static void testSmootherAfterAssembly(mfem::ParMesh& mesh) {
+static void testOperationsAfterAssembly(mfem::ParMesh& mesh) {
   using namespace mfem_mgis;
-  const auto name = std::string{"smoother after a second assembly"};
+  using Smoother = mfem::HypreSmoother;
+  const auto name = std::string{"operations after a second assembly"};
   auto ctx = Context{};
   auto fec = mfem::H1_FECollection(1, mesh.Dimension());
   auto fes = mfem::ParFiniteElementSpace(&mesh, &fec, 3);
@@ -298,14 +304,40 @@ static void testSmootherAfterAssembly(mfem::ParMesh& mesh) {
   for (int i = 0; i != b.Size(); ++i) {
     bv[i] = std::cos(0.11 * static_cast<real>(fes.GetMyTDofOffset() + i));
   }
-  // two sweeps of the symmetric Gauss-Seidel smoother of hypre from zero
-  const auto smooth = [&b](const mfem::HypreParMatrix& K) {
-    auto x = mfem::Vector(b.Size());
-    x.UseDevice(true);
-    x = real{0};
-    auto smoother = mfem::HypreSmoother(K, mfem::HypreSmoother::GS, 2);
-    smoother.Mult(b, x);
-    return x;
+  // an operation applied to `b`. The Chebyshev smoother is not among them:
+  // on a GPU, its estimate of the largest eigenvalue starts from random
+  // values which change at each call
+  struct Operation {
+    //! \brief name
+    const char* name;
+    //! \brief computes the result of the operation for a matrix
+    std::function<void(const mfem::HypreParMatrix&, mfem::Vector&)> apply;
+  };
+  // two sweeps of a smoother of hypre from zero
+  const auto smooth = [&b](const Smoother::Type type) {
+    return [&b, type](const mfem::HypreParMatrix& K, mfem::Vector& x) {
+      x = real{0};
+      auto smoother = Smoother(K, type, 2);
+      smoother.Mult(b, x);
+    };
+  };
+  const auto operations = std::vector<Operation>{
+      {"product",
+       [&b](const mfem::HypreParMatrix& K, mfem::Vector& x) { K.Mult(b, x); }},
+      {"transposed product", [&b](const mfem::HypreParMatrix& K,
+                                  mfem::Vector& x) { K.MultTranspose(b, x); }},
+      {"Gauss-Seidel smoother", smooth(Smoother::GS)},
+      {"l1 Gauss-Seidel smoother", smooth(Smoother::l1GS)},
+      {"l1-Jacobi smoother", smooth(Smoother::l1Jacobi)}};
+  // results of all the operations for a matrix
+  const auto apply = [&b, &operations](const mfem::HypreParMatrix& K) {
+    auto results = std::vector<mfem::Vector>(operations.size());
+    for (std::size_t i = 0; i != operations.size(); ++i) {
+      results[i].UseDevice(true);
+      results[i].SetSize(b.Size());
+      operations[i].apply(K, results[i]);
+    }
+    return results;
   };
   // maximum relative difference between two vectors
   const auto compare = [](const mfem::Vector& x, const mfem::Vector& y) {
@@ -331,14 +363,14 @@ static void testSmootherAfterAssembly(mfem::ParMesh& mesh) {
   if (K == nullptr) {
     return;
   }
-  const auto x1 = smooth(*K);
+  const auto first = apply(*K);
   setDiagonallyDominantValues(*A, 2);
   K = g.assemble(ctx, *A);
   check(K != nullptr, name + ": second assembly");
   if (K == nullptr) {
     return;
   }
-  const auto x2 = smooth(*K);
+  const auto second = apply(*K);
   auto dA = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
   auto Ph = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
   auto R = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
@@ -347,18 +379,21 @@ static void testSmootherAfterAssembly(mfem::ParMesh& mesh) {
                          &copy);
   Ph.ConvertFrom(fes.Dof_TrueDof_Matrix());
   R.MakePtAP(dA, Ph);
-  const auto xr = smooth(*(R.As<mfem::HypreParMatrix>()));
-  const auto d = compare(x2, xr);
-  const auto d1 = compare(x1, xr);
-  if (mfem::Mpi::Root()) {
-    std::cout << name << ": maximum relative difference " << d
-              << " with the product of hypre (" << d1
-              << " for the first values)\n";
+  const auto reference = apply(*(R.As<mfem::HypreParMatrix>()));
+  for (std::size_t i = 0; i != operations.size(); ++i) {
+    const auto operation = name + ", " + operations[i].name;
+    const auto d = compare(second[i], reference[i]);
+    const auto d1 = compare(first[i], reference[i]);
+    if (mfem::Mpi::Root()) {
+      std::cout << operation << ": maximum relative difference " << d
+                << " with the product of hypre (" << d1
+                << " for the first values)\n";
+    }
+    check(d < mfem_mgis::unit_tests::tolerance(1e-12, 1e-5),
+          operation + ": values of the first assembly used");
+    check(d1 > 0.1, operation + ": the two assemblies give close results");
   }
-  check(d < mfem_mgis::unit_tests::tolerance(1e-12, 1e-5),
-        name + ": values of the first assembly used");
-  check(d1 > 0.1, name + ": the two assemblies give close results");
-}  // end of testSmootherAfterAssembly
+}  // end of testOperationsAfterAssembly
 
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
@@ -381,7 +416,7 @@ int main(int argc, char** argv) {
                    " components");
     }
   }
-  testSmootherAfterAssembly(mesh);
+  testOperationsAfterAssembly(mesh);
   // non conforming space: the prolongation has several entries per row
   {
     auto nc = mfem::Mesh(mesh_file, 1, 1);

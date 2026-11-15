@@ -42,21 +42,28 @@ namespace mfem_mgis::batch::internals {
     return r;
   }  // end of launchIntegralKernel
 
-  double launchWeightedSumKernel(const real* const v,
-                                 const long long stride,
-                                 const real* const weights,
-                                 const int n,
-                                 mfem::Array<double>& w,
-                                 const bool use_device) {
-    auto r = double{};
-    mfem::reduce(
-        n, r,
-        [v, stride, weights] MFEM_HOST_DEVICE(const int i, double& s) {
-          s += weights[i] * v[i * stride];
-        },
-        mfem::SumReducer<double>{}, use_device, w);
-    return r;
-  }  // end of launchWeightedSumKernel
+  void launchWeightedSumsKernel(const WeightedSumsKernelArguments& a,
+                                const bool use_device) {
+    mfem::forall_switch(
+        use_device, getNumberOfWeightedSumsBlocks(a.number_of_points),
+        [a] MFEM_HOST_DEVICE(int b) {
+          const auto nc = a.number_of_components;
+          const auto n = weighted_sums_block_size;
+          const auto begin = b * n;
+          const auto end =
+              (a.number_of_points - begin) < n ? a.number_of_points : begin + n;
+          auto* const s = a.sums + static_cast<long long>(b) * nc;
+          for (int c = 0; c != nc; ++c) {
+            s[c] = 0;
+          }
+          for (int i = begin; i != end; ++i) {
+            const auto* const v = a.values + i * a.point_stride;
+            for (int c = 0; c != nc; ++c) {
+              s[c] += a.weights[i] * v[c * a.component_stride];
+            }
+          }
+        });
+  }  // end of launchWeightedSumsKernel
 
   void launchL2ProjectionRightHandSideKernel(
       const IntegrationPointsFunctionsKernelArguments& a,

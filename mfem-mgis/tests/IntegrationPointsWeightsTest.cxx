@@ -27,7 +27,9 @@
  * are the same up to round-off errors, and the volumes are the same. With
  * an orthotropic behaviour (option `--behaviour`), the materials are
  * rotated: the thermodynamic forces are summed in the global frame, the
- * integrals are compared between the two computations only.
+ * integrals are compared between the two computations only. The kernel sums
+ * the points by blocks: with more refinements of the mesh (option
+ * `--refinements`), each material has several blocks.
  *
  * The weights are not computed again by the following calls, which is only
  * visible if the mesh is modified (the documentation of
@@ -120,23 +122,26 @@ static bool areClose(const double a, const double b, const double eps) {
  * \param[in] mesh: mesh of the unit cube made of two materials
  * \param[in] library: behaviour library
  * \param[in] behaviour: behaviour
+ * \param[in] refinements: number of uniform refinements of the mesh
  */
 template <bool parallel>
 static void test(mfem_mgis::Context& ctx,
                  const char* const mesh,
                  const char* const library,
-                 const char* const behaviour) {
+                 const char* const behaviour,
+                 const int refinements) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
-  auto problem = construct<NonLinearEvolutionProblem>(
-                     ctx, Parameters{{"MeshFileName", mesh},
-                                     {"FiniteElementFamily", "H1"},
-                                     {"FiniteElementOrder", 1},
-                                     {"UnknownsSize", 3},
-                                     {"NumberOfUniformRefinements", 1},
-                                     {"Hypothesis", "Tridimensional"},
-                                     {"Parallel", parallel}}) |
-                 or_die;
+  auto problem =
+      construct<NonLinearEvolutionProblem>(
+          ctx, Parameters{{"MeshFileName", mesh},
+                          {"FiniteElementFamily", "H1"},
+                          {"FiniteElementOrder", 1},
+                          {"UnknownsSize", 3},
+                          {"NumberOfUniformRefinements", refinements},
+                          {"Hypothesis", "Tridimensional"},
+                          {"Parallel", parallel}}) |
+      or_die;
   auto fed = problem.getFiniteElementDiscretization();
   moveVertices(fed.template getMesh<parallel>());
   constexpr auto volumes = std::array<double, 2u>{3. / 8, 5. / 8};
@@ -176,6 +181,7 @@ static void test(mfem_mgis::Context& ctx,
     const auto np =
         static_cast<std::size_t>(qspace.getNumberOfIntegrationPoints());
     check(w.size() == np, name + ": number of weights");
+    std::cout << name << ": " << np << " integration points\n";
     coordinates[im].assign(np, real{0});
     // weights computed from the transformations of the elements
     auto same = w.size() == np;
@@ -305,8 +311,9 @@ static void test(mfem_mgis::Context& ctx,
         std::cout << name << ": largest difference with the integrals "
                   << "computed element by element " << difference
                   << " (largest integral " << largest << ")\n";
+        // sums of up to 1e5 values in another order (blocks of points)
         check(difference <=
-                  mfem_mgis::unit_tests::tolerance(1e-13, 1e-5) * largest,
+                  mfem_mgis::unit_tests::tolerance(1e-11, 1e-5) * largest,
               name + ": integrals computed element by element");
         check(areClose(material_volumes[mi], reference_volumes[mi], 0),
               name + ": volume computed element by element");
@@ -346,6 +353,7 @@ int main(int argc, char** argv) {
   const char* library = "src/libBehaviourTest.so";
   const char* behaviour = "IsotropicLinearHardeningPlasticity";
   auto parallel = false;
+  auto refinements = 1;
   auto args = mfem::OptionsParser(argc, argv);
   declareDefaultOptions(args);
   args.AddOption(&mesh, "-m", "--mesh",
@@ -353,6 +361,8 @@ int main(int argc, char** argv) {
                  "x < 1/2, 2 for x > 1/2)");
   args.AddOption(&library, "-l", "--library", "behaviour library");
   args.AddOption(&behaviour, "-b", "--behaviour", "behaviour");
+  args.AddOption(&refinements, "-r", "--refinements",
+                 "number of uniform refinements of the mesh");
   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
                  "parallel computations");
   args.Parse();
@@ -363,12 +373,12 @@ int main(int argc, char** argv) {
   auto ctx = Context{};
   if (parallel) {
 #ifdef MFEM_USE_MPI
-    test<true>(ctx, mesh, library, behaviour);
+    test<true>(ctx, mesh, library, behaviour, refinements);
 #else  /* MFEM_USE_MPI */
     check(false, "parallel computations require MPI");
 #endif /* MFEM_USE_MPI */
   } else {
-    test<false>(ctx, mesh, library, behaviour);
+    test<false>(ctx, mesh, library, behaviour, refinements);
   }
   std::cout << (failures == 0 ? "success" : "failure") << '\n';
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

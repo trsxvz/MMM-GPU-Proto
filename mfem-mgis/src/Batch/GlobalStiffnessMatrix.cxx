@@ -30,78 +30,81 @@ namespace mfem_mgis::batch {
   //! \return true if a value is exactly one
   static bool isOne(const real v) { return (v >= real{1}) && (v <= real{1}); }
 
-  /*!
-   * \return the global numbers of the true degrees of freedom of the local
-   * degrees of freedom of a finite element space, read in the prolongation,
-   * or an empty vector if a row of the prolongation has not a single entry
-   * equal to one (on this process). The prolongation is read on the host,
-   * then given back to hypre where it computes.
-   * \param[in] fes: finite element space
-   */
-  static std::vector<HYPRE_BigInt> getGlobalTrueDegreesOfFreedom(
-      const mfem::ParFiniteElementSpace& fes) {
-    auto& P = *(fes.Dof_TrueDof_Matrix());
-    P.HostRead();
-    const hypre_ParCSRMatrix* const p = P;
-    const auto* const diag = hypre_ParCSRMatrixDiag(p);
-    const auto* const offd = hypre_ParCSRMatrixOffd(p);
-    const auto* const di = hypre_CSRMatrixI(diag);
-    const auto* const dj = hypre_CSRMatrixJ(diag);
-    const auto* const dv = hypre_CSRMatrixData(diag);
-    const auto* const oi = hypre_CSRMatrixI(offd);
-    const auto* const oj = hypre_CSRMatrixJ(offd);
-    const auto* const ov = hypre_CSRMatrixData(offd);
-    const auto* const cmap = hypre_ParCSRMatrixColMapOffd(p);
-    const auto first = hypre_ParCSRMatrixFirstColDiag(p);
-    const auto n = static_cast<int>(hypre_CSRMatrixNumRows(diag));
-    auto T = std::vector<HYPRE_BigInt>(static_cast<std::size_t>(n));
-    for (int r = 0; r != n; ++r) {
-      const auto nd = di[r + 1] - di[r];
-      const auto no = oi[r + 1] - oi[r];
-      if ((nd == 1) && (no == 0) && isOne(dv[di[r]])) {
-        T[static_cast<std::size_t>(r)] = first + dj[di[r]];
-      } else if ((nd == 0) && (no == 1) && isOne(ov[oi[r]])) {
-        T[static_cast<std::size_t>(r)] = cmap[oj[oi[r]]];
-      } else {
-        T.clear();
-        break;
-      }
-    }
-    P.HypreRead();
-    return T;
-  }  // end of getGlobalTrueDegreesOfFreedom
-
-  //! \brief pattern of a block of a global matrix, on the host
-  struct BlockPattern {
+  //! \brief copy on the host of a block of a matrix of hypre
+  struct BlockCopy {
     //! \brief offsets of the rows
     std::vector<HYPRE_Int> rows;
     //! \brief columns of the entries
     std::vector<HYPRE_Int> columns;
+    //! \brief values of the entries, if they were asked
+    std::vector<HYPRE_Complex> values;
   };
 
   /*!
-   * \return the pattern of a block of a global matrix, copied from the
-   * memory where hypre keeps it: on a GPU, the block itself, and its values,
-   * are not copied to the host
+   * \return a copy on the host of the pattern of a block of a matrix of
+   * hypre, and of its values if they are asked, made from the memory where
+   * the block is (`hypre_CSRMatrixMemoryLocation`, which MFEM keeps up to
+   * date when it moves the arrays of a matrix): the matrix is neither moved
+   * nor copied as a whole, which `mfem::HypreParMatrix::HostRead` does on a
+   * GPU, keeping the copy as long as the matrix lives
    * \param[in] block: block
+   * \param[in] values: if true, the values are copied
    */
-  static BlockPattern readPattern(const hypre_CSRMatrix* const block) {
+  static BlockCopy copyBlock(const hypre_CSRMatrix* const block,
+                             const bool values) {
     const auto location = hypre_CSRMatrixMemoryLocation(block);
     const auto nr = hypre_CSRMatrixNumRows(block);
     const auto nnz = hypre_CSRMatrixNumNonzeros(block);
-    auto p = BlockPattern{};
-    p.rows.assign(static_cast<std::size_t>(nr) + 1, 0);
-    p.columns.resize(static_cast<std::size_t>(nnz));
+    auto c = BlockCopy{};
+    c.rows.assign(static_cast<std::size_t>(nr) + 1, 0);
     if (hypre_CSRMatrixI(block) != nullptr) {
-      hypre_TMemcpy(p.rows.data(), hypre_CSRMatrixI(block), HYPRE_Int, nr + 1,
+      hypre_TMemcpy(c.rows.data(), hypre_CSRMatrixI(block), HYPRE_Int, nr + 1,
                     HYPRE_MEMORY_HOST, location);
     }
     if (nnz != 0) {
-      hypre_TMemcpy(p.columns.data(), hypre_CSRMatrixJ(block), HYPRE_Int, nnz,
+      c.columns.resize(static_cast<std::size_t>(nnz));
+      hypre_TMemcpy(c.columns.data(), hypre_CSRMatrixJ(block), HYPRE_Int, nnz,
                     HYPRE_MEMORY_HOST, location);
+      if (values) {
+        c.values.resize(static_cast<std::size_t>(nnz));
+        hypre_TMemcpy(c.values.data(), hypre_CSRMatrixData(block),
+                      HYPRE_Complex, nnz, HYPRE_MEMORY_HOST, location);
+      }
     }
-    return p;
-  }  // end of readPattern
+    return c;
+  }  // end of copyBlock
+
+  /*!
+   * \return the global numbers of the true degrees of freedom of the local
+   * degrees of freedom of a finite element space, read in a copy of the
+   * prolongation, or an empty vector if a row of the prolongation has not a
+   * single entry equal to one (on this process)
+   * \param[in] fes: finite element space
+   */
+  static std::vector<HYPRE_BigInt> getGlobalTrueDegreesOfFreedom(
+      const mfem::ParFiniteElementSpace& fes) {
+    const hypre_ParCSRMatrix* const p = *(fes.Dof_TrueDof_Matrix());
+    const auto diag = copyBlock(hypre_ParCSRMatrixDiag(p), true);
+    const auto offd = copyBlock(hypre_ParCSRMatrixOffd(p), true);
+    const auto* const cmap = hypre_ParCSRMatrixColMapOffd(p);
+    const auto first = hypre_ParCSRMatrixFirstColDiag(p);
+    const auto n = diag.rows.size() - 1;
+    auto T = std::vector<HYPRE_BigInt>(n);
+    for (std::size_t r = 0; r != n; ++r) {
+      const auto d = static_cast<std::size_t>(diag.rows[r]);
+      const auto o = static_cast<std::size_t>(offd.rows[r]);
+      const auto nd = diag.rows[r + 1] - diag.rows[r];
+      const auto no = offd.rows[r + 1] - offd.rows[r];
+      if ((nd == 1) && (no == 0) && isOne(diag.values[d])) {
+        T[r] = first + diag.columns[d];
+      } else if ((nd == 0) && (no == 1) && isOne(offd.values[o])) {
+        T[r] = cmap[offd.columns[o]];
+      } else {
+        return {};
+      }
+    }
+    return T;
+  }  // end of getGlobalTrueDegreesOfFreedom
 
   /*!
    * \brief positions of the entries of the part of a global matrix owned by
@@ -114,12 +117,12 @@ namespace mfem_mgis::batch {
     /*!
      * \brief constructor
      * \param[in] m: global matrix, which must outlive this object. The
-     * patterns of its blocks are copied to the host (see `readPattern`).
+     * patterns of its blocks are copied to the host (see `copyBlock`).
      */
     explicit GlobalPositionsFinder(const hypre_ParCSRMatrix* const m)
         : A(m),
-          diag(readPattern(hypre_ParCSRMatrixDiag(m))),
-          offd(readPattern(hypre_ParCSRMatrixOffd(m))),
+          diag(copyBlock(hypre_ParCSRMatrixDiag(m), false)),
+          offd(copyBlock(hypre_ParCSRMatrixOffd(m), false)),
           first_row(hypre_ParCSRMatrixFirstRowIndex(m)),
           last_row(hypre_ParCSRMatrixLastRowIndex(m)),
           first_column(hypre_ParCSRMatrixFirstColDiag(m)),
@@ -181,7 +184,7 @@ namespace mfem_mgis::batch {
      * \param[in] offset: position of the first value of the block
      */
     void setRow(std::vector<Position>& positions,
-                const BlockPattern& block,
+                const BlockCopy& block,
                 const HYPRE_Int offset) const {
       const auto r = static_cast<std::size_t>(this->row);
       for (auto p = block.rows[r]; p != block.rows[r + 1]; ++p) {
@@ -203,9 +206,9 @@ namespace mfem_mgis::batch {
     //! \brief global matrix
     const hypre_ParCSRMatrix* A;
     //! \brief pattern of the diagonal block
-    BlockPattern diag;
+    BlockCopy diag;
     //! \brief pattern of the off diagonal block
-    BlockPattern offd;
+    BlockCopy offd;
     //! \brief first row owned by the process
     HYPRE_BigInt first_row;
     //! \brief last row owned by the process
@@ -228,6 +231,17 @@ namespace mfem_mgis::batch {
    * and the one of the triangular solves (Gauss-Seidel relaxations), which
    * hypre only builds if they do not exist. Without this call, hypre would
    * use the values of the previous assembly.
+   *
+   * These fields are internal to hypre. They were listed by reading hypre
+   * 3.2.0 (`seq_mv/csr_matrix.h`, `parcsr_mv/par_csr_matrix.h`), to be read
+   * again with another version: the other data kept in a matrix are its
+   * transposed blocks (`diagT`, `offdT`: see `ResetTranspose` in
+   * `assemble`), the description of its pattern for the sparse library of
+   * the GPU (`mat_data`, without values), and two fields that the matrices
+   * assembled here do not have (`bdiaginv`, inverses of the diagonal blocks
+   * of the multigrid reduction, and `proc_ordering`, order of the ordered
+   * Gauss-Seidel relaxation). `GlobalStiffnessMatrixTest` applies products
+   * and smoothers of hypre after a second assembly to detect such a copy.
    * \param[in, out] m: block of a matrix of hypre
    */
   static void freeValuesKeptByHypre([[maybe_unused]] hypre_CSRMatrix* const m) {
@@ -239,6 +253,101 @@ namespace mfem_mgis::batch {
     hypre_CSRMatrixCsrsvData(m) = nullptr;
 #endif
   }  // end of freeValuesKeptByHypre
+
+  /*!
+   * \return the pattern of the global matrix of a local matrix: the product
+   * `Pᵀ A P` of hypre on a matrix of ones, the sums of positive values
+   * being never null. The matrix of ones and the operands of the product
+   * are freed before the tables of the setup are built.
+   * \param[in] fes: finite element space
+   * \param[in] A: local matrix
+   */
+  static std::unique_ptr<mfem::HypreParMatrix> makeGlobalPattern(
+      const mfem::ParFiniteElementSpace& fes, const mfem::SparseMatrix& A) {
+    auto ones = mfem::SparseMatrix(A);
+    ones = real{1};
+    auto dA = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+    auto Ph = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+    auto G = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+    dA.MakeSquareBlockDiag(fes.GetComm(), fes.GlobalVSize(),
+                           fes.GetDofOffsets(), &ones);
+    Ph.ConvertFrom(fes.Dof_TrueDof_Matrix());
+    G.MakePtAP(dA, Ph);
+    G.SetOperatorOwner(false);
+    return std::unique_ptr<mfem::HypreParMatrix>(G.As<mfem::HypreParMatrix>());
+  }  // end of makeGlobalPattern
+
+  /*!
+   * \brief copies indices in an array read by the kernels. When the kernels
+   * run on a GPU, the array is allocated for the device and the indices are
+   * copied to it directly: an array written on the host by MFEM then read
+   * on the device keeps both copies, twice its size on a GPU which shares
+   * the memory of the host.
+   * \param[out] a: array
+   * \param[in] v: indices
+   * \param[in] use_device: if true, the kernels run on the device
+   */
+  static void setIndices(mfem::Array<int>& a,
+                         const std::vector<int>& v,
+                         const bool use_device) {
+    const auto n = static_cast<int>(v.size());
+    if (!use_device) {
+      a.SetSize(n);
+      std::copy(v.begin(), v.end(), a.HostWrite());
+      return;
+    }
+    a.SetSize(n, mfem::Device::GetDeviceMemoryType());
+    if (n != 0) {
+      a.GetMemory().CopyFromHost(v.data(), n);
+    }
+  }  // end of setIndices
+
+  /*!
+   * \brief builds the lists of the contributions to the entries of the
+   * global matrix: for each entry, the entries of the local matrix, then
+   * the received values (numbered from the number of entries of the local
+   * matrix), in increasing order
+   * \param[out] offsets: offsets of the contributions to each entry
+   * \param[out] contributions: contributions
+   * \param[in] positions: positions in the global matrix of the entries of
+   * the local matrix, or -1
+   * \param[in] received_positions: positions in the global matrix of the
+   * received values, or -1
+   * \param[in] ng: number of entries of the global matrix
+   * \param[in] use_device: if true, the kernels run on the device
+   */
+  static void setContributions(mfem::Array<int>& offsets,
+                               mfem::Array<int>& contributions,
+                               const std::vector<int>& positions,
+                               const std::vector<int>& received_positions,
+                               const std::size_t ng,
+                               const bool use_device) {
+    auto o = std::vector<int>(ng + 1, 0);
+    for (const auto* const ps : {&positions, &received_positions}) {
+      for (const auto p : *ps) {
+        if (p >= 0) {
+          ++o[static_cast<std::size_t>(p) + 1];
+        }
+      }
+    }
+    for (std::size_t p = 0; p != ng; ++p) {
+      o[p + 1] += o[p];
+    }
+    auto c = std::vector<int>(static_cast<std::size_t>(o[ng]));
+    auto next = std::vector<int>(o.begin(), o.end() - 1);
+    auto contribution = 0;
+    for (const auto* const ps : {&positions, &received_positions}) {
+      for (const auto p : *ps) {
+        if (p >= 0) {
+          const auto t = next[static_cast<std::size_t>(p)]++;
+          c[static_cast<std::size_t>(t)] = contribution;
+        }
+        ++contribution;
+      }
+    }
+    setIndices(offsets, o, use_device);
+    setIndices(contributions, c, use_device);
+  }  // end of setContributions
 
   bool GlobalStiffnessMatrix::isSupported(
       const mfem::ParFiniteElementSpace& fes) noexcept {
@@ -296,19 +405,9 @@ namespace mfem_mgis::batch {
     // from here, all the processes take part in all the collective calls;
     // an entry not found is reported at the end
     auto found = true;
-    // pattern of the global matrix: product of hypre on a matrix of ones,
-    // the sums of positive values being never null
-    auto ones = mfem::SparseMatrix(A);
-    ones = real{1};
-    auto dA = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
-    auto Ph = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
-    auto G = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
-    dA.MakeSquareBlockDiag(comm, this->fes->GlobalVSize(),
-                           this->fes->GetDofOffsets(), &ones);
-    Ph.ConvertFrom(this->fes->Dof_TrueDof_Matrix());
-    G.MakePtAP(dA, Ph);
-    G.SetOperatorOwner(false);
-    this->matrix.reset(G.As<mfem::HypreParMatrix>());
+    // the tables read by the kernels are located where hypre computes
+    const auto use_device = isHypreUsingGPU();
+    this->matrix = makeGlobalPattern(*(this->fes), A);
     const hypre_ParCSRMatrix* const g = *(this->matrix);
     const auto nd = hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixDiag(g));
     const auto no = hypre_CSRMatrixNumNonzeros(hypre_ParCSRMatrixOffd(g));
@@ -362,20 +461,17 @@ namespace mfem_mgis::batch {
     const auto np = static_cast<std::size_t>(nprocs);
     auto send_counts = std::vector<int>(np);
     auto send_offsets = std::vector<int>(np);
-    auto sent = 0;
-    for (std::size_t q = 0; q != np; ++q) {
-      send_offsets[q] = sent;
-      send_counts[q] = static_cast<int>(sent_to[q].size());
-      sent += send_counts[q];
-    }
-    this->sent_entries.SetSize(sent);
-    auto* const se = this->sent_entries.HostWrite();
+    auto sent_entries_values = std::vector<int>{};
     auto sent_pairs = std::vector<HYPRE_BigInt>{};
-    sent_pairs.reserve(2 * static_cast<std::size_t>(sent));
     for (std::size_t q = 0; q != np; ++q) {
-      std::copy(sent_to[q].begin(), sent_to[q].end(), se + send_offsets[q]);
+      send_offsets[q] = static_cast<int>(sent_entries_values.size());
+      send_counts[q] = static_cast<int>(sent_to[q].size());
+      sent_entries_values.insert(sent_entries_values.end(), sent_to[q].begin(),
+                                 sent_to[q].end());
       sent_pairs.insert(sent_pairs.end(), pairs[q].begin(), pairs[q].end());
     }
+    const auto sent = static_cast<int>(sent_entries_values.size());
+    setIndices(this->sent_entries, sent_entries_values, use_device);
     auto receive_counts = std::vector<int>(np);
     MPI_Alltoall(send_counts.data(), 1, MPI_INT, receive_counts.data(), 1,
                  MPI_INT, comm);
@@ -399,23 +495,17 @@ namespace mfem_mgis::batch {
             {static_cast<int>(q), receive_offsets[q], receive_counts[q]});
       }
     }
-    // pairs of global numbers (two values per entry)
-    auto pair_counts = std::vector<int>(np);
-    auto pair_offsets = std::vector<int>(np);
-    auto received_pair_counts = std::vector<int>(np);
-    auto received_pair_offsets = std::vector<int>(np);
-    for (std::size_t q = 0; q != np; ++q) {
-      pair_counts[q] = 2 * send_counts[q];
-      pair_offsets[q] = 2 * send_offsets[q];
-      received_pair_counts[q] = 2 * receive_counts[q];
-      received_pair_offsets[q] = 2 * receive_offsets[q];
-    }
+    // global numbers of the entries sent: one pair per entry, so that the
+    // counts and the offsets of the messages are the ones of the entries
     auto received_pairs =
         std::vector<HYPRE_BigInt>(2 * static_cast<std::size_t>(received));
-    MPI_Alltoallv(sent_pairs.data(), pair_counts.data(), pair_offsets.data(),
-                  HYPRE_MPI_BIG_INT, received_pairs.data(),
-                  received_pair_counts.data(), received_pair_offsets.data(),
-                  HYPRE_MPI_BIG_INT, comm);
+    auto pair_type = MPI_Datatype{};
+    MPI_Type_contiguous(2, HYPRE_MPI_BIG_INT, &pair_type);
+    MPI_Type_commit(&pair_type);
+    MPI_Alltoallv(sent_pairs.data(), send_counts.data(), send_offsets.data(),
+                  pair_type, received_pairs.data(), receive_counts.data(),
+                  receive_offsets.data(), pair_type, comm);
+    MPI_Type_free(&pair_type);
     // positions of the received entries in the values of the global matrix
     auto received_positions =
         std::vector<int>(static_cast<std::size_t>(received));
@@ -431,35 +521,10 @@ namespace mfem_mgis::batch {
         too_many_entries || (static_cast<long long>(n) + received >
                              std::numeric_limits<int>::max());
     if (!too_many_entries) {
-      // contributions to each entry of the global matrix: the entries of
-      // the local matrix, then the received values, in increasing order
-      const auto ng =
-          static_cast<std::size_t>(nd) + static_cast<std::size_t>(no);
-      this->offsets.SetSize(static_cast<int>(ng) + 1);
-      auto* const o = this->offsets.HostWrite();
-      std::fill(o, o + ng + 1, 0);
-      for (const auto* const ps : {&positions, &received_positions}) {
-        for (const auto p : *ps) {
-          if (p >= 0) {
-            ++o[p + 1];
-          }
-        }
-      }
-      for (std::size_t p = 0; p != ng; ++p) {
-        o[p + 1] += o[p];
-      }
-      this->contributions.SetSize(o[ng]);
-      auto* const c = this->contributions.HostWrite();
-      auto next = std::vector<int>(o, o + ng);
-      auto contribution = 0;
-      for (const auto* const ps : {&positions, &received_positions}) {
-        for (const auto p : *ps) {
-          if (p >= 0) {
-            c[next[static_cast<std::size_t>(p)]++] = contribution;
-          }
-          ++contribution;
-        }
-      }
+      setContributions(
+          this->offsets, this->contributions, positions, received_positions,
+          static_cast<std::size_t>(nd) + static_cast<std::size_t>(no),
+          use_device);
     }
     this->send_buffer.UseDevice(true);
     this->send_buffer.SetSize(sent);
@@ -570,6 +635,10 @@ namespace mfem_mgis::batch {
       k.diagonal_block_entries = this->diagonal_block_entries;
       k.off_diagonal_block_entries = this->off_diagonal_block_entries;
       internals::launchGlobalStiffnessMatrixKernel(k, use_device);
+      // copies of the former values kept in the matrix: its transposed
+      // blocks, built by MFEM for the transposed products on a GPU, and
+      // the copies of hypre
+      this->matrix->ResetTranspose();
       if (use_device) {
         freeValuesKeptByHypre(diag);
         freeValuesKeptByHypre(offd);

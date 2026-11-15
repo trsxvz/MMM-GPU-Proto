@@ -1,6 +1,6 @@
-From 8854a4ce046c36fbb20a00f1cf93249cd4fae386 Mon Sep 17 00:00:00 2001
+From 1eed6d180d054d8d1966aef63cc7084d2ef0db63 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 15 Nov 2026 01:47:53 +0100
+Date: Sun, 15 Nov 2026 06:46:53 +0100
 Subject: [PATCH] Non linear solvers, residual: work vectors kept between the
  calls
 
@@ -28,14 +28,14 @@ bit for bit.
 ---
  CHANGELOG.md                                  |  5 ++
  ...nearEvolutionProblemImplementationBase.hxx | 31 +++++++++--
- .../NonLinearSolvers/NonLinearSolverBase.hxx  | 35 +++++++++++++
+ .../NonLinearSolvers/NonLinearSolverBase.hxx  | 40 ++++++++++++++
  src/FixedPointSolver.cxx                      | 12 +++--
  src/KINSOLSolver.cxx                          |  2 +-
- src/NewtonSolver.cxx                          | 17 ++++---
- ...onLinearEvolutionProblemImplementation.cxx | 51 +++++++++++++------
+ src/NewtonSolver.cxx                          | 17 +++---
+ ...onLinearEvolutionProblemImplementation.cxx | 53 +++++++++++++------
  src/NonLinearSolverBase.cxx                   |  9 ++++
  src/PETScSNESSolver.cxx                       |  2 +-
- 9 files changed, 129 insertions(+), 35 deletions(-)
+ 9 files changed, 136 insertions(+), 35 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
 index 897b6bc37b..0a1f69eda3 100644
@@ -103,7 +103,7 @@ index f40421cfc1..31635cfe64 100644
       * \brief number of assemblies of the tangent operator by kernels
       * (`assembleTangentOperatorByKernels`), shared with the operators which
 diff --git a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
-index 794e4a4aab..054ba8b865 100644
+index 794e4a4aab..a38bd9db98 100644
 --- a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
 +++ b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
 @@ -8,6 +8,7 @@
@@ -114,12 +114,12 @@ index 794e4a4aab..054ba8b865 100644
  #include <ostream>
  #include <functional>
  #include "mfem/linalg/solvers.hpp"
-@@ -84,6 +85,38 @@ namespace mfem_mgis {
+@@ -84,6 +85,40 @@ namespace mfem_mgis {
       * \return true on success
       */
      virtual bool processNewUnknownsEstimate(const mfem::Vector& u) const;
 +    //! \brief work vectors of a resolution (see `getWorkVector`)
-+    enum struct WorkVector : std::size_t {
++    enum struct WorkVector {
 +      //! \brief residual
 +      RESIDUAL,
 +      //! \brief correction given by the linear solver
@@ -133,7 +133,9 @@ index 794e4a4aab..054ba8b865 100644
 +       */
 +      AUXILIARY_ESTIMATE,
 +      //! \brief residual of the linear solve
-+      LINEAR_RESIDUAL
++      LINEAR_RESIDUAL,
++      //! \brief number of work vectors (not a work vector)
++      NUMBER_OF_WORK_VECTORS
 +    };
 +    /*!
 +     * \return a work vector of the resolutions, with the given size. The
@@ -153,12 +155,15 @@ index 794e4a4aab..054ba8b865 100644
      /*!
       * \return if messages shall be displayed: if the print level is
       * non-negative, on the first process only (on all processes in a
-@@ -128,6 +161,8 @@ namespace mfem_mgis {
+@@ -128,6 +163,11 @@ namespace mfem_mgis {
       * the residual at the first iteration.
       */
      mutable std::optional<real> reference_residual_norm;
 +    //! \brief work vectors of the resolutions (see `getWorkVector`)
-+    mutable std::array<mfem::Vector, 5> work_vectors;
++    mutable std::array<mfem::Vector,
++                       static_cast<std::size_t>(
++                           WorkVector::NUMBER_OF_WORK_VECTORS)>
++        work_vectors;
      //! \brief pointer to an execution context
      Context *ctx_ptr = nullptr;
      /*!
@@ -251,7 +256,7 @@ index ffa61511ad..6bca09e572 100644
          J.Mult(c, lr);
          lr -= r;
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 18bdb6930a..40bcb6b002 100644
+index 18bdb6930a..4797d8b3ed 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
 @@ -447,9 +447,10 @@ namespace mfem_mgis {
@@ -280,7 +285,7 @@ index 18bdb6930a..40bcb6b002 100644
      auto ctx = Context{};
      auto success = false;
      try {
-@@ -485,7 +487,22 @@ namespace mfem_mgis {
+@@ -485,7 +487,24 @@ namespace mfem_mgis {
                                 "computation of the residual");
      // from the local vector of the finite element space to the true degrees
      // of freedom
@@ -288,7 +293,9 @@ index 18bdb6930a..40bcb6b002 100644
 +    const auto* const P = fes.GetProlongationMatrix();
 +    // the prolongation of a conforming parallel space has no
 +    // `AddMultTranspose` of its own: the one of `mfem::Operator` creates a
-+    // vector at each call, replaced by a work vector (same operations)
++    // vector at each call, replaced by a work vector (same operations).
++    // The other prolongations (non conforming spaces) have their own,
++    // which is called as before
 +#ifdef MFEM_USE_MPI
 +    const auto conforming =
 +        dynamic_cast<const mfem::ConformingProlongationOperator*>(P) != nullptr;
@@ -304,7 +311,7 @@ index 18bdb6930a..40bcb6b002 100644
        P->AddMultTranspose(f, r);
      } else {
        r += f;
-@@ -680,8 +697,8 @@ namespace mfem_mgis {
+@@ -680,8 +699,8 @@ namespace mfem_mgis {
       * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
       */
      std::unique_ptr<mfem::SparseMatrix>* matrix = nullptr;
@@ -315,7 +322,7 @@ index 18bdb6930a..40bcb6b002 100644
    };
  
    /*!
-@@ -844,7 +861,7 @@ namespace mfem_mgis {
+@@ -844,7 +863,7 @@ namespace mfem_mgis {
          }
          // the boundary conditions contribute to `b` by their linear forms
          addInnerForcesComputedByKernels(fed, &mi, {}, fespace, edofs_list,
@@ -324,7 +331,7 @@ index 18bdb6930a..40bcb6b002 100644
          // elimination in the local matrix, without prolongation
          const auto eliminateInLocalMatrix = [&X, &B, &edofs_list, &op, m] {
            m->AddMult(X, B, real{-1});
-@@ -953,12 +970,14 @@ namespace mfem_mgis {
+@@ -953,12 +972,14 @@ namespace mfem_mgis {
     * \return the norm of the residual of the default prediction
     * \param[in, out] ctx: execution context
     * \param[in, out] p: non linear evolution problem
@@ -339,7 +346,7 @@ index 18bdb6930a..40bcb6b002 100644
        const std::function<void()>& extrapolate) noexcept {
      // the integration of the behaviours, the kernels of the residual and the
      // boundary conditions report their errors by exceptions
-@@ -975,7 +994,7 @@ namespace mfem_mgis {
+@@ -975,7 +996,7 @@ namespace mfem_mgis {
        auto norm = real{};
        {
          CatchTimeSection(ctx, "PRED::residual");
@@ -348,7 +355,7 @@ index 18bdb6930a..40bcb6b002 100644
          r.UseDevice(true);
          p.Mult(u1, r);
          // as `mfem::IterativeSolver::Norm`: the residual is null for the
-@@ -1115,7 +1134,8 @@ namespace mfem_mgis {
+@@ -1115,7 +1136,8 @@ namespace mfem_mgis {
          PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
        // no linear system is solved
        return computeLinearExtrapolationPrediction<true>(
@@ -358,7 +365,7 @@ index 18bdb6930a..40bcb6b002 100644
      }
      if (this->linear_solver.get() == nullptr) {
        return ctx.registerErrorMessage("linear solver not initialized");
-@@ -1133,7 +1153,7 @@ namespace mfem_mgis {
+@@ -1133,7 +1155,7 @@ namespace mfem_mgis {
        kernels =
            PredictionKernels{.integrator = this->mgis_integrator,
                              .matrix = &(this->prediction_matrix),
@@ -367,7 +374,7 @@ index 18bdb6930a..40bcb6b002 100644
      }
      // the non linear solver may provide the linear solver of an elastic
      // prediction at the beginning of the time step
-@@ -1199,7 +1219,7 @@ namespace mfem_mgis {
+@@ -1199,7 +1221,7 @@ namespace mfem_mgis {
          this->getFiniteElementDiscretization(),
          kernels ? this->mgis_integrator : nullptr,
          this->residual_boundary_conditions, this->getFiniteElementSpace(),
@@ -376,7 +383,7 @@ index 18bdb6930a..40bcb6b002 100644
          addOtherContributions);
    }  // end of Mult
  
-@@ -1592,7 +1612,8 @@ namespace mfem_mgis {
+@@ -1592,7 +1614,8 @@ namespace mfem_mgis {
          PredictionStrategy::LINEAR_EXTRAPOLATION_PREDICTION) {
        // no linear system is solved
        return computeLinearExtrapolationPrediction<false>(
@@ -386,7 +393,7 @@ index 18bdb6930a..40bcb6b002 100644
      }
      if (this->linear_solver.get() == nullptr) {
        return ctx.registerErrorMessage("linear solver not initialized");
-@@ -1610,7 +1631,7 @@ namespace mfem_mgis {
+@@ -1610,7 +1633,7 @@ namespace mfem_mgis {
        kernels =
            PredictionKernels{.integrator = this->mgis_integrator,
                              .matrix = &(this->prediction_matrix),
@@ -395,7 +402,7 @@ index 18bdb6930a..40bcb6b002 100644
      }
      // the non linear solver may provide the linear solver of an elastic
      // prediction at the beginning of the time step
-@@ -1671,7 +1692,7 @@ namespace mfem_mgis {
+@@ -1671,7 +1694,7 @@ namespace mfem_mgis {
          this->getFiniteElementDiscretization(),
          kernels ? this->mgis_integrator : nullptr,
          this->residual_boundary_conditions, this->getFiniteElementSpace(),

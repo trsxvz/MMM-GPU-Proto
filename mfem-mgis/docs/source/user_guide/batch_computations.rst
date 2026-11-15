@@ -438,7 +438,9 @@ first assembly and kept: the following assemblies only copy, exchange and
 add the values. This setup is performed again if the pattern of the local
 matrix changes or if the finite element space is updated. Otherwise, the
 global matrix is computed by the triple product of :code:`hypre` at each
-assembly.
+assembly. The operator of the prediction, assembled once per time step, is
+also the triple product of :code:`hypre`: it would otherwise keep a second
+global matrix and its tables.
 
 The values of the global matrix are computed where :code:`hypre` computes:
 on the host, or on the GPU, where the values of the local matrix are read
@@ -554,9 +556,8 @@ each computation, and an invalid value is reported by
   kept by the problem. On a GPU, the thermodynamic forces are neither
   copied to the host nor summed there. The sums are the ones of the loop of
   the host up to round-off errors (the contributions are accumulated in
-  double, in an order which depends on the device). One reduction per
-  component is launched for each material: this computation is meant for a
-  few materials with many points;
+  double, by blocks of consecutive points whose sums are then added). One
+  kernel is launched per material, for all the components;
 - :code:`computeL2Projection` and
   :code:`computeImplicitGradientRegularization`: right-hand sides by a
   kernel; for the L2 projection, mass matrices computed by a kernel and

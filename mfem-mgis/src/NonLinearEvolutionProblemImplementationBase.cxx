@@ -656,7 +656,7 @@ namespace mfem_mgis {
             arrays.read(a, s, use_device), arrays.getArray(a, s).Size());
       }
       if (!batch::addWeightedSums(ctx, integrals, forces, workspace.weights,
-                                  workspace.reduction)) {
+                                  workspace.block_sums)) {
         return {};
       }
       measure = workspace.measure;

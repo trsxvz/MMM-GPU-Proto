@@ -490,7 +490,9 @@ namespace mfem_mgis {
     const auto* const P = fes.GetProlongationMatrix();
     // the prolongation of a conforming parallel space has no
     // `AddMultTranspose` of its own: the one of `mfem::Operator` creates a
-    // vector at each call, replaced by a work vector (same operations)
+    // vector at each call, replaced by a work vector (same operations).
+    // The other prolongations (non conforming spaces) have their own,
+    // which is called as before
 #ifdef MFEM_USE_MPI
     const auto conforming =
         dynamic_cast<const mfem::ConformingProlongationOperator*>(P) != nullptr;
@@ -877,6 +879,11 @@ namespace mfem_mgis {
         if constexpr (parallel) {
           mfem::OperatorHandle dA(mfem::Operator::Hypre_ParCSR);
           mfem::OperatorHandle Ph(mfem::Operator::Hypre_ParCSR);
+          // the operator of the prediction, assembled once per time
+          // step, is the product of hypre: a global matrix whose pattern
+          // and exchanges are kept (`batch::GlobalStiffnessMatrix`, used
+          // for the tangent operator) would keep a second matrix and its
+          // tables for one assembly per time step
           dA.MakeSquareBlockDiag(fespace.GetComm(), fespace.GlobalVSize(),
                                  fespace.GetDofOffsets(), m);
           Ph.ConvertFrom(fespace.Dof_TrueDof_Matrix());

@@ -86,7 +86,7 @@ namespace mfem_mgis {
      */
     virtual bool processNewUnknownsEstimate(const mfem::Vector& u) const;
     //! \brief work vectors of a resolution (see `getWorkVector`)
-    enum struct WorkVector : std::size_t {
+    enum struct WorkVector {
       //! \brief residual
       RESIDUAL,
       //! \brief correction given by the linear solver
@@ -100,7 +100,9 @@ namespace mfem_mgis {
        */
       AUXILIARY_ESTIMATE,
       //! \brief residual of the linear solve
-      LINEAR_RESIDUAL
+      LINEAR_RESIDUAL,
+      //! \brief number of work vectors (not a work vector)
+      NUMBER_OF_WORK_VECTORS
     };
     /*!
      * \return a work vector of the resolutions, with the given size. The
@@ -162,7 +164,10 @@ namespace mfem_mgis {
      */
     mutable std::optional<real> reference_residual_norm;
     //! \brief work vectors of the resolutions (see `getWorkVector`)
-    mutable std::array<mfem::Vector, 5> work_vectors;
+    mutable std::array<mfem::Vector,
+                       static_cast<std::size_t>(
+                           WorkVector::NUMBER_OF_WORK_VECTORS)>
+        work_vectors;
     //! \brief pointer to an execution context
     Context *ctx_ptr = nullptr;
     /*!

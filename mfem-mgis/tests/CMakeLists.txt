@@ -692,7 +692,8 @@ if(MFEM_MGIS_HAVE_TFEL)
   # thermodynamic forces, which use them, computed element by element and
   # by kernels, for an isotropic behaviour and for an orthotropic one
   # (thermodynamic forces rotated in the global frame), on the host and on
-  # the debug device of MFEM
+  # the debug device of MFEM, and with a finer mesh, whose materials have
+  # several of the blocks of points summed by the kernel
   add_test_executable(IntegrationPointsWeightsTest)
 
   # Helper function for IntegrationPointsWeightsTest
@@ -717,6 +718,9 @@ if(MFEM_MGIS_HAVE_TFEL)
   add_integration_points_weights_test("-orthotropic-debug"
                                       --behaviour OrthotropicElasticity
                                       --device debug)
+  add_integration_points_weights_test("-orthotropic-blocks"
+                                      --behaviour OrthotropicElasticity
+                                      --refinements 4)
 
   # StateManagerTest executable
   add_tfel_test_executable(StateManagerTest)
