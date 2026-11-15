@@ -51,9 +51,11 @@
 # computation (the energy is read right after it, `-` outside Slurm), time
 # of the macroscopic stresses after each resolution (s,
 # computeMacroscopicCauchyStress, `-` if the executable does not time it),
-# time of the post-processings (s, common::post_processing_step), and wall
+# time of the post-processings (s, common::post_processing_step), wall
 # clock time from the end of the first step to the end of the last one (s,
-# timestamps of <computation>.steps).
+# timestamps of <computation>.steps), and iterations of the iterative
+# linear solver over all the Newton iterations (`-` if the executable does
+# not write them).
 set -u
 work_package=grains
 mesh=${mesh:?mesh (absolute path) required}
@@ -136,7 +138,7 @@ stop_watch() {
 record() {
   local name=$1 mode=$2 np=$3 status unknowns time szz steps resolutions
   local newton failures mesh_time loop_time energy elapsed cauchy_time
-  local pp_time wall
+  local pp_time wall linear
   status=missing
   if [ -f "$out/$name.txt" ]; then
     status=$(sed -n 's/^   status //p' "$out/summary.txt" | tail -1)
@@ -151,6 +153,9 @@ record() {
   resolutions=$(grep -c '^Fixed Point iteration' "$out/$name.txt" 2> /dev/null)
   newton=$(grep -c '||r||/||r_0||' "$out/$name.txt" 2> /dev/null)
   failures=$(grep -c 'the resolution failed' "$out/$name.txt" 2> /dev/null)
+  # lines `... iteration <i> : <n> iterations of the linear solver`
+  linear=$(awk '/ iterations of the linear solver$/ {s += $(NF - 5); n++}
+    END {if (n) print s}' "$out/$name.txt" 2> /dev/null)
   # maximum over the processes of a first level section of the profiling
   # (line ` | |--> name | calls | min | average | max | ...`)
   section() {
@@ -185,7 +190,8 @@ record() {
   echo "$label $mode $nodes $np ${status:-?} ${unknowns:--} ${time:--}" \
     "${szz:--} ${steps:-0} ${resolutions:-0} ${newton:-0} ${failures:-0}" \
     "${solver_label:-default} ${mesh_time:--} ${loop_time:--}" \
-    "${energy:--} ${elapsed:--} ${cauchy_time:--} ${pp_time:--} ${wall:--}" |
+    "${energy:--} ${elapsed:--} ${cauchy_time:--} ${pp_time:--} ${wall:--}" \
+    "${linear:--}" |
     tee -a "$out/series.txt"
 }
 for mode in ${modes:-gpu cpu}; do

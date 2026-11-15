@@ -20,12 +20,17 @@
 # - FM_TRACE_TOOL: `rocprofv3` (default) or `rocprof-sys`
 #   (rocprof-sys-sample, formerly Omnitrace: the same events of the GPU,
 #   with the sampling of the call stacks of the host and the calls of MPI,
-#   in one Perfetto trace per process);
+#   in one Perfetto trace per process), or `perf` (Linux perf: sampling of
+#   the call stacks of the host only, in <directory>/perf.data, to know
+#   which functions of the host run while the GPU waits, see
+#   fm-chain/profile-host.slurm);
 # - FM_TRACE_OPTIONS: options of the profiler (default for rocprofv3:
 #   `--runtime-trace --marker-trace --output-format pftrace csv`, that is
 #   the calls of the HIP runtime, the ranges of roctx, the kernels and the
 #   memory copies, for Perfetto and as tables; default for rocprof-sys:
-#   `--trace --freq 50 --include mpip rocprofiler-sdk`). The trace of
+#   `--trace --freq 50 --include mpip rocprofiler-sdk`; default for perf:
+#   `-F 199 --call-graph dwarf,16384`, the call stacks being unwound
+#   without frame pointers, which the builds do not keep). The trace of
 #   Perfetto is limited by its buffer, 1 GB per process by default, beyond
 #   which the events are discarded (20 time steps of the polycrystal take
 #   0.3 GB; the tables are not limited). `--perfetto-buffer-size <KB>`
@@ -33,7 +38,7 @@
 #   ("Invalid buffer sizes"), no trace is written and the program hangs
 #   at its end (ROCm 6.4.3);
 # - FM_ROCPROFV3: profiler (default: the rocprofv3 or the
-#   rocprof-sys-sample of ROCM_PATH).
+#   rocprof-sys-sample of ROCM_PATH, the perf of the system).
 set -u
 rank=${SLURM_PROCID:-0}
 node=${SLURM_NODEID:-0}
@@ -73,6 +78,12 @@ case "${FM_TRACE_TOOL:-rocprofv3}" in
     # shellcheck disable=SC2086
     exec "${FM_ROCPROFV3:-$rocm/bin/rocprof-sys-sample}" $options \
       --output "$directory" -- "$@"
+    ;;
+  perf)
+    options=${FM_TRACE_OPTIONS:--F 199 --call-graph dwarf,16384}
+    # shellcheck disable=SC2086
+    exec "${FM_ROCPROFV3:-perf}" record $options \
+      -o "$directory/perf.data" -- "$@"
     ;;
   *)
     echo "trace-ranks.sh: unknown profiler ${FM_TRACE_TOOL}" >&2

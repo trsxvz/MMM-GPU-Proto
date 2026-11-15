@@ -16,7 +16,13 @@
 #   vector for all the uses, inner forces not added to the residual on the
 #   true degrees of freedom;
 # - option --hypre-boomeramg-parameters of the polycrystal
-#   (UniaxialPolycrystalTest-BoomerAMGParameters): options not given.
+#   (UniaxialPolycrystalTest-BoomerAMGParameters): options not given;
+# - iterations of the linear solver in the messages of the non linear
+#   solvers (FixedPointSolverTest): another number written by the fixed
+#   point solver, by the Newton solver;
+# - pattern of the local matrix built for the nodes (GradientsKernelsTest):
+#   diagonal not first, components written in the order of the other
+#   numbering, degrees of freedom of the elements not checked.
 # Separate build on the local disk of the node (build-perf.sh in FM_FIX,
 # variant umpire: the MFEM with Umpire of FM_FIX must exist), in another
 # directory than the one of the executables of the measurements, which are
@@ -67,8 +73,11 @@ base=$src/src/NonLinearEvolutionProblemImplementationBase.cxx
 problem=$src/src/NonLinearEvolutionProblemImplementation.cxx
 solver=$src/src/NonLinearSolverBase.cxx
 polycrystal=$opera/polycrystal/UniaxialPolycrystal.cxx
+fixed_point=$src/src/FixedPointSolver.cxx
+newton=$src/src/NewtonSolver.cxx
+stiffness=$src/src/Batch/StiffnessMatrices.cxx
 files=("$global" "$global_kernels" "$points_kernels" "$base" "$problem"
-  "$solver" "$polycrystal")
+  "$solver" "$polycrystal" "$fixed_point" "$newton" "$stiffness")
 mkdir -p "$out/original"
 for f in "${files[@]}"; do
   cp "$f" "$out/original/$(basename "$f")"
@@ -177,6 +186,12 @@ solvers_tests() {
   run_tests "$1" "FixedPointSolverTest NewtonLineSearchTest LinearExtrapolationPredictionTest" \
     '^(FixedPointSolverTest|NewtonLineSearchTest|LinearExtrapolationPredictionTest)' "host host-kernels"
 }
+messages_tests() {
+  run_tests "$1" FixedPointSolverTest '^FixedPointSolverTest' host
+}
+pattern_tests() {
+  run_tests "$1" GradientsKernelsTest '^GradientsKernelsTest$' host
+}
 # usage: mutation name tests file pattern replacement [file pattern
 # replacement...]: applies a mutation, runs its tests, which must fail
 mutation() {
@@ -196,6 +211,8 @@ if selected original; then
   verdict original-solvers passed
   run_polycrystal original-polycrystal
   verdict original-polycrystal passed
+  pattern_tests original-pattern
+  verdict original-pattern passed
 fi
 # global matrix
 mutation g1-values-kept-by-hypre-not-freed global_tests "$global" \
@@ -253,6 +270,22 @@ mutation p1-options-of-boomeramg-not-given run_polycrystal "$polycrystal" \
 mutation p2-options-of-amgx-accepted-with-boomeramg run_polycrystal "$polycrystal" \
   '  if ((s != "AmgX") && ((!amgx.empty()) || p.amgx_single_precision)) {' \
   '  if (false && (s != "AmgX")) {'
+# iterations of the linear solver in the messages
+mutation i1-other-iterations-written-by-the-fixed-point messages_tests "$fixed_point" \
+  'it << " : " << *n' 'it << " : " << *n + 1'
+mutation i2-other-iterations-written-by-newton messages_tests "$newton" \
+  'it << " : " << *n' 'it << " : " << *n + 1'
+# pattern of the local matrix
+mutation s1-diagonal-not-first pattern_tests "$stiffness" \
+  '          std::rotate(row, diagonal, diagonal + 1);' ''
+mutation s2-components-in-the-order-of-the-other-numbering pattern_tests "$stiffness" \
+  '        if (by_vdim) {
+          for (const auto* q = first; q != last; ++q) {' \
+  '        if (!by_vdim) {
+          for (const auto* q = first; q != last; ++q) {'
+mutation s3-degrees-of-freedom-of-the-elements-not-checked pattern_tests "$stiffness" \
+  '            if (d[nde * e + nne * c + j] != dof(node(v), c)) {' \
+  '            if (false && (d[nde * e + nne * c + j] != dof(node(v), c))) {'
 restore
 rm -rf "$B"
 if [ -z "$undetected" ]; then

@@ -210,6 +210,23 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   their numbers of slices, decoded without library: what Perfetto will
   show, and whether events were discarded (the number of slices must be
   the number of rows of the tables).
+- **`profile-host.slurm`: profile of the host of the final computation**
+  (15/11/2026): which functions of the host run while the GPU waits, which
+  the traces of the GPU do not show.
+  - `FM_GRAINS` grains on all the GPUs of the allocation, final
+    configuration, one step by default (the setup and the first assembly
+    of the tangent operator), the executable being `FM_EXECUTABLE`.
+  - The processes `FM_TRACE_RANKS` (default `0`) run under Linux perf
+    (`trace-ranks.sh` with `FM_TRACE_TOOL=perf`: `perf record -F 199
+    --call-graph dwarf,16384`). The call stacks are unwound without frame
+    pointers, and no debug information is needed for the names of the
+    functions: the executables of the measurements are profiled as they
+    are.
+  - Results: `trace/rank<rank>-<host>/perf.data` (250 MB for one minute),
+    and `report-rank<rank>.txt`: share of the samples of each function,
+    with and without its callees. Only the time spent in user code is
+    sampled (the nodes do not allow the sampling of the kernel): the
+    allocations and the waits are not in the profile.
 - **`roctx-tests.slurm`: tests of the ranges of roctx.**
   - Separate build by `build-roctx.sh` of MGIS, mfem-mgis and the
     polycrystal from the archive `FM_FIX/src.tgz`, on the local disk of the

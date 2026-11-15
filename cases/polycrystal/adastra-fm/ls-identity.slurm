@@ -47,8 +47,11 @@ ew1="$k0 EisenstatWalker1 --adaptive-linear-solver-initial-tolerance 0.01"
 ew2="$k0 EisenstatWalker2 --adaptive-linear-solver-initial-tolerance 0.1"
 newton="--non-linear-solver Newton --adaptive-linear-solver-tolerance"
 newton="$newton EisenstatWalker2 --adaptive-linear-solver-initial-tolerance 0.1"
+# lines of the iterations, without the ones giving the iterations of the
+# linear solver, which the executables built before 15/11/2026 do not write
 lines() {
-  grep -E 'Fixed point iteration|Newton iteration|Fixed Point iteration|Solving time step|Solution at time|resolution failed|dividing|integration fail' "$1.txt"
+  grep -E 'Fixed point iteration|Newton iteration|Fixed Point iteration|Solving time step|Solution at time|resolution failed|dividing|integration fail' "$1.txt" |
+    grep -v ' iterations of the linear solver$'
 }
 # usage: run_case name mesh steps solver
 run_case() {
@@ -69,6 +72,7 @@ run_case() {
     diff <(lines "$a") <(lines "$b") >> "$out/diff-$1.txt" 2>&1; then
     log "$1: identical outputs ($(wc -c < "$a.res") bytes of .res," \
       "$(lines "$a" | wc -l) lines of iterations," \
+      "$(grep -c ' iterations of the linear solver$' "$b.txt") lines of iterations of the linear solver in B," \
       "$(grep -c 'integration failure' "$a.txt") estimates moved after an integration failure)"
   else
     log "$1: outputs differ (see $out/diff-$1.txt)"
