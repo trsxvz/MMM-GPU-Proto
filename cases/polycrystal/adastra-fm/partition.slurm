@@ -16,7 +16,13 @@
 # directory when the parts are consistent: a partition is only kept by the
 # next jobs with this file. FM_CHECK: partitions "grains:processes" already
 # made, checked the same way (same fingerprint of the elements for all the
-# partitions of a mesh). The job fails if a partitioning or a check fails. With FM_SPLIT_TEST=1, first compares split-mesh on
+# partitions of a mesh). The job fails if a partitioning or a check fails.
+# FM_REMOVE_PARTITIONS: partitions "grains:processes" removed first (parts
+# of computations already done: the 6144 parts of a CPU computation on 64
+# nodes weigh on the quota of files of the group). FM_FILES_LIMIT: a
+# partition is not written, and the job fails, if its parts would bring the
+# files of the group on the scratch above this number.
+# With FM_SPLIT_TEST=1, first compares split-mesh on
 # FM_SPLIT_TEST_CASE (default 400:96, one node, files on its local disk) to
 # the parts made by MFEM alone (split-mesh --mfem) and by partition-mesh,
 # and the CPU computations reading the parts of the two tools
@@ -97,6 +103,15 @@ check_partition() {
   [ "$s" = 0 ] && touch "$d/checked"
   return "$s"
 }
+# usage: room_for files
+# false if <files> more files would bring the files of the group on the
+# scratch (quota read by lfs) above FM_FILES_LIMIT, or if they are not known
+room_for() {
+  [ -n "${FM_FILES_LIMIT:-}" ] || return 0
+  local used
+  used=$(lfs quota -q -g "$(stat -c %G "$W")" /lus/scratch | awk '{print $6 + 0}')
+  [ "${used:-0}" -gt 0 ] && [ $((used + $1)) -le "$FM_FILES_LIMIT" ]
+}
 partition() {
   set +u
   source "$D/MMM-GPU-Proto/scripts/env.sh" > /dev/null 2>&1
@@ -115,6 +130,11 @@ partition() {
     # partitions already made and checked are kept
     if [ -e "$d/checked" ]; then
       log "v$n np$np: already partitioned and checked"
+      continue
+    fi
+    if ! room_for "$np"; then
+      log "v$n np$np: not written, the files of the group would exceed $FM_FILES_LIMIT"
+      status=1
       continue
     fi
     mkdir -p "$d"
@@ -149,6 +169,14 @@ partition() {
   [ "$status" = 0 ] || log "partitions: FAILURES"
   return "$status"
 }
+for p in ${FM_REMOVE_PARTITIONS:-}; do
+  if [[ $p =~ ^[0-9]+:[0-9]+$ ]]; then
+    rm -rf "$W/meshes/part/v${p%%:*}-np${p##*:}"
+    log "v${p%%:*} np${p##*:}: parts removed"
+  else
+    log "partition $p to remove: not <grains>:<processes>"
+  fi
+done
 (partition) || exit 1
 if [ "${FM_SPLIT_TEST:-0}" = 1 ]; then
   c=${FM_SPLIT_TEST_CASE:-400:96}

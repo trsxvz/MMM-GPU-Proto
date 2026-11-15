@@ -65,6 +65,18 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     on the local disk of the node); the job stops if they fail.
   - `FM_TEST=1`: computations reading the parts against the ones building
     the mesh themselves.
+  - `FM_REMOVE_PARTITIONS`: partitions removed first, the parts of
+    computations already done. `FM_FILES_LIMIT`: a partition is not
+    written, and the job fails, if its parts would bring the files of the
+    group on the scratch above this number (quota read by `lfs`).
+- **`geo.slurm`, `mesh.slurm`: meshes made on a node** (see
+  `meshes/README.md`).
+  - `geo.slurm`: geometries of Merope of `FM_GRAINS` grains for the seeds
+    `FM_SEEDS`, in parallel.
+  - `mesh.slurm`: correction of the plane surfaces, gmsh and cleaning. With
+    `FM_SEEDS`, the geometries of `geo.slurm` are tried in this order until
+    gmsh meshes one without error (the seed kept is in the file `seed`);
+    the job fails without a cleaned mesh.
 - **`ls-tests.slurm`: tests of the line search** (option `LineSearch` of
   mfem-mgis, 14/11/2026).
   - Separate build in `FM_FIX` (`build-fix.sh`), then the unit tests of
@@ -261,6 +273,44 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   `FM_REQUIRE=<results>/passed` (see `common.sh`), so that a large job does
   not start after a failure. `FM_CHAIN_LOG` names a second journal
   receiving the lines of `chain.log`.
+
+## Scalability studies
+
+`scaling.sh` submits chains of jobs in the final configuration of the FM,
+from the login node (15/11/2026). Each job depends on the previous one, so
+that the cluster goes on without the login session.
+
+- `scaling.sh mesh <grains>...`: `geo.slurm` then `mesh.slurm` for each
+  number of grains. The orientations must already be in
+  `meshes/series/v<grains>`.
+- `scaling.sh gpu <grains> <nodes>...`: the parts of one RVE for all its
+  numbers of nodes (4 processes per node) in one job, then one job of
+  `FM_GPU_REPS` computations per number of nodes.
+- `scaling.sh cpu <grains>:<nodes>[:keep]...`: the points one after the
+  other (96 processes per node): parts, computation, and the parts removed
+  by the partitioning job of the next point unless the point ends with
+  `:keep`. The 6144 parts of a computation on 64 nodes are as many files:
+  only one set at a time weighs on the quota of the group.
+- `scaling.sh check <grains>:<processes>...`: partitions made before the
+  file `checked` existed, read back.
+- A computation starts only after its parts were written and checked
+  (`afterok` and `FM_REQUIRE`). In a chain of the CPU, a point which fails
+  does not stop the next ones (`afterany`, jobs with a dependency which can
+  no longer be satisfied cancelled).
+- `FM_AFTER` is the dependency of the first job of a chain, for instance
+  the mesh job.
+
+`scaling-fm.sh` is the study of the FM: `meshes`, then `computations`.
+
+- Weak series: 600 N grains on N nodes, from 1 to 64 nodes (4.94 M
+  unknowns per GPU, 206,000 per core).
+- Strong series: 600 grains from 1 to 64 nodes, 2400 from 4 and 9600 from
+  16.
+
+`scaling-table.py <series directories>` prints one line per RVE and number
+of nodes (login node). `scaling-figures.py <table> <directory>` writes the
+tables with the efficiencies and the speedups, and the figures (matplotlib,
+on a workstation).
 
 ## The report
 
