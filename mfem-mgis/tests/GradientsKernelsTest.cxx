@@ -19,7 +19,9 @@
  * behaviour of the tests supports it), also with the FBar formulation and
  * the regularization of Faltus et al. (hexahedra of orders 1 and 2 and
  * quadrangles on distorted meshes, tetrahedra), on the device selected by
- * the `--device` option.
+ * the `--device` option. The pattern of the sparse matrix, built for the
+ * nodes then expanded to their components, is the one of MFEM for one, two
+ * and three components, numbered node by node or component by component.
  * \date   09/10/2026
  */
 
@@ -37,6 +39,9 @@
 #include "mfem/general/device.hpp"
 #include "mfem/general/optparser.hpp"
 #include "mfem/linalg/sparsemat.hpp"
+#include "mfem/mesh/mesh.hpp"
+#include "mfem/fem/fe_coll.hpp"
+#include "mfem/fem/fespace.hpp"
 #include "mfem/fem/restriction.hpp"
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MFEMMGIS/Config.hxx"
@@ -187,6 +192,97 @@ static int checkPositions(const std::string& name,
   check(wrong == 0, name + ": " + std::to_string(wrong) + " wrong positions");
   return missing;
 }  // end of checkPositions
+
+/*!
+ * \return true if a matrix created by `batch::makeAssembledStiffnessMatrix`
+ * has the pattern built by MFEM from the matrices of all the elements, the
+ * diagonal entry being the first of each row, and null values
+ * \param[in] fes: finite element space
+ * \param[in] m: matrix
+ */
+static bool hasPatternOfMFEM(const mfem::FiniteElementSpace& fes,
+                             const mfem::SparseMatrix& m) {
+  using mfem_mgis::real;
+  auto reference = mfem::SparseMatrix(fes.GetVSize());
+  auto vdofs = mfem::Array<int>{};
+  auto Ke = mfem::DenseMatrix{};
+  for (int i = 0; i != fes.GetNE(); ++i) {
+    fes.GetElementVDofs(i, vdofs);
+    Ke.SetSize(vdofs.Size());
+    Ke = real{0};
+    reference.AddSubMatrix(vdofs, vdofs, Ke, 0);
+  }
+  reference.Finalize(0);
+  reference.SortColumnIndices();
+  const auto nnz = reference.NumNonZeroElems();
+  if ((m.Height() != reference.Height()) || (m.Width() != reference.Width()) ||
+      (m.NumNonZeroElems() != nnz)) {
+    return false;
+  }
+  const auto* const I = m.HostReadI();
+  const auto* const J = m.HostReadJ();
+  const auto* const v = m.HostReadData();
+  for (int r = 0; r != m.Height(); ++r) {
+    if ((I[r] == I[r + 1]) || (J[I[r]] != r)) {
+      return false;
+    }
+  }
+  auto sorted = mfem::SparseMatrix(m);
+  sorted.SortColumnIndices();
+  const auto* const sI = sorted.HostReadI();
+  const auto* const sJ = sorted.HostReadJ();
+  const auto* const rI = reference.HostReadI();
+  const auto* const rJ = reference.HostReadJ();
+  return std::all_of(v, v + nnz, [](const real x) { return x == 0; }) &&
+         std::equal(sI, sI + m.Height() + 1, rI) && std::equal(sJ, sJ + nnz, rJ);
+}  // end of hasPatternOfMFEM
+
+/*!
+ * \brief checks the pattern of the matrices created by
+ * `batch::makeAssembledStiffnessMatrix`, built for the nodes then expanded
+ * to their components, for one, two and three components numbered node by
+ * node or component by component, and that degrees of freedom which are not
+ * the components of the nodes of the elements are refused
+ * \param[in] meshes: meshes
+ */
+static void testAssembledMatrixPatterns(
+    const std::vector<const char*>& meshes) {
+  using namespace mfem_mgis;
+  for (const auto* const file : meshes) {
+    auto mesh = mfem::Mesh(file, 1, 1);
+    for (const auto order : {1, 2}) {
+      auto fec = mfem::H1_FECollection(order, mesh.Dimension());
+      for (const auto vdim : {1, 2, 3}) {
+        for (const auto ordering :
+             {mfem::Ordering::byNODES, mfem::Ordering::byVDIM}) {
+          const auto name =
+              std::string{file} + ", order " + std::to_string(order) + ", " +
+              std::to_string(vdim) + " components numbered " +
+              (ordering == mfem::Ordering::byVDIM ? "node by node"
+                                                  : "component by component");
+          auto ctx = Context{};
+          auto fes = mfem::FiniteElementSpace(&mesh, &fec, vdim, ordering);
+          auto dofs = mfem::Array<int>{};
+          check(batch::computeElementsDegreesOfFreedom(ctx, dofs, fes),
+                name + ": degrees of freedom of the elements");
+          const auto m = batch::makeAssembledStiffnessMatrix(ctx, fes, dofs);
+          check((m != nullptr) && hasPatternOfMFEM(fes, *m),
+                name + ": pattern of the assembled matrix");
+          if (vdim == 1) {
+            continue;
+          }
+          // the first two degrees of freedom of the first element are
+          // exchanged
+          auto* const d = dofs.HostReadWrite();
+          std::swap(d[0], d[1]);
+          check(batch::makeAssembledStiffnessMatrix(ctx, fes, dofs) == nullptr,
+                name + ": degrees of freedom which are not the components "
+                       "of the nodes accepted");
+        }
+      }
+    }
+  }
+}  // end of testAssembledMatrixPatterns
 
 /*!
  * \brief compare the gradients computed by kernels and element by element
@@ -813,39 +909,8 @@ static void testCase(mfem_mgis::Context& ctx,
   if (m == nullptr) {
     return;
   }
-  auto reference = mfem::SparseMatrix(fes.GetVSize());
-  auto vdofs = mfem::Array<int>{};
-  auto Ke = mfem::DenseMatrix{};
-  for (int i = 0; i != fes.GetNE(); ++i) {
-    fes.GetElementVDofs(i, vdofs);
-    Ke.SetSize(vdofs.Size());
-    Ke = real{0};
-    reference.AddSubMatrix(vdofs, vdofs, Ke, 0);
-  }
-  reference.Finalize(0);
-  reference.SortColumnIndices();
-  const auto nnz = reference.NumNonZeroElems();
-  auto same_pattern = (m->Height() == reference.Height()) &&
-                      (m->Width() == reference.Width()) &&
-                      (m->NumNonZeroElems() == nnz);
-  if (same_pattern) {
-    const auto* const I = m->HostReadI();
-    const auto* const J = m->HostReadJ();
-    const auto* const v = m->HostReadData();
-    for (int r = 0; r != m->Height(); ++r) {
-      same_pattern = same_pattern && (I[r] != I[r + 1]) && (J[I[r]] == r);
-    }
-    same_pattern = same_pattern &&
-                   std::all_of(v, v + nnz, [](const real x) { return x == 0; });
-    auto sorted = mfem::SparseMatrix(*m);
-    sorted.SortColumnIndices();
-    const auto* const sI = sorted.HostReadI();
-    const auto* const sJ = sorted.HostReadJ();
-    const auto* const rI = reference.HostReadI();
-    const auto* const rJ = reference.HostReadJ();
-    same_pattern = same_pattern && std::equal(sI, sI + m->Height() + 1, rI) &&
-                   std::equal(sJ, sJ + nnz, rJ);
-  }
+  const auto same_pattern = hasPatternOfMFEM(fes, *m);
+  const auto nnz = m->NumNonZeroElems();
   std::cout << c.name << ": pattern of the assembled matrix, " << nnz
             << " values\n";
   check(same_pattern, c.name + ": pattern of the assembled matrix");
@@ -1125,6 +1190,7 @@ int main(int argc, char** argv) {
     testCase(ctx, library, c);
   }
   testIntegratorPositions(ctx, library, cube);
+  testAssembledMatrixPatterns({cube, tetrahedra, square});
   std::cout << (failures == 0 ? "success" : "failure") << '\n';
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }  // end of main

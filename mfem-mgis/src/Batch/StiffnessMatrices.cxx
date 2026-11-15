@@ -401,72 +401,131 @@ namespace mfem_mgis::batch {
       const auto n = fes.GetVSize();
       const auto ne = fes.GetNE();
       const auto nde = (ne == 0) ? 0 : dofs.Size() / ne;
-      if (nde * ne != dofs.Size()) {
+      // the degrees of freedom are the components of the nodes of the space,
+      // and an element has all the components of its nodes: the pattern of
+      // the matrix is the one of the couplings between the nodes, each entry
+      // being a full block of components. The pattern of the nodes is built,
+      // which takes `vdim * vdim` times fewer operations than the one of the
+      // degrees of freedom, then expanded.
+      const auto vdim = fes.GetVDim();
+      const auto nn = fes.GetNDofs();
+      const auto nne = nde / vdim;
+      if ((nde * ne != dofs.Size()) || (nne * vdim != nde)) {
         std::ignore = ctx.registerErrorMessage(
             "makeAssembledStiffnessMatrix: invalid number of degrees of "
             "freedom of the elements");
         return {};
       }
+      // numbering of the components of the nodes (see `mfem::Ordering`)
+      const auto by_vdim = fes.GetOrdering() == mfem::Ordering::byVDIM;
+      const auto dof = [by_vdim, vdim, nn](const int node, const int c) {
+        return by_vdim ? node * vdim + c : node + c * nn;
+      };
+      const auto node = [by_vdim, vdim, nn](const int v) {
+        return by_vdim ? v / vdim : v % nn;
+      };
+      // nodes of the elements, whose degrees of freedom are stored component
+      // by component (see `computeElementsDegreesOfFreedom`)
       const auto* const d = dofs.HostRead();
-      // elements of each degree of freedom
-      auto offsets = std::vector<int>(static_cast<std::size_t>(n) + 1, 0);
-      for (int i = 0; i != dofs.Size(); ++i) {
-        if ((d[i] < 0) || (d[i] >= n)) {
-          std::ignore = ctx.registerErrorMessage(
-              "makeAssembledStiffnessMatrix: invalid degree of freedom");
-          return {};
+      auto nodes = std::vector<int>(static_cast<std::size_t>(nne) * ne);
+      for (int e = 0; e != ne; ++e) {
+        for (int j = 0; j != nne; ++j) {
+          const auto v = d[nde * e + j];
+          if ((v < 0) || (v >= n)) {
+            std::ignore = ctx.registerErrorMessage(
+                "makeAssembledStiffnessMatrix: invalid degree of freedom");
+            return {};
+          }
+          for (int c = 0; c != vdim; ++c) {
+            if (d[nde * e + nne * c + j] != dof(node(v), c)) {
+              std::ignore = ctx.registerErrorMessage(
+                  "makeAssembledStiffnessMatrix: the degrees of freedom of "
+                  "an element are not the components of its nodes");
+              return {};
+            }
+          }
+          nodes[static_cast<std::size_t>(nne) * e + j] = node(v);
         }
-        ++offsets[static_cast<std::size_t>(d[i]) + 1];
+      }
+      // elements of each node
+      auto offsets = std::vector<int>(static_cast<std::size_t>(nn) + 1, 0);
+      for (const auto i : nodes) {
+        ++offsets[static_cast<std::size_t>(i) + 1];
       }
       std::partial_sum(offsets.begin(), offsets.end(), offsets.begin());
-      auto elements = std::vector<int>(static_cast<std::size_t>(offsets[n]));
+      auto elements = std::vector<int>(nodes.size());
       auto positions = std::vector<int>(offsets.begin(), offsets.end() - 1);
       for (int e = 0; e != ne; ++e) {
-        for (int j = 0; j != nde; ++j) {
-          const auto r = static_cast<std::size_t>(d[nde * e + j]);
-          elements[static_cast<std::size_t>(positions[r]++)] = e;
+        for (int j = 0; j != nne; ++j) {
+          const auto i = static_cast<std::size_t>(
+              nodes[static_cast<std::size_t>(nne) * e + j]);
+          elements[static_cast<std::size_t>(positions[i]++)] = e;
         }
       }
-      // columns of each row: degrees of freedom of the elements of the row,
-      // without repetitions, the diagonal first and the others sorted
-      auto rows = std::vector<int>(static_cast<std::size_t>(n) + 1, 0);
-      auto columns = std::vector<int>{};
-      auto last_row = std::vector<int>(static_cast<std::size_t>(n), -1);
-      for (int r = 0; r != n; ++r) {
-        const auto begin = columns.size();
+      // nodes coupled to each node: the nodes of its elements, without
+      // repetitions, sorted
+      auto node_rows = std::vector<std::size_t>(nn + std::size_t{1}, 0);
+      auto node_columns = std::vector<int>{};
+      auto last_row = std::vector<int>(static_cast<std::size_t>(nn), -1);
+      for (int r = 0; r != nn; ++r) {
+        const auto begin = node_columns.size();
         for (auto p = offsets[r]; p != offsets[r + 1]; ++p) {
-          const auto e = elements[static_cast<std::size_t>(p)];
-          for (int j = 0; j != nde; ++j) {
-            const auto c = d[nde * e + j];
+          const auto* const element_nodes =
+              nodes.data() + static_cast<std::size_t>(nne) *
+                                 elements[static_cast<std::size_t>(p)];
+          for (int j = 0; j != nne; ++j) {
+            const auto c = element_nodes[j];
             if (last_row[static_cast<std::size_t>(c)] != r) {
               last_row[static_cast<std::size_t>(c)] = r;
-              columns.push_back(c);
+              node_columns.push_back(c);
             }
           }
         }
-        const auto first = columns.begin() + static_cast<std::ptrdiff_t>(begin);
-        std::sort(first, columns.end());
-        const auto diagonal = std::lower_bound(first, columns.end(), r);
-        if ((diagonal != columns.end()) && (*diagonal == r)) {
-          std::rotate(first, diagonal, diagonal + 1);
-        }
-        if (columns.size() >
-            static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-          std::ignore = ctx.registerErrorMessage(
-              "makeAssembledStiffnessMatrix: too many values for MFEM");
-          return {};
-        }
-        rows[static_cast<std::size_t>(r) + 1] =
-            static_cast<int>(columns.size());
+        std::sort(node_columns.begin() + static_cast<std::ptrdiff_t>(begin),
+                  node_columns.end());
+        node_rows[static_cast<std::size_t>(r) + 1] = node_columns.size();
+      }
+      if (node_columns.size() >
+          static_cast<std::size_t>(std::numeric_limits<int>::max()) /
+              (static_cast<std::size_t>(vdim) * vdim)) {
+        std::ignore = ctx.registerErrorMessage(
+            "makeAssembledStiffnessMatrix: too many values for MFEM");
+        return {};
       }
       // arrays allocated by the memory manager of MFEM (as
       // `mfem::Transpose`), owned by the matrix, whose values are allocated
       // and set to zero by its constructor
-      const auto nnz = static_cast<int>(columns.size());
+      const auto nnz = static_cast<int>(node_columns.size()) * vdim * vdim;
       int* const I = mfem::Memory<int>(n + 1);
       int* const J = mfem::Memory<int>(nnz);
-      std::copy(rows.begin(), rows.end(), I);
-      std::copy(columns.begin(), columns.end(), J);
+      // columns of each row: the components of the nodes coupled to its
+      // node, written in increasing order, then the diagonal first
+      I[0] = 0;
+      for (int r = 0; r != n; ++r) {
+        const auto i = static_cast<std::size_t>(node(r));
+        const auto* const first = node_columns.data() + node_rows[i];
+        const auto* const last = node_columns.data() + node_rows[i + 1];
+        auto* const row = J + I[r];
+        auto* end = row;
+        if (by_vdim) {
+          for (const auto* q = first; q != last; ++q) {
+            for (int c = 0; c != vdim; ++c) {
+              *end++ = dof(*q, c);
+            }
+          }
+        } else {
+          for (int c = 0; c != vdim; ++c) {
+            for (const auto* q = first; q != last; ++q) {
+              *end++ = dof(*q, c);
+            }
+          }
+        }
+        const auto diagonal = std::lower_bound(row, end, r);
+        if ((diagonal != end) && (*diagonal == r)) {
+          std::rotate(row, diagonal, diagonal + 1);
+        }
+        I[r + 1] = static_cast<int>(end - J);
+      }
       return std::make_unique<mfem::SparseMatrix>(I, J, nullptr, n, n, true,
                                                   true, false);
     } catch (...) {

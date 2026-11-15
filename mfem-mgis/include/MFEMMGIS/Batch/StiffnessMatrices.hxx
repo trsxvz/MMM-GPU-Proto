@@ -236,12 +236,14 @@ namespace mfem_mgis::batch {
    * values are null. In each row, the diagonal entry comes first, then the
    * other columns, sorted: the ordering of hypre, which
    * `mfem::HypreParMatrix` imposes on the rows of a local matrix that it
-   * uses (the columns of a sorted row would not stay sorted).
+   * uses (the columns of a sorted row would not stay sorted). The pattern is
+   * built for the nodes of the space, then expanded to their components.
    * \return the matrix, or a null pointer on error
    * \param[in, out] ctx: execution context
    * \param[in] fes: finite element space
-   * \param[in] dofs: degrees of freedom of all the elements (see
-   * `computeElementsDegreesOfFreedom`)
+   * \param[in] dofs: degrees of freedom of all the elements, as computed by
+   * `computeElementsDegreesOfFreedom`: all the components of the nodes of
+   * each element, component by component
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::unique_ptr<mfem::SparseMatrix>
   makeAssembledStiffnessMatrix(Context& ctx,

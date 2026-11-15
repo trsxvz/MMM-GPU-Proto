@@ -1,0 +1,410 @@
+From 4faec856aa53c60ff7b04804ecb55ef4188db75b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 15 Nov 2026 18:43:48 +0100
+Subject: [PATCH] Assembled stiffness matrix: pattern built for the nodes, then
+ expanded
+
+`batch::makeAssembledStiffnessMatrix` built the pattern of the local matrix
+row by row for the degrees of freedom: for each row, the degrees of freedom
+of its elements were marked, gathered and sorted. For the quadratic
+tetrahedra of a polycrystal with 4.9 M unknowns per process, this took
+about 12 s of one thread of the host at the first assembly of the tangent
+operator, the GPU waiting (half of this assembly).
+
+The degrees of freedom being the components of the nodes of the space, and
+an element having all the components of its nodes, the pattern is the one
+of the couplings between the nodes, each entry being a full block of
+components. The pattern of the nodes is now built, with `vdim * vdim` times
+fewer operations, then expanded: the columns of each row are written in
+increasing order directly in the arrays of the matrix, the diagonal first.
+The intermediate copy of the columns is no longer allocated.
+
+The matrix is the same, bit for bit. The degrees of freedom of the elements
+must be the ones of `computeElementsDegreesOfFreedom` (all the components
+of the nodes of each element, component by component): others are refused.
+
+GradientsKernelsTest: pattern compared to the one of MFEM for one, two and
+three components numbered node by node or component by component, on
+hexahedra, tetrahedra and quadrangles of orders 1 and 2; degrees of freedom
+which are not the components of the nodes refused.
+---
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx |   8 +-
+ src/Batch/StiffnessMatrices.cxx              | 141 +++++++++++++------
+ tests/GradientsKernelsTest.cxx               | 134 +++++++++++++-----
+ 3 files changed, 205 insertions(+), 78 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index d685099ee8..a287bebeed 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -236,12 +236,14 @@ namespace mfem_mgis::batch {
+    * values are null. In each row, the diagonal entry comes first, then the
+    * other columns, sorted: the ordering of hypre, which
+    * `mfem::HypreParMatrix` imposes on the rows of a local matrix that it
+-   * uses (the columns of a sorted row would not stay sorted).
++   * uses (the columns of a sorted row would not stay sorted). The pattern is
++   * built for the nodes of the space, then expanded to their components.
+    * \return the matrix, or a null pointer on error
+    * \param[in, out] ctx: execution context
+    * \param[in] fes: finite element space
+-   * \param[in] dofs: degrees of freedom of all the elements (see
+-   * `computeElementsDegreesOfFreedom`)
++   * \param[in] dofs: degrees of freedom of all the elements, as computed by
++   * `computeElementsDegreesOfFreedom`: all the components of the nodes of
++   * each element, component by component
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] std::unique_ptr<mfem::SparseMatrix>
+   makeAssembledStiffnessMatrix(Context& ctx,
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 5e8fa330b7..bd45b271ae 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -401,72 +401,131 @@ namespace mfem_mgis::batch {
+       const auto n = fes.GetVSize();
+       const auto ne = fes.GetNE();
+       const auto nde = (ne == 0) ? 0 : dofs.Size() / ne;
+-      if (nde * ne != dofs.Size()) {
++      // the degrees of freedom are the components of the nodes of the space,
++      // and an element has all the components of its nodes: the pattern of
++      // the matrix is the one of the couplings between the nodes, each entry
++      // being a full block of components. The pattern of the nodes is built,
++      // which takes `vdim * vdim` times fewer operations than the one of the
++      // degrees of freedom, then expanded.
++      const auto vdim = fes.GetVDim();
++      const auto nn = fes.GetNDofs();
++      const auto nne = nde / vdim;
++      if ((nde * ne != dofs.Size()) || (nne * vdim != nde)) {
+         std::ignore = ctx.registerErrorMessage(
+             "makeAssembledStiffnessMatrix: invalid number of degrees of "
+             "freedom of the elements");
+         return {};
+       }
++      // numbering of the components of the nodes (see `mfem::Ordering`)
++      const auto by_vdim = fes.GetOrdering() == mfem::Ordering::byVDIM;
++      const auto dof = [by_vdim, vdim, nn](const int node, const int c) {
++        return by_vdim ? node * vdim + c : node + c * nn;
++      };
++      const auto node = [by_vdim, vdim, nn](const int v) {
++        return by_vdim ? v / vdim : v % nn;
++      };
++      // nodes of the elements, whose degrees of freedom are stored component
++      // by component (see `computeElementsDegreesOfFreedom`)
+       const auto* const d = dofs.HostRead();
+-      // elements of each degree of freedom
+-      auto offsets = std::vector<int>(static_cast<std::size_t>(n) + 1, 0);
+-      for (int i = 0; i != dofs.Size(); ++i) {
+-        if ((d[i] < 0) || (d[i] >= n)) {
+-          std::ignore = ctx.registerErrorMessage(
+-              "makeAssembledStiffnessMatrix: invalid degree of freedom");
+-          return {};
++      auto nodes = std::vector<int>(static_cast<std::size_t>(nne) * ne);
++      for (int e = 0; e != ne; ++e) {
++        for (int j = 0; j != nne; ++j) {
++          const auto v = d[nde * e + j];
++          if ((v < 0) || (v >= n)) {
++            std::ignore = ctx.registerErrorMessage(
++                "makeAssembledStiffnessMatrix: invalid degree of freedom");
++            return {};
++          }
++          for (int c = 0; c != vdim; ++c) {
++            if (d[nde * e + nne * c + j] != dof(node(v), c)) {
++              std::ignore = ctx.registerErrorMessage(
++                  "makeAssembledStiffnessMatrix: the degrees of freedom of "
++                  "an element are not the components of its nodes");
++              return {};
++            }
++          }
++          nodes[static_cast<std::size_t>(nne) * e + j] = node(v);
+         }
+-        ++offsets[static_cast<std::size_t>(d[i]) + 1];
++      }
++      // elements of each node
++      auto offsets = std::vector<int>(static_cast<std::size_t>(nn) + 1, 0);
++      for (const auto i : nodes) {
++        ++offsets[static_cast<std::size_t>(i) + 1];
+       }
+       std::partial_sum(offsets.begin(), offsets.end(), offsets.begin());
+-      auto elements = std::vector<int>(static_cast<std::size_t>(offsets[n]));
++      auto elements = std::vector<int>(nodes.size());
+       auto positions = std::vector<int>(offsets.begin(), offsets.end() - 1);
+       for (int e = 0; e != ne; ++e) {
+-        for (int j = 0; j != nde; ++j) {
+-          const auto r = static_cast<std::size_t>(d[nde * e + j]);
+-          elements[static_cast<std::size_t>(positions[r]++)] = e;
++        for (int j = 0; j != nne; ++j) {
++          const auto i = static_cast<std::size_t>(
++              nodes[static_cast<std::size_t>(nne) * e + j]);
++          elements[static_cast<std::size_t>(positions[i]++)] = e;
+         }
+       }
+-      // columns of each row: degrees of freedom of the elements of the row,
+-      // without repetitions, the diagonal first and the others sorted
+-      auto rows = std::vector<int>(static_cast<std::size_t>(n) + 1, 0);
+-      auto columns = std::vector<int>{};
+-      auto last_row = std::vector<int>(static_cast<std::size_t>(n), -1);
+-      for (int r = 0; r != n; ++r) {
+-        const auto begin = columns.size();
++      // nodes coupled to each node: the nodes of its elements, without
++      // repetitions, sorted
++      auto node_rows = std::vector<std::size_t>(nn + std::size_t{1}, 0);
++      auto node_columns = std::vector<int>{};
++      auto last_row = std::vector<int>(static_cast<std::size_t>(nn), -1);
++      for (int r = 0; r != nn; ++r) {
++        const auto begin = node_columns.size();
+         for (auto p = offsets[r]; p != offsets[r + 1]; ++p) {
+-          const auto e = elements[static_cast<std::size_t>(p)];
+-          for (int j = 0; j != nde; ++j) {
+-            const auto c = d[nde * e + j];
++          const auto* const element_nodes =
++              nodes.data() + static_cast<std::size_t>(nne) *
++                                 elements[static_cast<std::size_t>(p)];
++          for (int j = 0; j != nne; ++j) {
++            const auto c = element_nodes[j];
+             if (last_row[static_cast<std::size_t>(c)] != r) {
+               last_row[static_cast<std::size_t>(c)] = r;
+-              columns.push_back(c);
++              node_columns.push_back(c);
+             }
+           }
+         }
+-        const auto first = columns.begin() + static_cast<std::ptrdiff_t>(begin);
+-        std::sort(first, columns.end());
+-        const auto diagonal = std::lower_bound(first, columns.end(), r);
+-        if ((diagonal != columns.end()) && (*diagonal == r)) {
+-          std::rotate(first, diagonal, diagonal + 1);
+-        }
+-        if (columns.size() >
+-            static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+-          std::ignore = ctx.registerErrorMessage(
+-              "makeAssembledStiffnessMatrix: too many values for MFEM");
+-          return {};
+-        }
+-        rows[static_cast<std::size_t>(r) + 1] =
+-            static_cast<int>(columns.size());
++        std::sort(node_columns.begin() + static_cast<std::ptrdiff_t>(begin),
++                  node_columns.end());
++        node_rows[static_cast<std::size_t>(r) + 1] = node_columns.size();
++      }
++      if (node_columns.size() >
++          static_cast<std::size_t>(std::numeric_limits<int>::max()) /
++              (static_cast<std::size_t>(vdim) * vdim)) {
++        std::ignore = ctx.registerErrorMessage(
++            "makeAssembledStiffnessMatrix: too many values for MFEM");
++        return {};
+       }
+       // arrays allocated by the memory manager of MFEM (as
+       // `mfem::Transpose`), owned by the matrix, whose values are allocated
+       // and set to zero by its constructor
+-      const auto nnz = static_cast<int>(columns.size());
++      const auto nnz = static_cast<int>(node_columns.size()) * vdim * vdim;
+       int* const I = mfem::Memory<int>(n + 1);
+       int* const J = mfem::Memory<int>(nnz);
+-      std::copy(rows.begin(), rows.end(), I);
+-      std::copy(columns.begin(), columns.end(), J);
++      // columns of each row: the components of the nodes coupled to its
++      // node, written in increasing order, then the diagonal first
++      I[0] = 0;
++      for (int r = 0; r != n; ++r) {
++        const auto i = static_cast<std::size_t>(node(r));
++        const auto* const first = node_columns.data() + node_rows[i];
++        const auto* const last = node_columns.data() + node_rows[i + 1];
++        auto* const row = J + I[r];
++        auto* end = row;
++        if (by_vdim) {
++          for (const auto* q = first; q != last; ++q) {
++            for (int c = 0; c != vdim; ++c) {
++              *end++ = dof(*q, c);
++            }
++          }
++        } else {
++          for (int c = 0; c != vdim; ++c) {
++            for (const auto* q = first; q != last; ++q) {
++              *end++ = dof(*q, c);
++            }
++          }
++        }
++        const auto diagonal = std::lower_bound(row, end, r);
++        if ((diagonal != end) && (*diagonal == r)) {
++          std::rotate(row, diagonal, diagonal + 1);
++        }
++        I[r + 1] = static_cast<int>(end - J);
++      }
+       return std::make_unique<mfem::SparseMatrix>(I, J, nullptr, n, n, true,
+                                                   true, false);
+     } catch (...) {
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index d4b9a8d82c..23f884d1a0 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -19,7 +19,9 @@
+  * behaviour of the tests supports it), also with the FBar formulation and
+  * the regularization of Faltus et al. (hexahedra of orders 1 and 2 and
+  * quadrangles on distorted meshes, tetrahedra), on the device selected by
+- * the `--device` option.
++ * the `--device` option. The pattern of the sparse matrix, built for the
++ * nodes then expanded to their components, is the one of MFEM for one, two
++ * and three components, numbered node by node or component by component.
+  * \date   09/10/2026
+  */
+ 
+@@ -37,6 +39,9 @@
+ #include "mfem/general/device.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
++#include "mfem/mesh/mesh.hpp"
++#include "mfem/fem/fe_coll.hpp"
++#include "mfem/fem/fespace.hpp"
+ #include "mfem/fem/restriction.hpp"
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MFEMMGIS/Config.hxx"
+@@ -188,6 +193,97 @@ static int checkPositions(const std::string& name,
+   return missing;
+ }  // end of checkPositions
+ 
++/*!
++ * \return true if a matrix created by `batch::makeAssembledStiffnessMatrix`
++ * has the pattern built by MFEM from the matrices of all the elements, the
++ * diagonal entry being the first of each row, and null values
++ * \param[in] fes: finite element space
++ * \param[in] m: matrix
++ */
++static bool hasPatternOfMFEM(const mfem::FiniteElementSpace& fes,
++                             const mfem::SparseMatrix& m) {
++  using mfem_mgis::real;
++  auto reference = mfem::SparseMatrix(fes.GetVSize());
++  auto vdofs = mfem::Array<int>{};
++  auto Ke = mfem::DenseMatrix{};
++  for (int i = 0; i != fes.GetNE(); ++i) {
++    fes.GetElementVDofs(i, vdofs);
++    Ke.SetSize(vdofs.Size());
++    Ke = real{0};
++    reference.AddSubMatrix(vdofs, vdofs, Ke, 0);
++  }
++  reference.Finalize(0);
++  reference.SortColumnIndices();
++  const auto nnz = reference.NumNonZeroElems();
++  if ((m.Height() != reference.Height()) || (m.Width() != reference.Width()) ||
++      (m.NumNonZeroElems() != nnz)) {
++    return false;
++  }
++  const auto* const I = m.HostReadI();
++  const auto* const J = m.HostReadJ();
++  const auto* const v = m.HostReadData();
++  for (int r = 0; r != m.Height(); ++r) {
++    if ((I[r] == I[r + 1]) || (J[I[r]] != r)) {
++      return false;
++    }
++  }
++  auto sorted = mfem::SparseMatrix(m);
++  sorted.SortColumnIndices();
++  const auto* const sI = sorted.HostReadI();
++  const auto* const sJ = sorted.HostReadJ();
++  const auto* const rI = reference.HostReadI();
++  const auto* const rJ = reference.HostReadJ();
++  return std::all_of(v, v + nnz, [](const real x) { return x == 0; }) &&
++         std::equal(sI, sI + m.Height() + 1, rI) && std::equal(sJ, sJ + nnz, rJ);
++}  // end of hasPatternOfMFEM
++
++/*!
++ * \brief checks the pattern of the matrices created by
++ * `batch::makeAssembledStiffnessMatrix`, built for the nodes then expanded
++ * to their components, for one, two and three components numbered node by
++ * node or component by component, and that degrees of freedom which are not
++ * the components of the nodes of the elements are refused
++ * \param[in] meshes: meshes
++ */
++static void testAssembledMatrixPatterns(
++    const std::vector<const char*>& meshes) {
++  using namespace mfem_mgis;
++  for (const auto* const file : meshes) {
++    auto mesh = mfem::Mesh(file, 1, 1);
++    for (const auto order : {1, 2}) {
++      auto fec = mfem::H1_FECollection(order, mesh.Dimension());
++      for (const auto vdim : {1, 2, 3}) {
++        for (const auto ordering :
++             {mfem::Ordering::byNODES, mfem::Ordering::byVDIM}) {
++          const auto name =
++              std::string{file} + ", order " + std::to_string(order) + ", " +
++              std::to_string(vdim) + " components numbered " +
++              (ordering == mfem::Ordering::byVDIM ? "node by node"
++                                                  : "component by component");
++          auto ctx = Context{};
++          auto fes = mfem::FiniteElementSpace(&mesh, &fec, vdim, ordering);
++          auto dofs = mfem::Array<int>{};
++          check(batch::computeElementsDegreesOfFreedom(ctx, dofs, fes),
++                name + ": degrees of freedom of the elements");
++          const auto m = batch::makeAssembledStiffnessMatrix(ctx, fes, dofs);
++          check((m != nullptr) && hasPatternOfMFEM(fes, *m),
++                name + ": pattern of the assembled matrix");
++          if (vdim == 1) {
++            continue;
++          }
++          // the first two degrees of freedom of the first element are
++          // exchanged
++          auto* const d = dofs.HostReadWrite();
++          std::swap(d[0], d[1]);
++          check(batch::makeAssembledStiffnessMatrix(ctx, fes, dofs) == nullptr,
++                name + ": degrees of freedom which are not the components "
++                       "of the nodes accepted");
++        }
++      }
++    }
++  }
++}  // end of testAssembledMatrixPatterns
++
+ /*!
+  * \brief compare the gradients computed by kernels and element by element
+  * \param[in, out] ctx: execution context
+@@ -813,39 +909,8 @@ static void testCase(mfem_mgis::Context& ctx,
+   if (m == nullptr) {
+     return;
+   }
+-  auto reference = mfem::SparseMatrix(fes.GetVSize());
+-  auto vdofs = mfem::Array<int>{};
+-  auto Ke = mfem::DenseMatrix{};
+-  for (int i = 0; i != fes.GetNE(); ++i) {
+-    fes.GetElementVDofs(i, vdofs);
+-    Ke.SetSize(vdofs.Size());
+-    Ke = real{0};
+-    reference.AddSubMatrix(vdofs, vdofs, Ke, 0);
+-  }
+-  reference.Finalize(0);
+-  reference.SortColumnIndices();
+-  const auto nnz = reference.NumNonZeroElems();
+-  auto same_pattern = (m->Height() == reference.Height()) &&
+-                      (m->Width() == reference.Width()) &&
+-                      (m->NumNonZeroElems() == nnz);
+-  if (same_pattern) {
+-    const auto* const I = m->HostReadI();
+-    const auto* const J = m->HostReadJ();
+-    const auto* const v = m->HostReadData();
+-    for (int r = 0; r != m->Height(); ++r) {
+-      same_pattern = same_pattern && (I[r] != I[r + 1]) && (J[I[r]] == r);
+-    }
+-    same_pattern = same_pattern &&
+-                   std::all_of(v, v + nnz, [](const real x) { return x == 0; });
+-    auto sorted = mfem::SparseMatrix(*m);
+-    sorted.SortColumnIndices();
+-    const auto* const sI = sorted.HostReadI();
+-    const auto* const sJ = sorted.HostReadJ();
+-    const auto* const rI = reference.HostReadI();
+-    const auto* const rJ = reference.HostReadJ();
+-    same_pattern = same_pattern && std::equal(sI, sI + m->Height() + 1, rI) &&
+-                   std::equal(sJ, sJ + nnz, rJ);
+-  }
++  const auto same_pattern = hasPatternOfMFEM(fes, *m);
++  const auto nnz = m->NumNonZeroElems();
+   std::cout << c.name << ": pattern of the assembled matrix, " << nnz
+             << " values\n";
+   check(same_pattern, c.name + ": pattern of the assembled matrix");
+@@ -1125,6 +1190,7 @@ int main(int argc, char** argv) {
+     testCase(ctx, library, c);
+   }
+   testIntegratorPositions(ctx, library, cube);
++  testAssembledMatrixPatterns({cube, tetrahedra, square});
+   std::cout << (failures == 0 ? "success" : "failure") << '\n';
+   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }  // end of main
+-- 
+2.34.1
+
