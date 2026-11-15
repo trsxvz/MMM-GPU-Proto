@@ -1073,9 +1073,12 @@ static void addGrainsMeanStresses(
       }
     }
   }
+  // stresses in the global frame, kept between the time steps: on a GPU, a
+  // vector created at each step is allocated on the device each time
+  auto rotated = std::make_shared<mfem::Vector>();
   p.getImplementation<true>().addPostProcessing(
-      ctx, [&ctx, &p, &grains, out, nc, or_die](const mfem_mgis::real t,
-                                                const mfem_mgis::real dt) {
+      ctx, [&ctx, &p, &grains, out, rotated, nc, or_die](
+               const mfem_mgis::real t, const mfem_mgis::real dt) {
         auto &impl = p.getImplementation<true>();
         const auto &mat = p.getMaterial(ctx, 1, 0) | or_die;
         const auto &w = impl.getIntegrationPointsWeights(ctx, 1, 0) | or_die;
@@ -1094,11 +1097,11 @@ static void addGrainsMeanStresses(
           }
         };
         if (mat.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
-          auto rotated = mfem::Vector{};
-          mat.computeThermodynamicForcesInGlobalFrame(rotated);
+          mat.computeThermodynamicForcesInGlobalFrame(*rotated);
           add(mgis::makePointByPointFieldView(
               std::span<const mfem_mgis::real>(
-                  rotated.HostRead(), static_cast<std::size_t>(rotated.Size())),
+                  rotated->HostRead(),
+                  static_cast<std::size_t>(rotated->Size())),
               static_cast<mfem_mgis::size_type>(w.size()),
               static_cast<mfem_mgis::size_type>(nc),
               static_cast<mfem_mgis::size_type>(nc)));
