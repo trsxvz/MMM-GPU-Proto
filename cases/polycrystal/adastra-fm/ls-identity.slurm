@@ -18,7 +18,10 @@
 # computation in s (default 2400). FM_EXTRA_OPTIONS replaces the option
 # --single-material: empty for one material per grain, or with the options
 # of the measurements (line search, prediction) to compare two executables
-# with these options enabled.
+# with these options enabled. The job fails if the outputs of a case differ,
+# so that a job submitted with --dependency=afterok does not start;
+# otherwise the file <results>/passed is written (FM_REQUIRE of the next
+# jobs, see common.sh).
 #SBATCH --job-name=fm-ls-identity
 #SBATCH --constraint=MI300
 #SBATCH --nodes=1
@@ -69,8 +72,10 @@ run_case() {
       "$(grep -c 'integration failure' "$a.txt") estimates moved after an integration failure)"
   else
     log "$1: outputs differ (see $out/diff-$1.txt)"
+    differ=1
   fi
 }
+differ=0
 clean=$W/meshes/clean/v100/100crystals.msh
 for c in ${FM_CASES:-i1-ew1 i1-ew2 i2-newton i3-raw}; do
   case $c in
@@ -80,4 +85,9 @@ for c in ${FM_CASES:-i1-ew1 i1-ew2 i2-newton i3-raw}; do
     i3-raw) run_case $c "$MESHES/v100/100crystals.msh" 5 "$ew1" ;;
   esac
 done
+if [ $differ = 1 ]; then
+  log "end, outputs differ (the next jobs of the chain do not start)"
+  exit 1
+fi
+touch "$out/passed"
 log end

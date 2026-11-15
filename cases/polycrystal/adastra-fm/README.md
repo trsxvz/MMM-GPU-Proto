@@ -202,6 +202,43 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   - The final computation with the executables `FM_EXECUTABLES`
     (`<name>=<path>`), one after the other at each repetition, on the same
     nodes.
+- **`perf-tests.slurm`: build and tests of the performance changes**
+  (MFEM with Umpire, work vectors, global matrix assembled on the GPU, mean
+  stresses computed by kernels, options of BoomerAMG; `JOURNAL.md`,
+  2026-11-15).
+  - Separate build by `build-perf.sh` from the archive `FM_FIX/src.tgz`
+    (sources of MGIS, mfem-mgis and mm-opera-hpc, and the machine profile
+    `machine.sh` when its options of MFEM are not deployed yet), on the
+    local disk of the node: MFEM with Umpire (kept in
+    `FM_FIX/install/mfem`), then the variants `umpire` and `deployed` (the
+    MFEM of the deployed prototype) of mfem-mgis, with `enable-roctx`, and
+    of the polycrystal (`FM_FIX/bin/uniaxial-polycrystal-<variant>`).
+    Nothing is written on `/lus/work`.
+  - Tests of the changed components and of the non linear solvers on the
+    host and on a MI300A (kernels forced, default, tests selecting a
+    device), tests of the polycrystal, then the polycrystal of the tests on
+    4 GPUs: each process seeing its GPU, all the processes seeing the 4
+    GPUs (allocators of Umpire `DEVICE::<id>`), mean stresses by kernels.
+- **`perf-ab.slurm`: the changes measured on an RVE.**
+  - The final computation in the variants `ref` (executable of the
+    measurements of the FM), `deployed`, `umpire`, `umpire-kernels` (the
+    final configuration) and `amg-<name>` (options of BoomerAMG of the
+    elastic operator `FM_BOOMERAMG_<name>`), one after the other at each
+    repetition, on the GPUs, and on the cores with `FM_CPU_REPS`.
+  - `sections.txt`: times of the main sections and levels of the multigrid
+    of each computation.
+- **`perf-load.slurm`: more unknowns per GPU than the series** (1600 grains
+  on 2 nodes: 6.6 M per GPU), with the memory of the first node read every
+  2 s.
+- **`perf-mutations.slurm`: mutations of the code of these changes**, each
+  one having to make its tests fail, in a build of the local disk.
+- **Chains of jobs.** `perf-tests.slurm`, `ls-identity.slurm`,
+  `perf-ab.slurm` and `perf-load.slurm` fail when a check fails and write
+  the file `passed` in their results directory otherwise: the next job is
+  submitted with `--dependency=afterok:<job>` and
+  `FM_REQUIRE=<results>/passed` (see `common.sh`), so that a large job does
+  not start after a failure. `FM_CHAIN_LOG` names a second journal
+  receiving the lines of `chain.log`.
 
 ## The report
 

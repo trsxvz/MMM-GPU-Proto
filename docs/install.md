@@ -353,8 +353,24 @@ goes through `bundle.sh update` as for the other machines.
   `--gpu-aware-mpi`); MFEM links it explicitly. Launched by `srun` only:
   `scripts/mpirun-srun` as on Jean Zay.
 - **MFEM**: 4.10, built by `deploy.sh mfem` with HIP for `gfx942`, MPI,
-  METIS, SuiteSparse and LAPACK (cray-libsci) of the stack, without MUMPS,
-  Umpire nor GSLIB.
+  METIS, SuiteSparse and LAPACK (cray-libsci) of the stack and the Umpire
+  of the stack, without MUMPS nor GSLIB.
+  - With Umpire, the arrays of MFEM on the GPU are allocated in a pool
+    (mfem-mgis keeps the standard memory for the host). Without it, each
+    temporary array of MFEM on the GPU is a call to `hipMalloc`: on 256
+    MI300A (38,400 grains), each of these calls took a fixed time of about
+    0.2 s on one or two processes, the others waiting for them, a third of
+    the computation (`JOURNAL.md`, 2026-11-15).
+  - Umpire 2026 requires C++20, which the makefile of MFEM selects with
+    Umpire, and the headers of its camp and of its fmt, found from its
+    spack specification as Umpire itself; fmt is used as Umpire does,
+    without its library (`FMT_HEADER_ONLY`).
+  - The installation of 14/11/2026 was built without Umpire: `deploy.sh
+    mfem adastra-mi300` builds MFEM again when its options change, then
+    mfem-mgis and the programs using it must be built again (`deploy.sh
+    build adastra-mi300`). `cases/polycrystal/adastra-fm/build-perf.sh`
+    builds the same MFEM and the polycrystal in another directory, without
+    modifying the deployed installation.
 - **HIP compiler**: the clang of ROCm takes by itself the C++ library of
   the most recent gcc it finds, that of `gcc-toolset-12` (no `<format>` of
   C++20): the profile gives it the gcc 14 of the modules

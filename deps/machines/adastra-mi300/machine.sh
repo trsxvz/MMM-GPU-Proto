@@ -18,10 +18,18 @@
 #   and the pool of memory of hypre on the GPU has no accessor before 3.2).
 #   It is built as on the other machines of the prototype: HIP, Umpire,
 #   global indices of 64 bits (mixedint), without OpenMP;
-# - MFEM 4.10 (`deploy.sh mfem`, options PROTO_MFEM_OPTIONS below), without
-#   MUMPS: the MUMPS of the stack (5.9.1) uses 64 bit integers, which MFEM
-#   4.10 refuses ("Full 64-bit MUMPS is not yet supported"); the direct
-#   solvers of SuiteSparse remain.
+# - MFEM 4.10 (`deploy.sh mfem`, options PROTO_MFEM_OPTIONS below), with
+#   Umpire and without MUMPS:
+#   - the Umpire of the stack, as hypre: the arrays of MFEM on the GPU are
+#     allocated in a pool (mfem-mgis chooses the memory type, see
+#     `setMemoryTypes` in its src/Config.cxx). Without it, each temporary
+#     array of MFEM on the GPU is a hipMalloc, which costs a fixed time of
+#     0.2 s on some processes of a large computation, the others waiting
+#     for them (JOURNAL.md, 2026-11-15). MFEM is then compiled in C++20,
+#     which Umpire requires;
+#   - the MUMPS of the stack (5.9.1) uses 64 bit integers, which MFEM 4.10
+#     refuses ("Full 64-bit MUMPS is not yet supported"); the direct solvers
+#     of SuiteSparse remain.
 #
 # The prototype is deployed by scripts/offline/deploy.sh in a directory
 # PROTO_DEPLOY (by default the parent directory of the prototype), from the
@@ -51,9 +59,10 @@ for _v in METIS_ROOT SUITE_SPARSE_ROOT MPICH_DIR \
   fi
 done
 unset _v
-# Umpire for the MI300A and its camp, which have no module: installations of
-# the stack (<name>-<version>-<compiler>-<hash>, next to METIS), the Umpire
-# built with ROCm for gfx942 and the camp recorded in its specification
+# Umpire for the MI300A, its camp and its fmt (headers used by the ones of
+# Umpire), which have no module: installations of the stack
+# (<name>-<version>-<compiler>-<hash>, next to METIS), the Umpire built with
+# ROCm for gfx942 and the camp and the fmt recorded in its specification
 _tpl=$(python3 -I - "$(dirname "$METIS_ROOT")" << 'EOF'
 import glob, json, os, sys
 stack = sys.argv[1]
@@ -62,17 +71,20 @@ for umpire in sorted(glob.glob(os.path.join(stack, "umpire-*"))):
         nodes = json.load(f)["spec"]["nodes"]
     u = nodes[0]["parameters"]
     if u.get("rocm") and "gfx942" in u.get("amdgpu_target", []):
-        camp = next(d for d in nodes[0]["dependencies"] if d["name"] == "camp")
-        c = glob.glob(os.path.join(stack, f"camp-*-{camp['hash'][:4]}"))
         print(umpire)
-        print(c[0] if len(c) == 1 else "")
+        for name in "camp", "fmt":
+            d = next(d for d in nodes[0]["dependencies"] if d["name"] == name)
+            p = glob.glob(os.path.join(stack, f"{name}-*-{d['hash'][:4]}"))
+            print(p[0] if len(p) == 1 else "")
         break
 EOF
 )
 PROTO_UMPIRE=$(echo "$_tpl" | sed -n 1p) PROTO_CAMP=$(echo "$_tpl" | sed -n 2p)
+PROTO_FMT=$(echo "$_tpl" | sed -n 3p)
 unset _tpl
-if [ ! -d "$PROTO_UMPIRE/include" ] || [ ! -d "$PROTO_CAMP/include" ]; then
-  echo "adastra-mi300: Umpire for gfx942 or its camp not found" >&2
+if [ ! -d "$PROTO_UMPIRE/include" ] || [ ! -d "$PROTO_CAMP/include" ] ||
+  [ ! -d "$PROTO_FMT/include" ]; then
+  echo "adastra-mi300: Umpire for gfx942, its camp or its fmt not found" >&2
   return 1
 fi
 export PROTO_DEPLOY=${PROTO_DEPLOY:-$(dirname "$P")}
@@ -126,7 +138,8 @@ PROTO_HYPRE_OPTIONS=(-DCMAKE_C_COMPILER=cc -DCMAKE_CXX_COMPILER=CC
   -DCMAKE_PREFIX_PATH="$PROTO_UMPIRE;$PROTO_CAMP;$ROCM_PATH")
 # options of `make config` of MFEM (deploy.sh mfem): MPI, HIP for gfx942,
 # the libraries of the stack; the MPI library of the Cray wrappers, with its
-# GPU support (GTL)
+# GPU support (GTL); Umpire, whose headers include the ones of camp and of
+# fmt (used as Umpire does, without its library: FMT_HEADER_ONLY)
 _sslibs="-lklu -lbtf -lumfpack -lcholmod -lcolamd -lamd -lcamd -lccolamd"
 _sslibs="$_sslibs -lsuitesparseconfig"
 PROTO_MFEM_OPTIONS=(MFEM_USE_MPI=YES MFEM_USE_HIP=YES
@@ -138,6 +151,9 @@ PROTO_MFEM_OPTIONS=(MFEM_USE_MPI=YES MFEM_USE_HIP=YES
   HYPRE_DIR="$PROTO_HYPRE"
   HYPRE_OPT="-I$PROTO_HYPRE/include -I$PROTO_UMPIRE/include -I$PROTO_CAMP/include"
   HYPRE_LIB="-L$PROTO_HYPRE/lib -Wl,-rpath,$PROTO_HYPRE/lib -lHYPRE"
+  MFEM_USE_UMPIRE=YES UMPIRE_DIR="$PROTO_UMPIRE"
+  UMPIRE_OPT="-I$PROTO_UMPIRE/include -I$PROTO_CAMP/include -I$PROTO_FMT/include -DFMT_HEADER_ONLY=1"
+  UMPIRE_LIB="-L$PROTO_UMPIRE/lib64 -Wl,-rpath,$PROTO_UMPIRE/lib64 -lumpire"
   METIS_DIR="$METIS_ROOT"
   METIS_LIB="-L$METIS_ROOT/lib -Wl,-rpath,$METIS_ROOT/lib -lmetis"
   SUITESPARSE_DIR="$SUITE_SPARSE_ROOT"
