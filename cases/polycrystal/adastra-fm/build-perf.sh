@@ -129,8 +129,10 @@ for v in ${FM_BUILD_VARIANTS:-umpire}; do
     > "$F/cmake-opera-$v.log"
   cmake --build "$B/build/mm-opera-hpc-$v" --target uniaxial-polycrystal -j 8
   e=$B/build/mm-opera-hpc-$v/polycrystal/uniaxial-polycrystal
-  if readelf -d "$e" | grep -E 'RPATH|RUNPATH' | grep -q "$B"; then
-    echo "the run path of the executable names the build directory $B" >&2
+  # (FM_FIX may be in the build directory: perf-mutations.slurm)
+  if readelf -d "$e" | grep -E 'RPATH|RUNPATH' |
+    grep -q -F -e "$B/build" -e "$B/install"; then
+    echo "the run path of the executable names the build trees of $B" >&2
     exit 1
   fi
   if ldd "$e" | grep "not found" >&2; then
