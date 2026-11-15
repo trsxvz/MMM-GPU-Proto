@@ -311,9 +311,11 @@ static void test(mfem_mgis::Context& ctx,
         std::cout << name << ": largest difference with the integrals "
                   << "computed element by element " << difference
                   << " (largest integral " << largest << ")\n";
-        // sums of up to 1e5 values in another order (blocks of points)
+        // sums of up to 1e5 values in another order (blocks of points); in
+        // float, the loop on the elements accumulates them in float, the
+        // kernels in double
         check(difference <=
-                  mfem_mgis::unit_tests::tolerance(1e-11, 1e-5) * largest,
+                  mfem_mgis::unit_tests::tolerance(1e-11, 1e-3) * largest,
               name + ": integrals computed element by element");
         check(areClose(material_volumes[mi], reference_volumes[mi], 0),
               name + ": volume computed element by element");

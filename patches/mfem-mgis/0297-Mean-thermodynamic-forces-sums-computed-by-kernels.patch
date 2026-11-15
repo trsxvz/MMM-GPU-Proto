@@ -1,4 +1,4 @@
-From 7665b4ca956081439d92461fe78b9da4d1dc84c2 Mon Sep 17 00:00:00 2001
+From fe44d78d8ffc3356842ff98ed09c2cb6a3a19998 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 06:46:53 +0100
 Subject: [PATCH] Mean thermodynamic forces: sums computed by kernels
@@ -47,8 +47,8 @@ several blocks of points.
  .../IntegrationPointsFunctionsKernels.hxx     |  50 ++++++
  ...nearEvolutionProblemImplementationBase.cxx |  91 ++++++++++
  tests/CMakeLists.txt                          |  23 ++-
- tests/IntegrationPointsWeightsTest.cxx        | 161 +++++++++++++-----
- 12 files changed, 474 insertions(+), 52 deletions(-)
+ tests/IntegrationPointsWeightsTest.cxx        | 163 +++++++++++++-----
+ 12 files changed, 476 insertions(+), 52 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
 index 096fbce726..91a940309f 100644
@@ -592,7 +592,7 @@ index 7d895ed285..1376960d22 100644
    # StateManagerTest executable
    add_tfel_test_executable(StateManagerTest)
 diff --git a/tests/IntegrationPointsWeightsTest.cxx b/tests/IntegrationPointsWeightsTest.cxx
-index da91e986e1..e71abc6662 100644
+index da91e986e1..3b274e0666 100644
 --- a/tests/IntegrationPointsWeightsTest.cxx
 +++ b/tests/IntegrationPointsWeightsTest.cxx
 @@ -19,6 +19,18 @@
@@ -693,7 +693,7 @@ index da91e986e1..e71abc6662 100644
      coordinates[im].assign(np, real{0});
      // weights computed from the transformations of the elements
      auto same = w.size() == np;
-@@ -220,36 +251,79 @@ static void test(mfem_mgis::Context& ctx,
+@@ -220,36 +251,81 @@ static void test(mfem_mgis::Context& ctx,
          }
        }
      }
@@ -771,9 +771,11 @@ index da91e986e1..e71abc6662 100644
 +        std::cout << name << ": largest difference with the integrals "
 +                  << "computed element by element " << difference
 +                  << " (largest integral " << largest << ")\n";
-+        // sums of up to 1e5 values in another order (blocks of points)
++        // sums of up to 1e5 values in another order (blocks of points); in
++        // float, the loop on the elements accumulates them in float, the
++        // kernels in double
 +        check(difference <=
-+                  mfem_mgis::unit_tests::tolerance(1e-11, 1e-5) * largest,
++                  mfem_mgis::unit_tests::tolerance(1e-11, 1e-3) * largest,
 +              name + ": integrals computed element by element");
 +        check(areClose(material_volumes[mi], reference_volumes[mi], 0),
 +              name + ": volume computed element by element");
@@ -800,7 +802,7 @@ index da91e986e1..e71abc6662 100644
    };
    check_integrals(1e6, 0, "uniform thermodynamic forces");
    check_integrals(-3e6, 5e6, "thermodynamic forces depending on x");
-@@ -277,13 +351,18 @@ int main(int argc, char** argv) {
+@@ -277,13 +353,18 @@ int main(int argc, char** argv) {
    initialize(argc, argv);
    const char* mesh = "cube-two-materials.mesh";
    const char* library = "src/libBehaviourTest.so";
@@ -819,7 +821,7 @@ index da91e986e1..e71abc6662 100644
    args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
                   "parallel computations");
    args.Parse();
-@@ -294,12 +373,12 @@ int main(int argc, char** argv) {
+@@ -294,12 +375,12 @@ int main(int argc, char** argv) {
    auto ctx = Context{};
    if (parallel) {
  #ifdef MFEM_USE_MPI
