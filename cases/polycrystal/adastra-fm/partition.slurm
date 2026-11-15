@@ -11,10 +11,12 @@
 # FM_PARTITION_WORKERS=<w>: the parts are written by <w> processes of
 # meshes/partition/split-mesh instead of one process per part, for the
 # numbers of parts whose processes cannot each read the serial mesh (6144
-# parts of 38,400 grains), then checked by split-mesh --check on all the
-# cores. FM_CHECK: partitions "grains:processes" already made, checked the
-# same way (same fingerprint of the elements for all the partitions of a
-# mesh). With FM_SPLIT_TEST=1, first compares split-mesh on
+# parts of 38,400 grains). Each partition is then checked by split-mesh
+# --check on all the cores, which writes the file `checked` in its
+# directory when the parts are consistent: a partition is only kept by the
+# next jobs with this file. FM_CHECK: partitions "grains:processes" already
+# made, checked the same way (same fingerprint of the elements for all the
+# partitions of a mesh). The job fails if a partitioning or a check fails. With FM_SPLIT_TEST=1, first compares split-mesh on
 # FM_SPLIT_TEST_CASE (default 400:96, one node, files on its local disk) to
 # the parts made by MFEM alone (split-mesh --mfem) and by partition-mesh,
 # and the CPU computations reading the parts of the two tools
@@ -81,6 +83,20 @@ split_test() {
   [ "$status" = 0 ] || log "split test FAILED (logs in $t on $(hostname))"
   return "$status"
 }
+# usage: check_partition grains processes
+# reads back the parts of a partition on all the cores (split-mesh --check)
+# and, if they are consistent, writes the file `checked` in its directory:
+# only a checked partition is kept by the next jobs
+check_partition() {
+  local n=$1 np=$2 d=$W/meshes/part/v$1-np$2 start s
+  start=$(date +%s)
+  rm -f "$d/checked"
+  srun -n "$SLURM_NTASKS" --cpu-bind=cores "$S/split-mesh" --check "$np" "$d/mesh." > "$d/check.log" 2>&1
+  s=$?
+  log "v$n np$np: check status $s, $(( $(date +%s) - start )) s, $(tail -3 "$d/check.log" | tr '\n' ' ')"
+  [ "$s" = 0 ] && touch "$d/checked"
+  return "$s"
+}
 partition() {
   set +u
   source "$D/MMM-GPU-Proto/scripts/env.sh" > /dev/null 2>&1
@@ -92,12 +108,13 @@ partition() {
   if [ "${FM_SPLIT_TEST:-0}" = 1 ]; then
     split_test || return 1
   fi
+  local status=0 s
   for p in ${FM_PARTITIONS:-}; do
     n=${p%%:*} np=${p##*:}
     d=$W/meshes/part/v$n-np$np
-    # partitions already made are kept
-    if grep -qs " parts, " "$d/partition.log"; then
-      log "v$n np$np: already partitioned"
+    # partitions already made and checked are kept
+    if [ -e "$d/checked" ]; then
+      log "v$n np$np: already partitioned and checked"
       continue
     fi
     mkdir -p "$d"
@@ -109,25 +126,28 @@ partition() {
       srun -n "$FM_PARTITION_WORKERS" ${FM_PARTITION_TASKS_PER_NODE:+--ntasks-per-node=$FM_PARTITION_TASKS_PER_NODE} \
         --cpu-bind=cores "$S/split-mesh" \
           "$W/meshes/clean/v$n/${n}crystals.msh" 1 "$np" "$d/mesh." > "$d/partition.log" 2>&1
-      log "v$n np$np: status $?, $(( $(date +%s) - start )) s, $FM_PARTITION_WORKERS processes of split-mesh, $(tail -2 "$d/partition.log" | tr '\n' ' '), $(du -sh "$d" | cut -f1)"
-      start=$(date +%s)
-      srun -n "$SLURM_NTASKS" --cpu-bind=cores "$S/split-mesh" --check "$np" "$d/mesh." > "$d/check.log" 2>&1
-      log "v$n np$np: check status $?, $(( $(date +%s) - start )) s, $(tail -3 "$d/check.log" | tr '\n' ' ')"
+      s=$?
+      log "v$n np$np: status $s, $(( $(date +%s) - start )) s, $FM_PARTITION_WORKERS processes of split-mesh, $(tail -2 "$d/partition.log" | tr '\n' ' '), $(du -sh "$d" | cut -f1)"
+    else
+      srun -n "$np" ${FM_PARTITION_TASKS_PER_NODE:+--ntasks-per-node=$FM_PARTITION_TASKS_PER_NODE} \
+        --cpu-bind=cores "$S/partition-mesh" \
+          "$W/meshes/clean/v$n/${n}crystals.msh" 1 "$d/mesh." > "$d/partition.log" 2>&1
+      s=$?
+      log "v$n np$np: status $s, $(( $(date +%s) - start )) s, $(tail -1 "$d/partition.log"), $(du -sh "$d" | cut -f1)"
+    fi
+    # a partition whose tool failed is not checked, and the job fails
+    if [ "$s" != 0 ]; then
+      status=1
       continue
     fi
-    srun -n "$np" ${FM_PARTITION_TASKS_PER_NODE:+--ntasks-per-node=$FM_PARTITION_TASKS_PER_NODE} \
-      --cpu-bind=cores "$S/partition-mesh" \
-        "$W/meshes/clean/v$n/${n}crystals.msh" 1 "$d/mesh." > "$d/partition.log" 2>&1
-    log "v$n np$np: status $?, $(( $(date +%s) - start )) s, $(tail -1 "$d/partition.log"), $(du -sh "$d" | cut -f1)"
+    check_partition "$n" "$np" || status=1
   done
   # partitions already made, read back
   for p in ${FM_CHECK:-}; do
-    n=${p%%:*} np=${p##*:}
-    d=$W/meshes/part/v$n-np$np
-    start=$(date +%s)
-    srun -n "$SLURM_NTASKS" --cpu-bind=cores "$S/split-mesh" --check "$np" "$d/mesh." > "$d/check.log" 2>&1
-    log "v$n np$np: check status $?, $(( $(date +%s) - start )) s, $(tail -3 "$d/check.log" | tr '\n' ' ')"
+    check_partition "${p%%:*}" "${p##*:}" || status=1
   done
+  [ "$status" = 0 ] || log "partitions: FAILURES"
+  return "$status"
 }
 (partition) || exit 1
 if [ "${FM_SPLIT_TEST:-0}" = 1 ]; then

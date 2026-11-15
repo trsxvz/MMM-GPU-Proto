@@ -19,8 +19,13 @@
 # the project on /lus/scratch); a second call in the same directory only
 # builds what changed. Kept in FM_FIX: the installation of MFEM, the
 # executables (bin/uniaxial-polycrystal-<variant>) and the library of MGIS
-# which they load (lib/, first in their run path). Nothing is written on
-# /lus/work.
+# which they load (lib/). The run path of the executables only names
+# FM_FIX/lib and the installations of TFEL and of MFEM, not the build
+# directory. FM_FIX is the directory of one version of the sources: the
+# checksum of the archive is kept in FM_FIX/sources.sha256, and another
+# archive is refused, since the executables already built load the library
+# of MGIS of FM_FIX. FM_FIX/install may be a link to the installation of
+# MFEM of another directory. Nothing is written on /lus/work.
 # To run on a node of the MI300A partition (fm-chain/perf-tests.slurm), as
 # the build of the prototype: CMake detects the architecture of the GPUs
 # (GPU_TARGETS gfx942) and -march=native is the one of the nodes.
@@ -28,19 +33,28 @@ set -eu
 D=/lus/work/RES1/genden15/tchenaille/mmm
 F=${FM_FIX:?}
 export PROTO_DEPLOY=$D PROTO_MACHINE=adastra-mi300
+# the errors of the machine profile are kept (libraries not found)
 set +u
-source "$D/MMM-GPU-Proto/scripts/env.sh" > /dev/null 2>&1
+source "$D/MMM-GPU-Proto/scripts/env.sh" > /dev/null
 set -u
 J=${JOBS:-48}
 B=${FM_BUILD_DIR:-${TMPDIR:-/tmp}/fix-perf-${SLURM_JOB_ID:-$$}}
 echo "start $(date +%T) on $(hostname), build in $B"
 mkdir -p "$B/src" "$F/bin" "$F/lib"
+sources=$(sha256sum "$F/src.tgz" | cut -d' ' -f1)
+if [ -f "$F/sources.sha256" ] && [ "$(cat "$F/sources.sha256")" != "$sources" ]; then
+  echo "$F holds executables built from other sources" \
+    "($(cut -c1-16 "$F/sources.sha256"), archive ${sources:0:16}):" \
+    "use another directory" >&2
+  exit 1
+fi
+echo "$sources" > "$F/sources.sha256"
 tar xzf "$F/src.tgz" -C "$B/src"
 deployed_mfem=$PROTO_MFEM
 if [ -f "$B/src/machine.sh" ]; then
   # P is the deployed prototype (installation of TFEL, launchers)
   set +u
-  source "$B/src/machine.sh" > /dev/null 2>&1
+  source "$B/src/machine.sh" > /dev/null
   set -u
 fi
 MPI_CC=${PROTO_MPI_CC:-cc}
@@ -102,17 +116,28 @@ for v in ${FM_BUILD_VARIANTS:-umpire}; do
   fi
   cmake --build "$B/build/mfem-mgis-$v" -j "$J"
   cmake --install "$B/build/mfem-mgis-$v" > /dev/null
-  # the executable loads the library of MGIS kept in FM_FIX/lib
+  # the executable loads the library of MGIS kept in FM_FIX/lib: its run
+  # path is given, instead of the one of the build tree, which names the
+  # build directory
   cmake -S "$B/src/mm-opera-hpc" -B "$B/build/mm-opera-hpc-$v" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$PROTO_CC" \
     -DCMAKE_CXX_COMPILER="$PROTO_CXX" -DMPI_C_COMPILER="$MPI_CC" \
     -DMPI_CXX_COMPILER="$MPI_CXX" "${PROTO_CMAKE_OPTIONS[@]}" \
-    -DMFEM_DIR="$MFEM" -DCMAKE_BUILD_RPATH="$F/lib" \
+    -DMFEM_DIR="$MFEM" -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+    -DCMAKE_INSTALL_RPATH="$F/lib;$PROTO_TFEL_INSTALL/lib;$MFEM/lib" \
     -DMFEMMGIS_DIR="$B/install/mfem-mgis-$v/share/mfem-mgis/cmake" \
     > "$F/cmake-opera-$v.log"
   cmake --build "$B/build/mm-opera-hpc-$v" --target uniaxial-polycrystal -j 8
-  cp "$B/build/mm-opera-hpc-$v/polycrystal/uniaxial-polycrystal" \
-    "$F/bin/uniaxial-polycrystal-$v"
+  e=$B/build/mm-opera-hpc-$v/polycrystal/uniaxial-polycrystal
+  if readelf -d "$e" | grep -E 'RPATH|RUNPATH' | grep -q "$B"; then
+    echo "the run path of the executable names the build directory $B" >&2
+    exit 1
+  fi
+  if ldd "$e" | grep "not found" >&2; then
+    echo "libraries of the executable not found" >&2
+    exit 1
+  fi
+  cp "$e" "$F/bin/uniaxial-polycrystal-$v"
   echo "$v built $(date +%T)"
 done
 echo "end $(date +%T)"

@@ -13,6 +13,10 @@ results, the meshes and the versions of the scripts are therefore on
 
 - `common.sh`: environment of the prototype, results directory
   `fm/$FM_RUN`, journal `chain.log`, and the function `energy` (`sacct`).
+  For the jobs which build or run tests: `load_build_environment`
+  (compilers and `mpirun` of the machine profile), `behaviour_targets` and
+  `test_settings` (variables of the runs of the tests by `ctest`: host or
+  GPU, kernels forced or not).
 - `deploy-overlay.sh <commit> <archive>`: a version of the scripts of
   `cases/`, with links to the rest of the deployed prototype.
   - The jobs take it with `FM_PROTO`.
@@ -51,8 +55,12 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     (`FM_PARTITION_TASKS_PER_NODE` processes per node: each one reads the
     whole mesh).
   - `FM_PARTITION_WORKERS=<w>`: `split-mesh` with `<w>` processes for any
-    number of parts, then `split-mesh --check` on all the cores. One node
-    is enough for the 6144 parts of 38,400 grains.
+    number of parts. One node is enough for the 6144 parts of 38,400
+    grains.
+  - Each partition is then read back by `split-mesh --check` on all the
+    cores, which writes the file `checked` in its directory when its parts
+    are consistent. Only a partition with this file is kept by the next
+    jobs; the job fails if a partitioning or a check fails.
   - `FM_SPLIT_TEST=1`: tests of `split-mesh` first (400 grains, 96 parts,
     on the local disk of the node); the job stops if they fail.
   - `FM_TEST=1`: computations reading the parts against the ones building
@@ -219,6 +227,11 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     MFEM of the deployed prototype) of mfem-mgis, with `enable-roctx`, and
     of the polycrystal (`FM_FIX/bin/uniaxial-polycrystal-<variant>`).
     Nothing is written on `/lus/work`.
+  - `FM_FIX` is the directory of one version of the sources (checksum of
+    the archive in `sources.sha256`, another archive is refused): the
+    executables load the library of MGIS of `FM_FIX/lib`, and their run
+    path does not name the build directory. `FM_FIX/install` may be a link
+    to the installation of MFEM of another directory.
   - Tests of the changed components and of the non linear solvers on the
     host and on a MI300A (kernels forced, default, tests selecting a
     device), tests of the polycrystal, then the polycrystal of the tests on
@@ -230,15 +243,19 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     final configuration) and `amg-<name>` (options of BoomerAMG of the
     elastic operator `FM_BOOMERAMG_<name>`), one after the other at each
     repetition, on the GPUs, and on the cores with `FM_CPU_REPS`.
+  - The computations are compared to the first one: axial stress within
+    `FM_TOLERANCE` on the GPUs, output file bit for bit on the cores.
   - `sections.txt`: times of the main sections and levels of the multigrid
     of each computation.
 - **`perf-load.slurm`: more unknowns per GPU than the series** (1600 grains
   on 2 nodes: 6.6 M per GPU), with the memory of the first node read every
   2 s.
 - **`perf-mutations.slurm`: mutations of the code of these changes**, each
-  one having to make its tests fail, in a build of the local disk.
+  one having to make its tests fail in at least one mode, in a build of
+  the local disk. The job fails if a mutation is not detected.
 - **Chains of jobs.** `perf-tests.slurm`, `ls-identity.slurm`,
-  `perf-ab.slurm` and `perf-load.slurm` fail when a check fails and write
+  `perf-ab.slurm`, `perf-load.slurm` and `perf-mutations.slurm` fail when a
+  check fails and write
   the file `passed` in their results directory otherwise: the next job is
   submitted with `--dependency=afterok:<job>` and
   `FM_REQUIRE=<results>/passed` (see `common.sh`), so that a large job does

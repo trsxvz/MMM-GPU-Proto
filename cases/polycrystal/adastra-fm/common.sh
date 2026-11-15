@@ -28,6 +28,55 @@ for _required in ${FM_REQUIRE:-}; do
   fi
 done
 unset _required
+# usage: load_build_environment
+# environment of the deployed prototype for the jobs which build or run
+# tests (compilers, libraries, mpirun of the machine profile). env.sh
+# redefines P, the deployed prototype: the scripts of the computations
+# remain the ones of FM_PROTO
+load_build_environment() {
+  local scripts=$P
+  set +u
+  if ! source "$D/MMM-GPU-Proto/scripts/env.sh" > /dev/null; then
+    log "environment of the prototype not loaded"
+    exit 1
+  fi
+  set -u
+  P=$scripts
+  export PATH=${PROTO_MPI_LAUNCHERS:+$PROTO_MPI_LAUNCHERS:}$PATH
+  unset OMP_PROC_BIND OMP_PLACES
+}
+# usage: behaviour_targets <build directory of mfem-mgis>
+# targets of the behaviours of the tests, which the executables of the
+# tests do not build
+behaviour_targets() {
+  echo BehaviourTest
+  cmake --build "$1" --target help |
+    sed -n 's/^\.\.\. \(GenericParallelBehaviour-[a-z]*\)$/\1/p'
+}
+# usage: test_settings mode
+# variables of a run of the tests of mfem-mgis by ctest, one per line:
+# - host: on the host, one thread per process;
+# - host-kernels: on the host, all the computations forced to the kernels;
+# - gpu-kernels, gpu-default: on a GPU, with the settings of
+#   scripts/mfem-mgis-gpu-suite.sh (device of the machine profile, one GiB
+#   for the pool of hypre, stiffness matrices added in a fixed order), the
+#   computations being forced to the kernels or chosen by each test
+test_settings() {
+  local kernels="MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
+MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
+MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
+MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
+  local gpu="MFEM_MGIS_DEVICE=${PROTO_GPU_DEVICE:-cuda}
+MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1
+MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered"
+  case $1 in
+    host) echo OMP_NUM_THREADS=1 ;;
+    host-kernels) printf '%s\n' OMP_NUM_THREADS=1 "$kernels" ;;
+    gpu-kernels) printf '%s\n' "$gpu" "$kernels" ;;
+    gpu-default) echo "$gpu" ;;
+    *) return 1 ;;
+  esac
+}
 # energy and time of the steps of this job (one step per computation)
 energy() {
   sacct -j "$SLURM_JOB_ID" -P \

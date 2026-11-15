@@ -29,13 +29,16 @@
 # each computation in <results>/sections.txt (a section timed at several
 # places of the profiling tree has one entry per place).
 # The job fails, so that a job submitted with --dependency=afterok does not
-# start, if a computation fails or does not end its steps, or if the axial
-# stress of a GPU variant differs from the one of the first variant by more
-# than FM_TOLERANCE (relative, default 1e-5: on the GPUs, where the element
-# matrices are added in an order which changes from one run to the next,
-# the axial stress of 400 grains varied by 1.4e-6 between the runs of one
-# executable, job 5982471); otherwise the file
-# <results>/passed is written (FM_REQUIRE of the next jobs, see common.sh).
+# start, if a computation fails or does not end its steps, or if the
+# computations differ; otherwise the file <results>/passed is written
+# (FM_REQUIRE of the next jobs, see common.sh):
+# - on the GPUs, the axial stress of each computation is compared to the one
+#   of the first computation with the relative tolerance FM_TOLERANCE
+#   (default 1e-5: the element matrices are added in an order which changes
+#   from one run to the next, and the axial stress of 400 grains varied by
+#   1.4e-6 between the runs of one executable, job 5982471);
+# - on the cores, the main output file of each computation (.res) is the
+#   one of the first computation, bit for bit.
 #SBATCH --job-name=fm-perf-ab
 #SBATCH --constraint=MI300
 #SBATCH --exclusive
@@ -139,6 +142,7 @@ done
 energy "$out/energy.txt"
 # axial stresses of the GPU computations (column 8 of series.txt) compared
 # to the first one
+gpu=$(awk '$2 == "gpu"' "$out/series.txt" | wc -l)
 if ! awk -v tol="${FM_TOLERANCE:-1e-5}" '$2 == "gpu" {
     if (ref == "") ref = $8
     d = ($8 - ref) / ref; if (d < 0) d = -d
@@ -147,9 +151,22 @@ if ! awk -v tol="${FM_TOLERANCE:-1e-5}" '$2 == "gpu" {
   log "axial stresses: $(tr '\n' ';' < "$out/stresses.txt")"
   failed=1
 fi
+# main output files of the CPU computations compared to the first one
+cpu=0 first=""
+for f in "$out"/*-cpu-n"$SLURM_JOB_NUM_NODES"-best.res; do
+  [ -e "$f" ] || continue
+  cpu=$((cpu + 1))
+  first=${first:-$f}
+  if ! cmp -s "$first" "$f"; then
+    log "$(basename "$f") differs from $(basename "$first")"
+    failed=1
+  fi
+done
 if [ $failed = 0 ]; then
   touch "$out/passed"
-  log "end, all the computations ended, same axial stresses"
+  log "end, all the computations ended: $gpu on the GPUs, same axial" \
+    "stresses within ${FM_TOLERANCE:-1e-5}; $cpu on the cores, same output" \
+    "files bit for bit"
 else
   log "end, FAILURES (the next jobs of the chain do not start)"
   exit 1

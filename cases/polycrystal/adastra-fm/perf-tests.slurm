@@ -8,10 +8,10 @@
 #   names of their tests; default: the tests of the changed components and
 #   the ones using the non linear solvers), for the variant umpire: on the
 #   host, then on a MI300A with the settings of
-#   scripts/mfem-mgis-gpu-suite.sh (modes kernels and default), then the
-#   tests whose name selects a device;
+#   scripts/mfem-mgis-gpu-suite.sh (modes gpu-kernels and gpu-default of
+#   common.sh), then the tests whose name selects a device;
 # - the tests FM_DEPLOYED_TESTS on a MI300A for the variant deployed (MFEM
-#   without Umpire), mode kernels;
+#   without Umpire), mode gpu-kernels;
 # - the tests of the polycrystal by ctest (host), variant umpire;
 # - the polycrystal of the tests (5 grains, 2 steps, final options) on the 4
 #   GPUs with the variant umpire: each process seeing its GPU; all the
@@ -50,74 +50,45 @@ if ! JOBS=96 FM_BUILD_VARIANTS=$variants bash "$F/build-perf.sh" > "$out/build.l
   exit 1
 fi
 log "built: $(grep -E '^[a-zA-Z 0-9.]* built|: MFEM ' "$out/build.log" | tr '\n' ';')"
-# env.sh redefines P, the deployed prototype: the scripts of the
-# computations remain the ones of FM_PROTO
-scripts=$P
-set +u
-source "$D/MMM-GPU-Proto/scripts/env.sh" > /dev/null 2>&1
-set -u
-P=$scripts
-# launchers of the parallel tests (mpirun) of the machine profile
-export PATH=${PROTO_MPI_LAUNCHERS:+$PROTO_MPI_LAUNCHERS:}$PATH
+load_build_environment
 tests=${FM_TESTS:-GlobalStiffnessMatrixTest IntegrationPointsWeightsTest PostProcessingsKernelsTest MaterialArraysTest LineSearchTest NewtonLineSearchTest AdaptiveLinearSolverToleranceTest FixedPointSolverTest LinearExtrapolationPredictionTest UniaxialTensileTest PredictionTest PredictionTest2 ImposedPressureTest ImposedPressureTest2 TwoLayerCube StationaryNonLinearHeatTransferTest BatchIntegrationTest MicromorphicKernelsTest HeatTransferKernelsTest SubSteppingMessageTest}
 deployed_tests=${FM_DEPLOYED_TESTS:-GlobalStiffnessMatrixTest IntegrationPointsWeightsTest FixedPointSolverTest NewtonLineSearchTest LinearExtrapolationPredictionTest}
-device=${PROTO_GPU_DEVICE:-cuda}
 # usage: run_ctest variant mode tests
-# runs the tests of a variant in a mode: host, kernels, default (settings of
-# scripts/mfem-mgis-gpu-suite.sh) or device (tests selecting a device)
+# runs the tests of a variant in a mode: host, gpu-kernels, gpu-default (see
+# test_settings in common.sh) or device (tests selecting a device)
 run_ctest() {
-  local v=$1 mode=$2 regex="^(${3// /|})" settings=() select=() t0 summary
-  (
-    unset OMP_PROC_BIND OMP_PLACES
-    settings=(MFEM_MGIS_DEVICE="$device" MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1
-      MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered)
-    select=(-j 1 -R "$regex"
-      -E "cuda|hip|gpu|GPU|debug|^TwoLayerCube-1-MatrixFreeExecution$")
-    case $mode in
-      host)
-        settings=(OMP_NUM_THREADS=1)
-        select=(-j 8 -R "$regex" -E "cuda|hip|gpu|GPU")
-        ;;
-      kernels)
-        settings+=(MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
-          MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
-          MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
-          MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
-        ;;
-      default) ;;
-      device)
-        settings=(OMP_NUM_THREADS=1)
-        select=(-j 1 -R "${regex}.*(hip|gpu|GPU)")
-        ;;
-    esac
-    cd "$B/build/mfem-mgis-$v" || exit 1
-    env "${settings[@]}" ctest "${select[@]}" --output-on-failure \
-      > "$out/ctest-$v-$mode.log" 2>&1
-  )
+  local v=$1 mode=$2 regex="^(${3// /|})" settings select summary
+  case $mode in
+    host) select=(-j 8 -R "$regex" -E "cuda|hip|gpu|GPU") ;;
+    device) select=(-j 1 -R "${regex}.*(hip|gpu|GPU)") ;;
+    *) select=(-j 1 -R "$regex"
+      -E "cuda|hip|gpu|GPU|debug|^TwoLayerCube-1-MatrixFreeExecution$") ;;
+  esac
+  mapfile -t settings < <(test_settings "${mode/device/host}")
+  (cd "$B/build/mfem-mgis-$v" &&
+    env "${settings[@]}" ctest "${select[@]}" --output-on-failure) \
+    > "$out/ctest-$v-$mode.log" 2>&1
   summary=$(grep -E 'tests passed|tests failed|No tests were found' "$out/ctest-$v-$mode.log")
   log "$v, mode $mode: ${summary:-no summary}" \
     "$(grep -E '^ *[0-9]+ - .*(Failed|Exception|Timeout|Not Run)' "$out/ctest-$v-$mode.log" | tr '\n' ' ')"
   grep -q '^100% tests passed' <<< "$summary" || failed=1
 }
 for v in $variants; do
-  cd "$B/build/mfem-mgis-$v" || exit 1
-  targets=$(cmake --build . --target help | sed -n 's/^\.\.\. \(.*\)$/\1/p')
-  # the behaviours of the tests are not built by their executables
-  behaviours="BehaviourTest $(grep -E '^GenericParallelBehaviour-[a-z]*$' <<< "$targets" | tr '\n' ' ')"
   selected=$tests
   [ "$v" = umpire ] || selected=$deployed_tests
-  # shellcheck disable=SC2086
-  if ! cmake --build . --target $selected $behaviours -j 48 > "$out/build-tests-$v.log" 2>&1; then
+  # shellcheck disable=SC2086,SC2046
+  if ! cmake --build "$B/build/mfem-mgis-$v" --target $selected \
+    $(behaviour_targets "$B/build/mfem-mgis-$v") -j 48 > "$out/build-tests-$v.log" 2>&1; then
     log "$v: build of the tests failed (see $out/build-tests-$v.log)"
     failed=1
     continue
   fi
   if [ "$v" = umpire ]; then
-    for mode in host kernels default device; do
+    for mode in host gpu-kernels gpu-default device; do
       run_ctest "$v" "$mode" "$selected"
     done
   else
-    run_ctest "$v" kernels "$selected"
+    run_ctest "$v" gpu-kernels "$selected"
   fi
 done
 # tests of the polycrystal by ctest (polycrystal/CMakeLists.txt of
