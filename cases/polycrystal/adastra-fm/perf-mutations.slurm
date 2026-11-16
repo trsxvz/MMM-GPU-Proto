@@ -20,9 +20,16 @@
 # - iterations of the linear solver in the messages of the non linear
 #   solvers (FixedPointSolverTest): another number written by the fixed
 #   point solver, by the Newton solver;
-# - pattern of the local matrix built for the nodes (GradientsKernelsTest):
-#   diagonal not first, components written in the order of the other
-#   numbering, degrees of freedom of the elements not checked.
+# - pattern of the local matrix built for the nodes (GradientsKernelsTest,
+#   with one thread and with several): diagonal not first, components
+#   written in the order of the other numbering, degrees of freedom of the
+#   elements not checked, columns not sorted, values not null, nodes
+#   coupled to a node repeated;
+# - setup shared between the threads of OpenMP (HostThreadsTest): only the
+#   range of the first thread treated, ranges sharing an index, exception
+#   of a range not thrown again; setup of the global matrix
+#   (GlobalStiffnessMatrixTest): positions of the off diagonal block without
+#   their offset, entries of the selected row not kept.
 # Separate build on the local disk of the node (build-perf.sh in FM_FIX,
 # variant umpire: the MFEM with Umpire of FM_FIX must exist), in another
 # directory than the one of the executables of the measurements, which are
@@ -76,8 +83,9 @@ polycrystal=$opera/polycrystal/UniaxialPolycrystal.cxx
 fixed_point=$src/src/FixedPointSolver.cxx
 newton=$src/src/NewtonSolver.cxx
 stiffness=$src/src/Batch/StiffnessMatrices.cxx
+threads=$src/src/Batch/HostThreads.hxx
 files=("$global" "$global_kernels" "$points_kernels" "$base" "$problem"
-  "$solver" "$polycrystal" "$fixed_point" "$newton" "$stiffness")
+  "$solver" "$polycrystal" "$fixed_point" "$newton" "$stiffness" "$threads")
 mkdir -p "$out/original"
 for f in "${files[@]}"; do
   cp "$f" "$out/original/$(basename "$f")"
@@ -190,7 +198,10 @@ messages_tests() {
   run_tests "$1" FixedPointSolverTest '^FixedPointSolverTest' host
 }
 pattern_tests() {
-  run_tests "$1" GradientsKernelsTest '^GradientsKernelsTest$' host
+  run_tests "$1" GradientsKernelsTest '^GradientsKernelsTest(-threads)?$' host
+}
+threads_tests() {
+  run_tests "$1" HostThreadsTest '^HostThreadsTest' host
 }
 # usage: mutation name tests file pattern replacement [file pattern
 # replacement...]: applies a mutation, runs its tests, which must fail
@@ -213,6 +224,8 @@ if selected original; then
   verdict original-polycrystal passed
   pattern_tests original-pattern
   verdict original-pattern passed
+  threads_tests original-threads
+  verdict original-threads passed
 fi
 # global matrix
 mutation g1-values-kept-by-hypre-not-freed global_tests "$global" \
@@ -277,15 +290,41 @@ mutation i2-other-iterations-written-by-newton messages_tests "$newton" \
   'it << " : " << *n' 'it << " : " << *n + 1'
 # pattern of the local matrix
 mutation s1-diagonal-not-first pattern_tests "$stiffness" \
-  '          std::rotate(row, diagonal, diagonal + 1);' ''
+  '              std::rotate(row, diagonal, diagonal + 1);' ''
 mutation s2-components-in-the-order-of-the-other-numbering pattern_tests "$stiffness" \
-  '        if (by_vdim) {
-          for (const auto* q = first; q != last; ++q) {' \
-  '        if (!by_vdim) {
-          for (const auto* q = first; q != last; ++q) {'
+  '            if (by_vdim) {
+              for (const auto* q = first; q != last; ++q) {' \
+  '            if (!by_vdim) {
+              for (const auto* q = first; q != last; ++q) {'
 mutation s3-degrees-of-freedom-of-the-elements-not-checked pattern_tests "$stiffness" \
-  '            if (d[nde * e + nne * c + j] != dof(node(v), c)) {' \
-  '            if (false && (d[nde * e + nne * c + j] != dof(node(v), c))) {'
+  '              other = other || (d[nde * e + nne * c + j] != dof(node(v), c));' \
+  '              other = other && (d[nde * e + nne * c + j] != dof(node(v), c));'
+mutation s4-columns-not-sorted pattern_tests "$stiffness" \
+  '              std::sort(row, end);' ''
+mutation s5-values-not-null pattern_tests "$stiffness" \
+  '            std::fill(values + I[r], values + I[r + 1], real{0});' \
+  '            std::fill(values + I[r], values + I[r + 1], real{1});'
+mutation s6-nodes-coupled-to-a-node-repeated pattern_tests "$stiffness" \
+  '                  if (last_row[static_cast<std::size_t>(c)] != r) {' \
+  '                  if (true || (last_row[static_cast<std::size_t>(c)] != r)) {'
+# setup shared between the threads of OpenMP
+mutation t1-only-the-range-of-the-first-thread-treated threads_tests "$threads" \
+  '      if (begin != end) {
+        try {' \
+  '      if ((begin != end) && (thread == 0)) {
+        try {'
+mutation t2-ranges-sharing-an-index threads_tests "$threads" \
+  '      const auto end = static_cast<Index>(size * (thread + 1) / threads);' \
+  '      const auto end = static_cast<Index>(
+          (thread + 1 == threads) ? size : size * (thread + 1) / threads + 1);'
+mutation t3-exception-not-thrown-again threads_tests "$threads" \
+  '      std::rethrow_exception(error);' ''
+mutation g5-positions-of-the-off-diagonal-block-without-offset global_tests "$global" \
+  '      return ((e >= row.begin) && (e < row.end)) ? static_cast<int>(offset + e)' \
+  '      return ((e >= row.begin) && (e < row.end)) ? static_cast<int>(e)'
+mutation g6-entries-of-the-selected-row-not-kept global_tests "$global" \
+  '      this->diagonal = keepEntries(this->diagonal_block, p.diag, r);' \
+  '      this->diagonal = Row{p.diag.rows[r], p.diag.rows[r + 1]};'
 restore
 rm -rf "$B"
 if [ -z "$undetected" ]; then

@@ -208,10 +208,15 @@ jobs:
         spack env activate $ENVIRONMENT
         export PATH=$PWD/install/tfel/bin:$PATH
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        # the setup loops of the host shared between the threads of OpenMP
+        # (option enable-openmp) are built and tested in single precision,
+        # the default build (without it) in double precision; the examples
+        # and mm-opera-hpc then find the installed library with its option
+        if [ "$PRECISION" = float ]; then OPENMP=ON; else OPENMP=OFF; fi
         cmake -S mfem-mgis -B build/mfem-mgis -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX=$PWD/install/mfem-mgis \
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-          -Denable-portable-build=ON \
+          -Denable-portable-build=ON -Denable-openmp=$OPENMP \
           -DMFEM_DIR=$(spack location -i mfem) \
           -DMFrontGenericInterface_DIR=$PWD/install/mgis/share/mgis/cmake \
           -DTFEL_DIR=$PWD/install/tfel/share/tfel/cmake

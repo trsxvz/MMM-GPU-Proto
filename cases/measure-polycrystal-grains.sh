@@ -20,6 +20,8 @@
 #   (default 2400 and 10800; run_timeout, if given, for both);
 # - cpu_environment: variables given to the CPU computation only (for
 #   instance MPICH_GPU_SUPPORT_ENABLED=0);
+# - gpu_environment: variables given to the GPU computation only (for
+#   instance OMP_NUM_THREADS=1, see below);
 # - solver_gpu, solver_cpu: options of the solvers of the polycrystal on the
 #   GPU and on the CPU (default: NewtonK0, Eisenstat-Walker 1 from 0.1, the
 #   best on both sides on Jean Zay, results/L5-polycrystal-2026-10-10-0502);
@@ -35,9 +37,12 @@
 #   (generic-parallel interface on the GPU, generic interface on the CPU)
 #   instead of the ones of the builds, for instance variants of the law
 #   (polycrystal/law-variants/).
-# The GPU computation runs one process per GPU (cores_per_node /
-# gpus_per_node cores each) with GPU-aware MPI, the CPU computation one
-# process per core. The fixed point on the lateral stresses uses the
+# The GPU computation runs one process per GPU with GPU-aware MPI, the
+# cores of the node being shared between the processes (cores_per_node /
+# gpus_per_node cores each, and as many threads of OpenMP, OMP_NUM_THREADS:
+# with mfem-mgis built with its option enable-openmp, they share the setup
+# of the matrices on the host), the CPU computation one process per core,
+# with one thread. The fixed point on the lateral stresses uses the
 # secant acceleration, the averages of the stresses per grain are written
 # at each step (post-processings without ParaView export) in
 # <results>/<computation>/avgStressPolycrystal. A line per computation is
@@ -71,6 +76,7 @@ cores_per_node=${cores_per_node:-96}
 run_timeout_gpu=${run_timeout_gpu:-${run_timeout:-2400}}
 run_timeout_cpu=${run_timeout_cpu:-${run_timeout:-10800}}
 read -r -a cpu_environment <<< "${cpu_environment:-}"
+read -r -a gpu_environment <<< "${gpu_environment:-}"
 post_processing=""
 source "$(dirname "$0")/measure-common.sh" polycrystal "$@"
 # command placed before the executable inside mpirun (`profiler`, for
@@ -217,7 +223,7 @@ for mode in ${modes:-gpu cpu}; do
     run_timeout=$run_timeout_gpu
     watch_steps "$name"
     run "$name" "$threads" "$np" "$gpu_library" "$batch" "${kernels[@]}" \
-      "${gpu_aware[@]}"
+      "${gpu_aware[@]}" "${gpu_environment[@]}"
     stop_watch "$name"
     unset PROTO_CUDA_VISIBLE_DEVICES PROTO_GPU_RANK_ORDER PROTO_GPU_PER_RANK
     device=""

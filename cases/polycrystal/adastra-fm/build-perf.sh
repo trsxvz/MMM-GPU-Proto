@@ -6,12 +6,16 @@
 # mm-opera-hpc/) and, optionally, the machine profile machine.sh
 # (deps/machines/adastra-mi300/machine.sh), which then replaces the one of
 # the deployed prototype (options of MFEM not deployed yet). MGIS is built
-# once; mfem-mgis (with the option enable-roctx, which costs nothing without
-# profiler) and the polycrystal are built in the variants FM_BUILD_VARIANTS
-# (default "umpire"), which differ by their MFEM:
+# once; mfem-mgis (with the options enable-roctx, which costs nothing without
+# profiler, and enable-openmp, whose setup loops of the host use the cores
+# given to each process, see OMP_NUM_THREADS) and the polycrystal are built
+# in the variants FM_BUILD_VARIANTS (default "umpire"), which differ by
+# their MFEM:
 # - umpire: the MFEM built by this script with the options of the machine
 #   profile (PROTO_MFEM_OPTIONS: with Umpire), installed in
 #   FM_FIX/install/mfem and built only if it is not there;
+# - umpire-serial: the same without the option enable-openmp of mfem-mgis
+#   (comparisons);
 # - deployed: the MFEM of the deployed prototype (built without Umpire on
 #   14/11/2026).
 # The sources and the builds are in FM_BUILD_DIR, by default a directory of
@@ -87,10 +91,12 @@ build_mfem() {
   echo "MFEM $PROTO_MFEM_VERSION built $(date +%T)"
 }
 for v in ${FM_BUILD_VARIANTS:-umpire}; do
+  openmp=ON
   case $v in
-    umpire)
+    umpire | umpire-serial)
       MFEM=$F/install/mfem
       [ -f "$MFEM/lib/libmfem.so" ] || build_mfem "$MFEM"
+      [ $v = umpire ] || openmp=OFF
       ;;
     deployed) MFEM=$deployed_mfem ;;
     *)
@@ -104,7 +110,7 @@ for v in ${FM_BUILD_VARIANTS:-umpire}; do
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$PROTO_CC" \
     -DCMAKE_CXX_COMPILER="$PROTO_CXX" -DMPI_C_COMPILER="$MPI_CC" \
     -DMPI_CXX_COMPILER="$MPI_CXX" "${PROTO_CMAKE_OPTIONS[@]}" \
-    -DMFEM_DIR="$MFEM" -Denable-roctx=ON \
+    -DMFEM_DIR="$MFEM" -Denable-roctx=ON -Denable-openmp=$openmp \
     -DMFrontGenericInterface_DIR="$B/install/mgis/share/mgis/cmake" \
     -DTFEL_DIR="$PROTO_TFEL_INSTALL/share/tfel/cmake" \
     -DCMAKE_INSTALL_PREFIX="$B/install/mfem-mgis-$v" \
