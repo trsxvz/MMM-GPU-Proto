@@ -196,7 +196,9 @@ static int checkPositions(const std::string& name,
 /*!
  * \return true if a matrix created by `batch::makeAssembledStiffnessMatrix`
  * has the pattern built by MFEM from the matrices of all the elements, the
- * diagonal entry being the first of each row, and null values
+ * diagonal entry being the first of each row and the other columns being
+ * sorted, and null values: the arrays of the matrix are then the same
+ * whatever the number of threads which built them
  * \param[in] fes: finite element space
  * \param[in] m: matrix
  */
@@ -223,7 +225,8 @@ static bool hasPatternOfMFEM(const mfem::FiniteElementSpace& fes,
   const auto* const J = m.HostReadJ();
   const auto* const v = m.HostReadData();
   for (int r = 0; r != m.Height(); ++r) {
-    if ((I[r] == I[r + 1]) || (J[I[r]] != r)) {
+    if ((I[r] == I[r + 1]) || (J[I[r]] != r) ||
+        (!std::is_sorted(J + I[r] + 1, J + I[r + 1]))) {
       return false;
     }
   }

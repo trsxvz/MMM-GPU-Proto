@@ -10,9 +10,12 @@
 #ifdef MFEM_USE_MPI
 
 #include <tuple>
+#include <atomic>
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
+#include <numeric>
 #include <algorithm>
 #include <exception>
 #include "mfem/general/forall.hpp"
@@ -20,6 +23,7 @@
 #include "mfem/linalg/handle.hpp"
 #include "mfem/linalg/sparsemat.hpp"
 #include "mfem/fem/pfespace.hpp"
+#include "HostThreads.hxx"
 #include "GlobalStiffnessMatrixKernels.hxx"
 
 namespace mfem_mgis::batch {
@@ -35,9 +39,11 @@ namespace mfem_mgis::batch {
     //! \brief offsets of the rows
     std::vector<HYPRE_Int> rows;
     //! \brief columns of the entries
-    std::vector<HYPRE_Int> columns;
+    std::unique_ptr<HYPRE_Int[]> columns;
     //! \brief values of the entries, if they were asked
-    std::vector<HYPRE_Complex> values;
+    std::unique_ptr<HYPRE_Complex[]> values;
+    //! \brief number of entries
+    HYPRE_Int size = 0;
   };
 
   /*!
@@ -62,13 +68,22 @@ namespace mfem_mgis::batch {
                     HYPRE_MEMORY_HOST, location);
     }
     if (nnz != 0) {
-      c.columns.resize(static_cast<std::size_t>(nnz));
-      hypre_TMemcpy(c.columns.data(), hypre_CSRMatrixJ(block), HYPRE_Int, nnz,
+      c.size = nnz;
+      c.columns = std::make_unique_for_overwrite<HYPRE_Int[]>(
+          static_cast<std::size_t>(nnz));
+      // the array is first written by the threads: the copy from a GPU
+      // takes several times longer when it also maps its pages
+      internals::forEachThreadRange(
+          nnz, [&c](const HYPRE_Int begin, const HYPRE_Int end) {
+            std::fill(c.columns.get() + begin, c.columns.get() + end, 0);
+          });
+      hypre_TMemcpy(c.columns.get(), hypre_CSRMatrixJ(block), HYPRE_Int, nnz,
                     HYPRE_MEMORY_HOST, location);
       if (values) {
-        c.values.resize(static_cast<std::size_t>(nnz));
-        hypre_TMemcpy(c.values.data(), hypre_CSRMatrixData(block),
-                      HYPRE_Complex, nnz, HYPRE_MEMORY_HOST, location);
+        c.values = std::make_unique_for_overwrite<HYPRE_Complex[]>(
+            static_cast<std::size_t>(nnz));
+        hypre_TMemcpy(c.values.get(), hypre_CSRMatrixData(block), HYPRE_Complex,
+                      nnz, HYPRE_MEMORY_HOST, location);
       }
     }
     return c;
@@ -107,122 +122,167 @@ namespace mfem_mgis::batch {
   }  // end of getGlobalTrueDegreesOfFreedom
 
   /*!
-   * \brief positions of the entries of the part of a global matrix owned by
-   * the process, searched row by row: the positions of the entries of the
-   * last row asked are kept by column, so that the entries of a row of a
-   * local matrix, which follow each other and belong to the same row of
-   * the global matrix, are found without searching this row again
+   * \brief copy on the host of the pattern of the part of a global matrix
+   * owned by the process, in which the positions of its entries are
+   * searched (see `GlobalPositionsFinder`)
    */
-  struct GlobalPositionsFinder {
+  struct GlobalPattern {
     /*!
      * \brief constructor
      * \param[in] m: global matrix, which must outlive this object. The
      * patterns of its blocks are copied to the host (see `copyBlock`).
      */
-    explicit GlobalPositionsFinder(const hypre_ParCSRMatrix* const m)
-        : A(m),
-          diag(copyBlock(hypre_ParCSRMatrixDiag(m), false)),
+    explicit GlobalPattern(const hypre_ParCSRMatrix* const m)
+        : diag(copyBlock(hypre_ParCSRMatrixDiag(m), false)),
           offd(copyBlock(hypre_ParCSRMatrixOffd(m), false)),
+          column_map(hypre_ParCSRMatrixColMapOffd(m)),
           first_row(hypre_ParCSRMatrixFirstRowIndex(m)),
           last_row(hypre_ParCSRMatrixLastRowIndex(m)),
           first_column(hypre_ParCSRMatrixFirstColDiag(m)),
           last_column(hypre_ParCSRMatrixLastColDiag(m)),
-          diagonal_block(static_cast<std::size_t>(
+          diagonal_block_columns(static_cast<std::size_t>(
               hypre_CSRMatrixNumCols(hypre_ParCSRMatrixDiag(m)))),
-          off_diagonal_block(static_cast<std::size_t>(
+          off_diagonal_block_columns(static_cast<std::size_t>(
               hypre_CSRMatrixNumCols(hypre_ParCSRMatrixOffd(m)))) {
+    }  // end of GlobalPattern
+    //! \brief pattern of the diagonal block
+    const BlockCopy diag;
+    //! \brief pattern of the off diagonal block
+    const BlockCopy offd;
+    //! \brief global numbers of the columns of the off diagonal block
+    const HYPRE_BigInt* const column_map;
+    //! \brief first row owned by the process
+    const HYPRE_BigInt first_row;
+    //! \brief last row owned by the process
+    const HYPRE_BigInt last_row;
+    //! \brief first column of the diagonal block
+    const HYPRE_BigInt first_column;
+    //! \brief last column of the diagonal block
+    const HYPRE_BigInt last_column;
+    //! \brief number of columns of the diagonal block
+    const std::size_t diagonal_block_columns;
+    //! \brief number of columns of the off diagonal block
+    const std::size_t off_diagonal_block_columns;
+  };  // end of struct GlobalPattern
+
+  /*!
+   * \brief positions of the entries of the part of a global matrix owned by
+   * the process, searched row by row: the entries of the selected row are
+   * kept by column, so that the entries of a row of a local matrix, which
+   * follow each other and belong to the same row of the global matrix, are
+   * found without searching this row again. The pattern is shared: each
+   * thread searching entries has its own finder.
+   */
+  struct GlobalPositionsFinder {
+    /*!
+     * \brief constructor
+     * \param[in] p: pattern of the global matrix, which must outlive this
+     * object
+     */
+    explicit GlobalPositionsFinder(const GlobalPattern& p)
+        : pattern(p),
+          diagonal_block(p.diagonal_block_columns, -1),
+          off_diagonal_block(p.off_diagonal_block_columns, -1) {
     }  // end of GlobalPositionsFinder
     /*!
-     * \return the position of the entry `(I, J)` (global numbers) in the
-     * values of the part of the global matrix owned by the process
+     * \brief selects the row of the entries searched by `find`
+     * \param[in] I: row (global number)
+     */
+    void setRow(const HYPRE_BigInt I) {
+      if (I == this->row) {
+        return;
+      }
+      const auto& p = this->pattern;
+      this->row = I;
+      if ((I < p.first_row) || (I > p.last_row)) {
+        this->diagonal = {};
+        this->off_diagonal = {};
+        return;
+      }
+      const auto r = static_cast<std::size_t>(I - p.first_row);
+      this->diagonal = keepEntries(this->diagonal_block, p.diag, r);
+      this->off_diagonal = keepEntries(this->off_diagonal_block, p.offd, r);
+    }  // end of setRow
+    /*!
+     * \return the position of the entry of a column of the selected row in
+     * the values of the part of the global matrix owned by the process
      * (positions in the diagonal block, then in the off diagonal block from
      * the number of entries of the diagonal block), or -1 if the entry is
-     * not in the pattern of the matrix or if its row is not owned by the
+     * not in the pattern of the matrix or if the row is not owned by the
      * process
-     * \param[in] I: row
-     * \param[in] J: column
+     * \param[in] J: column (global number)
      */
-    [[nodiscard]] int find(const HYPRE_BigInt I, const HYPRE_BigInt J) {
-      if ((I < this->first_row) || (I > this->last_row)) {
-        return -1;
+    [[nodiscard]] int find(const HYPRE_BigInt J) const {
+      const auto& p = this->pattern;
+      if ((J >= p.first_column) && (J <= p.last_column)) {
+        const auto c = static_cast<std::size_t>(J - p.first_column);
+        return getPosition(this->diagonal_block[c], this->diagonal, 0);
       }
-      const auto r = static_cast<HYPRE_Int>(I - this->first_row);
-      if (r != this->row) {
-        this->row = r;
-        this->setRow(this->diagonal_block, this->diag, 0);
-        this->setRow(this->off_diagonal_block, this->offd,
-                     static_cast<HYPRE_Int>(this->diag.columns.size()));
-      }
-      if ((J >= this->first_column) && (J <= this->last_column)) {
-        return this->getPosition(
-            this->diagonal_block,
-            static_cast<std::size_t>(J - this->first_column));
-      }
-      const auto* const cmap = hypre_ParCSRMatrixColMapOffd(this->A);
-      const auto nc = this->off_diagonal_block.size();
+      const auto* const cmap = p.column_map;
+      const auto nc = p.off_diagonal_block_columns;
       const auto* const c = std::lower_bound(cmap, cmap + nc, J);
       if ((c == cmap + nc) || (*c != J)) {
         return -1;
       }
-      return this->getPosition(this->off_diagonal_block,
-                               static_cast<std::size_t>(c - cmap));
+      return getPosition(
+          this->off_diagonal_block[static_cast<std::size_t>(c - cmap)],
+          this->off_diagonal, p.diag.size);
     }  // end of find
 
    private:
-    //! \brief position of the entry of a column in a row of a block
-    struct Position {
-      //! \brief row of the block in which the entry was found
-      HYPRE_Int row = -1;
-      //! \brief position of the entry in the values of the global matrix
-      int position = -1;
+    //! \brief entries of a row of a block
+    struct Row {
+      //! \brief first entry
+      HYPRE_Int begin = 0;
+      //! \brief entry following the last one
+      HYPRE_Int end = 0;
     };
     /*!
-     * \brief keeps the positions of the entries of the current row of a
-     * block
-     * \param[out] positions: positions by column of the block
+     * \brief keeps the entries of a row of a block
+     * \return the entries of the row
+     * \param[out] entries: last entry met in each column of the block
      * \param[in] block: pattern of the block
+     * \param[in] r: row
+     */
+    static Row keepEntries(std::vector<HYPRE_Int>& entries,
+                           const BlockCopy& block,
+                           const std::size_t r) {
+      const auto row = Row{block.rows[r], block.rows[r + 1]};
+      for (auto e = row.begin; e != row.end; ++e) {
+        entries[static_cast<std::size_t>(
+            block.columns[static_cast<std::size_t>(e)])] = e;
+      }
+      return row;
+    }  // end of keepEntries
+    /*!
+     * \return the position of an entry kept for a column if it belongs to
+     * the selected row, or -1: the entry kept for a column is the last one
+     * met in this column, in any row
+     * \param[in] e: entry kept for the column
+     * \param[in] row: entries of the selected row
      * \param[in] offset: position of the first value of the block
      */
-    void setRow(std::vector<Position>& positions,
-                const BlockCopy& block,
-                const HYPRE_Int offset) const {
-      const auto r = static_cast<std::size_t>(this->row);
-      for (auto p = block.rows[r]; p != block.rows[r + 1]; ++p) {
-        positions[static_cast<std::size_t>(
-            block.columns[static_cast<std::size_t>(p)])] = {
-            this->row, static_cast<int>(offset + p)};
-      }
-    }  // end of setRow
-    /*!
-     * \return the position of the entry of a column of a block in the
-     * current row, or -1
-     * \param[in] positions: positions by column of the block
-     * \param[in] c: column of the block
-     */
-    [[nodiscard]] int getPosition(const std::vector<Position>& positions,
-                                  const std::size_t c) const {
-      return positions[c].row == this->row ? positions[c].position : -1;
+    [[nodiscard]] static int getPosition(const HYPRE_Int e,
+                                         const Row& row,
+                                         const HYPRE_Int offset) {
+      return ((e >= row.begin) && (e < row.end)) ? static_cast<int>(offset + e)
+                                                 : -1;
     }  // end of getPosition
-    //! \brief global matrix
-    const hypre_ParCSRMatrix* A;
-    //! \brief pattern of the diagonal block
-    BlockCopy diag;
-    //! \brief pattern of the off diagonal block
-    BlockCopy offd;
-    //! \brief first row owned by the process
-    HYPRE_BigInt first_row;
-    //! \brief last row owned by the process
-    HYPRE_BigInt last_row;
-    //! \brief first column of the diagonal block
-    HYPRE_BigInt first_column;
-    //! \brief last column of the diagonal block
-    HYPRE_BigInt last_column;
-    //! \brief current row, whose positions are kept
-    HYPRE_Int row = -1;
-    //! \brief positions of the entries of the diagonal block, by column
-    std::vector<Position> diagonal_block;
-    //! \brief positions of the entries of the off diagonal block, by column
-    std::vector<Position> off_diagonal_block;
+    //! \brief pattern of the global matrix
+    const GlobalPattern& pattern;
+    //! \brief selected row (global number), none at first
+    HYPRE_BigInt row = -1;
+    //! \brief entries of the selected row in the diagonal block
+    Row diagonal;
+    //! \brief entries of the selected row in the off diagonal block
+    Row off_diagonal;
+    /*!
+     * \brief last entry met in each column of the diagonal block (index in
+     * the block), or -1
+     */
+    std::vector<HYPRE_Int> diagonal_block;
+    //! \brief last entry met in each column of the off diagonal block, or -1
+    std::vector<HYPRE_Int> off_diagonal_block;
   };  // end of struct GlobalPositionsFinder
 
   /*!
@@ -264,8 +324,17 @@ namespace mfem_mgis::batch {
    */
   static std::unique_ptr<mfem::HypreParMatrix> makeGlobalPattern(
       const mfem::ParFiniteElementSpace& fes, const mfem::SparseMatrix& A) {
-    auto ones = mfem::SparseMatrix(A);
-    ones = real{1};
+    // matrix of ones of the pattern of `A`, built where hypre computes: on a
+    // GPU, its arrays are copied from the ones of `A` on the GPU, which the
+    // kernels of the assembly use, and its values are set by a kernel,
+    // without going through the host
+    const auto use_device = isHypreUsingGPU();
+    auto ones =
+        mfem::SparseMatrix(A, true,
+                           use_device ? mfem::Device::GetDeviceMemoryType()
+                                      : mfem::MemoryType::PRESERVE);
+    internals::launchGlobalStiffnessMatrixOnesKernel(
+        ones.WriteData(use_device), ones.NumNonZeroElems(), use_device);
     auto dA = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
     auto Ph = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
     auto G = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
@@ -285,22 +354,69 @@ namespace mfem_mgis::batch {
    * the memory of the host.
    * \param[out] a: array
    * \param[in] v: indices
+   * \param[in] n: number of indices
    * \param[in] use_device: if true, the kernels run on the device
    */
   static void setIndices(mfem::Array<int>& a,
-                         const std::vector<int>& v,
+                         const int* const v,
+                         const int n,
                          const bool use_device) {
-    const auto n = static_cast<int>(v.size());
     if (!use_device) {
       a.SetSize(n);
-      std::copy(v.begin(), v.end(), a.HostWrite());
+      std::copy(v, v + n, a.HostWrite());
       return;
     }
     a.SetSize(n, mfem::Device::GetDeviceMemoryType());
     if (n != 0) {
-      a.GetMemory().CopyFromHost(v.data(), n);
+      a.GetMemory().CopyFromHost(v, n);
     }
   }  // end of setIndices
+
+  /*!
+   * \brief rows of a local matrix added to each row of the part of the
+   * global matrix owned by the process, in increasing order. The entries of
+   * two rows of the global matrix have no common contribution from the
+   * local matrix: the threads treat different rows of the global matrix
+   * (see `forEachThreadRange`).
+   */
+  struct LocalRows {
+    /*!
+     * \brief constructor
+     * \param[in] T: global numbers of the true degrees of freedom of the
+     * rows of the local matrix
+     * \param[in] p: pattern of the global matrix
+     */
+    LocalRows(const std::vector<HYPRE_BigInt>& T, const GlobalPattern& p)
+        : offsets(p.diag.rows.size(), 0) {
+      const auto owned = [&p](const HYPRE_BigInt I) {
+        return (I >= p.first_row) && (I <= p.last_row);
+      };
+      for (const auto I : T) {
+        if (owned(I)) {
+          ++(this->offsets[static_cast<std::size_t>(I - p.first_row) + 1]);
+        }
+      }
+      std::partial_sum(this->offsets.begin(), this->offsets.end(),
+                       this->offsets.begin());
+      this->rows.resize(static_cast<std::size_t>(this->offsets.back()));
+      auto next =
+          std::vector<int>(this->offsets.begin(), this->offsets.end() - 1);
+      for (std::size_t r = 0; r != T.size(); ++r) {
+        if (owned(T[r])) {
+          const auto i = static_cast<std::size_t>(T[r] - p.first_row);
+          this->rows[static_cast<std::size_t>(next[i]++)] = static_cast<int>(r);
+        }
+      }
+    }  // end of LocalRows
+    //! \return the number of rows of the global matrix
+    [[nodiscard]] int size() const {
+      return static_cast<int>(this->offsets.size()) - 1;
+    }
+    //! \brief offsets of the local rows of each row of the global matrix
+    std::vector<int> offsets;
+    //! \brief local rows
+    std::vector<int> rows;
+  };  // end of struct LocalRows
 
   /*!
    * \brief builds the lists of the contributions to the entries of the
@@ -309,44 +425,82 @@ namespace mfem_mgis::batch {
    * matrix), in increasing order
    * \param[out] offsets: offsets of the contributions to each entry
    * \param[out] contributions: contributions
+   * \param[in] rows: rows of the local matrix of each row of the global
+   * matrix
+   * \param[in] Ai: offsets of the rows of the local matrix
    * \param[in] positions: positions in the global matrix of the entries of
    * the local matrix, or -1
    * \param[in] received_positions: positions in the global matrix of the
    * received values, or -1
+   * \param[in] n: number of entries of the local matrix
    * \param[in] ng: number of entries of the global matrix
    * \param[in] use_device: if true, the kernels run on the device
    */
   static void setContributions(mfem::Array<int>& offsets,
                                mfem::Array<int>& contributions,
-                               const std::vector<int>& positions,
+                               const LocalRows& rows,
+                               const int* const Ai,
+                               const int* const positions,
                                const std::vector<int>& received_positions,
+                               const int n,
                                const std::size_t ng,
                                const bool use_device) {
-    auto o = std::vector<int>(ng + 1, 0);
-    for (const auto* const ps : {&positions, &received_positions}) {
-      for (const auto p : *ps) {
-        if (p >= 0) {
-          ++o[static_cast<std::size_t>(p) + 1];
-        }
+    // calls `f(k, p)` for each entry `k` of the local matrix added to an
+    // entry `p` of the global matrix, in increasing order for each `p`
+    const auto forEachLocalContribution = [&rows, Ai,
+                                           positions](const auto& f) {
+      internals::forEachThreadRange(
+          rows.size(),
+          [&rows, Ai, positions, &f](const int begin, const int end) {
+            for (auto i = rows.offsets[static_cast<std::size_t>(begin)];
+                 i != rows.offsets[static_cast<std::size_t>(end)]; ++i) {
+              const auto r = rows.rows[static_cast<std::size_t>(i)];
+              for (auto k = Ai[r]; k != Ai[r + 1]; ++k) {
+                if (positions[k] >= 0) {
+                  f(k, static_cast<std::size_t>(positions[k]));
+                }
+              }
+            }
+          });
+    };
+    // number of contributions to each entry, kept in the next offset
+    auto o = std::make_unique_for_overwrite<int[]>(ng + 1);
+    internals::forEachThreadRange(
+        ng + 1, [&o](const std::size_t begin, const std::size_t end) {
+          std::fill(o.get() + begin, o.get() + end, 0);
+        });
+    forEachLocalContribution(
+        [&o](const int, const std::size_t p) { ++o[p + 1]; });
+    for (const auto p : received_positions) {
+      if (p >= 0) {
+        ++o[static_cast<std::size_t>(p) + 1];
       }
     }
+    // first contribution to each entry, kept in the next offset too
+    auto size = 0;
     for (std::size_t p = 0; p != ng; ++p) {
-      o[p + 1] += o[p];
+      const auto count = o[p + 1];
+      o[p + 1] = size;
+      size += count;
     }
-    auto c = std::vector<int>(static_cast<std::size_t>(o[ng]));
-    auto next = std::vector<int>(o.begin(), o.end() - 1);
-    auto contribution = 0;
-    for (const auto* const ps : {&positions, &received_positions}) {
-      for (const auto p : *ps) {
-        if (p >= 0) {
-          const auto t = next[static_cast<std::size_t>(p)]++;
-          c[static_cast<std::size_t>(t)] = contribution;
-        }
-        ++contribution;
+    // the contributions are visited by increasing index, which sorts the
+    // ones of each entry, whose next offset ends as the offset of the next
+    // entry
+    auto c =
+        std::make_unique_for_overwrite<int[]>(static_cast<std::size_t>(size));
+    forEachLocalContribution([&o, &c](const int k, const std::size_t p) {
+      c[static_cast<std::size_t>(o[p + 1]++)] = k;
+    });
+    auto contribution = n;
+    for (const auto p : received_positions) {
+      if (p >= 0) {
+        c[static_cast<std::size_t>(o[static_cast<std::size_t>(p) + 1]++)] =
+            contribution;
       }
+      ++contribution;
     }
-    setIndices(offsets, o, use_device);
-    setIndices(contributions, c, use_device);
+    setIndices(offsets, o.get(), static_cast<int>(ng + 1), use_device);
+    setIndices(contributions, c.get(), size, use_device);
   }  // end of setContributions
 
   bool GlobalStiffnessMatrix::isSupported(
@@ -404,7 +558,7 @@ namespace mfem_mgis::batch {
     }
     // from here, all the processes take part in all the collective calls;
     // an entry not found is reported at the end
-    auto found = true;
+    auto found = std::atomic<bool>{true};
     // the tables read by the kernels are located where hypre computes
     const auto use_device = isHypreUsingGPU();
     this->matrix = makeGlobalPattern(*(this->fes), A);
@@ -428,7 +582,8 @@ namespace mfem_mgis::batch {
       return static_cast<int>(it - first_rows.begin()) - 1;
     };
     // destinations of the entries of the local matrix
-    auto finder = GlobalPositionsFinder(g);
+    const auto pattern = GlobalPattern(g);
+    const auto local_rows = LocalRows(T, pattern);
     const auto* const Ai = A.HostReadI();
     const auto* const Aj = A.HostReadJ();
     const auto n = A.NumNonZeroElems();
@@ -436,42 +591,73 @@ namespace mfem_mgis::batch {
     // the process in the values of the global matrix: positions in the
     // diagonal block, then, from its number of entries, in the off diagonal
     // block; -1 for the entries sent to other processes
-    auto positions = std::vector<int>(static_cast<std::size_t>(n), -1);
-    auto sent_to =
-        std::vector<std::vector<int>>(static_cast<std::size_t>(nprocs));
-    auto pairs = std::vector<std::vector<HYPRE_BigInt>>(
-        static_cast<std::size_t>(nprocs));
+    auto positions =
+        std::make_unique_for_overwrite<int[]>(static_cast<std::size_t>(n));
+    internals::forEachThreadRange(
+        local_rows.size(), [&](const int begin, const int end) {
+          auto finder = GlobalPositionsFinder(pattern);
+          auto all = true;
+          for (auto i = local_rows.offsets[static_cast<std::size_t>(begin)];
+               i != local_rows.offsets[static_cast<std::size_t>(end)]; ++i) {
+            const auto r = local_rows.rows[static_cast<std::size_t>(i)];
+            finder.setRow(T[static_cast<std::size_t>(r)]);
+            for (auto k = Ai[r]; k != Ai[r + 1]; ++k) {
+              const auto p = finder.find(T[static_cast<std::size_t>(Aj[k])]);
+              all = all && (p >= 0);
+              positions[static_cast<std::size_t>(k)] = p;
+            }
+          }
+          if (!all) {
+            found = false;
+          }
+        });
+    // rows owned by other processes: their entries are sent, ordered by
+    // process. The place of the entries of a row among the ones sent to its
+    // owner follows from the rows before it: the rows are then written by
+    // the threads.
+    struct SentRow {
+      //! \brief row of the local matrix
+      int row;
+      //! \brief process owning the row
+      int owner;
+      //! \brief first entry of the row in the entries sent to its owner
+      int offset;
+    };
+    const auto np = static_cast<std::size_t>(nprocs);
+    auto send_counts = std::vector<int>(np, 0);
+    auto sent_rows = std::vector<SentRow>{};
     for (int r = 0; r != A.Height(); ++r) {
-      const auto I = T[static_cast<std::size_t>(r)];
-      const auto o = owner(I);
-      for (auto k = Ai[r]; k != Ai[r + 1]; ++k) {
-        const auto J = T[static_cast<std::size_t>(Aj[k])];
-        if (o == rank) {
-          const auto p = finder.find(I, J);
-          found = found && (p >= 0);
-          positions[static_cast<std::size_t>(k)] = p;
-        } else {
-          sent_to[static_cast<std::size_t>(o)].push_back(k);
-          pairs[static_cast<std::size_t>(o)].push_back(I);
-          pairs[static_cast<std::size_t>(o)].push_back(J);
-        }
+      const auto o = owner(T[static_cast<std::size_t>(r)]);
+      if (o != rank) {
+        auto& count = send_counts[static_cast<std::size_t>(o)];
+        sent_rows.push_back({r, o, count});
+        count += Ai[r + 1] - Ai[r];
       }
     }
-    // exchanges: the entries sent, ordered by process
-    const auto np = static_cast<std::size_t>(nprocs);
-    auto send_counts = std::vector<int>(np);
     auto send_offsets = std::vector<int>(np);
-    auto sent_entries_values = std::vector<int>{};
-    auto sent_pairs = std::vector<HYPRE_BigInt>{};
-    for (std::size_t q = 0; q != np; ++q) {
-      send_offsets[q] = static_cast<int>(sent_entries_values.size());
-      send_counts[q] = static_cast<int>(sent_to[q].size());
-      sent_entries_values.insert(sent_entries_values.end(), sent_to[q].begin(),
-                                 sent_to[q].end());
-      sent_pairs.insert(sent_pairs.end(), pairs[q].begin(), pairs[q].end());
-    }
-    const auto sent = static_cast<int>(sent_entries_values.size());
-    setIndices(this->sent_entries, sent_entries_values, use_device);
+    std::exclusive_scan(send_counts.begin(), send_counts.end(),
+                        send_offsets.begin(), 0);
+    const auto sent = send_offsets.back() + send_counts.back();
+    auto sent_entries_values = std::vector<int>(static_cast<std::size_t>(sent));
+    auto sent_pairs =
+        std::vector<HYPRE_BigInt>(2 * static_cast<std::size_t>(sent));
+    internals::forEachThreadRange(
+        sent_rows.size(), [&](const std::size_t begin, const std::size_t end) {
+          for (auto i = begin; i != end; ++i) {
+            const auto r = sent_rows[i].row;
+            auto e = static_cast<std::size_t>(
+                send_offsets[static_cast<std::size_t>(sent_rows[i].owner)] +
+                sent_rows[i].offset);
+            for (auto k = Ai[r]; k != Ai[r + 1]; ++k, ++e) {
+              positions[static_cast<std::size_t>(k)] = -1;
+              sent_entries_values[e] = k;
+              sent_pairs[2 * e] = T[static_cast<std::size_t>(r)];
+              sent_pairs[2 * e + 1] = T[static_cast<std::size_t>(Aj[k])];
+            }
+          }
+        });
+    setIndices(this->sent_entries, sent_entries_values.data(), sent,
+               use_device);
     auto receive_counts = std::vector<int>(np);
     MPI_Alltoall(send_counts.data(), 1, MPI_INT, receive_counts.data(), 1,
                  MPI_INT, comm);
@@ -509,12 +695,21 @@ namespace mfem_mgis::batch {
     // positions of the received entries in the values of the global matrix
     auto received_positions =
         std::vector<int>(static_cast<std::size_t>(received));
-    for (std::size_t i = 0; i != static_cast<std::size_t>(received); ++i) {
-      const auto p =
-          finder.find(received_pairs[2 * i], received_pairs[2 * i + 1]);
-      found = found && (p >= 0);
-      received_positions[i] = p;
-    }
+    internals::forEachThreadRange(
+        static_cast<std::size_t>(received),
+        [&](const std::size_t begin, const std::size_t end) {
+          auto finder = GlobalPositionsFinder(pattern);
+          auto all = true;
+          for (auto i = begin; i != end; ++i) {
+            finder.setRow(received_pairs[2 * i]);
+            const auto p = finder.find(received_pairs[2 * i + 1]);
+            all = all && (p >= 0);
+            received_positions[i] = p;
+          }
+          if (!all) {
+            found = false;
+          }
+        });
     // a contribution is the index of an entry of the local matrix, or the
     // one of a received value from the number of entries of the local matrix
     too_many_entries =
@@ -522,7 +717,8 @@ namespace mfem_mgis::batch {
                              std::numeric_limits<int>::max());
     if (!too_many_entries) {
       setContributions(
-          this->offsets, this->contributions, positions, received_positions,
+          this->offsets, this->contributions, local_rows, Ai, positions.get(),
+          received_positions, n,
           static_cast<std::size_t>(nd) + static_cast<std::size_t>(no),
           use_device);
     }

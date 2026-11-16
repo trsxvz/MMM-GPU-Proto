@@ -48,6 +48,18 @@ namespace mfem_mgis::batch::internals {
   };
 
   /*!
+   * \brief sets values to one (matrix giving the pattern of the global
+   * matrix)
+   * \param[out] v: values
+   * \param[in] n: number of values
+   * \param[in] use_device: if true, the kernel is run on the device and
+   * the pointer is located on the device
+   */
+  void launchGlobalStiffnessMatrixOnesKernel(real* const,
+                                             const int,
+                                             const bool);
+
+  /*!
    * \brief copies the values of the local matrix sent to the other
    * processes
    * \param[out] s: values sent

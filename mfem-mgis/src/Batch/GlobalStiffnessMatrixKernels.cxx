@@ -13,6 +13,13 @@
 
 namespace mfem_mgis::batch::internals {
 
+  void launchGlobalStiffnessMatrixOnesKernel(real* const v,
+                                             const int n,
+                                             const bool use_device) {
+    mfem::forall_switch(use_device, n,
+                        [v] MFEM_HOST_DEVICE(int i) { v[i] = real{1}; });
+  }  // end of launchGlobalStiffnessMatrixOnesKernel
+
   void launchGlobalStiffnessMatrixSentValuesKernel(real* const s,
                                                    const int* const entries,
                                                    const real* const a,

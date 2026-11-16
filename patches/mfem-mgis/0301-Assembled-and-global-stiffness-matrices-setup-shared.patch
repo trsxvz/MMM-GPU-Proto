@@ -1,0 +1,1280 @@
+From a14d0d40230b4730a2cb240937aff16f63f8d83c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 16 Nov 2026 01:38:51 +0100
+Subject: [PATCH] Assembled and global stiffness matrices: setup shared between
+ the host threads
+
+At the first assembly of the tangent operator by kernels, the pattern of the
+local matrix and the tables of the global matrix are built on the host. For
+the quadratic tetrahedra of a polycrystal with 4.9 M unknowns per process
+(435 M entries), this took 10 of the 14 s of this assembly on one core, the
+23 other cores of the process and the GPU waiting.
+
+These loops are now shared between the threads of the host
+(`forEachThreadRange`, option `enable-openmp`):
+
+- `batch::makeAssembledStiffnessMatrix`: the nodes of the elements are
+  checked, the nodes coupled to each node gathered and sorted, and the rows
+  of the components of each node written with their null values, by ranges
+  of elements and of nodes. The coupled nodes of a node are written at its
+  place in an array which has room for the nodes of all its elements: a
+  thread does not need the number of nodes coupled to the previous ones.
+  The offsets of the rows are then a sum over the rows;
+- `batch::GlobalStiffnessMatrix`: the rows of the global matrix are shared
+  between the threads, each one with its rows of the local matrix. The
+  pattern of the global matrix is copied once and shared, each thread
+  searching the entries with its own finder, whose row is selected once
+  per row of the local matrix. The entries of the rows owned by other
+  processes are written at their place in the entries sent, which follows
+  from the rows before them. The lists of the contributions are built by
+  counting, without second copy of the offsets: the first contribution to
+  each entry is kept in its next offset, which ends as the offset of the
+  next entry;
+- the copies of the blocks of hypre are first written by the threads: the
+  copy from a GPU took several times longer when it also mapped the pages
+  of its destination.
+
+The matrix giving the pattern of the global matrix is now built where hypre
+computes: on a GPU, its arrays are copied from the ones of the local matrix
+on the GPU and its values set by a kernel, instead of being copied to the
+host, set there, and copied back.
+
+The matrices and the tables are the same, bit for bit, whatever the number
+of threads. At this size, on a MI300A and its 24 cores, the first assembly
+takes 5.5 s against 13.8 s, and 12.3 s with one thread.
+
+GradientsKernelsTest: the columns following the diagonal entry of each row
+are sorted, which, with the pattern of MFEM, fixes the arrays of the
+matrix; with the option, the test is also run with 7 threads (more than
+the elements of the smallest meshes). GlobalStiffnessMatrixTest: with the
+option, the checksums of the global matrices are the same with one and 5
+threads, on the host and on a GPU.
+---
+ .../installation_guide/installation_guide.rst |   5 +-
+ docs/source/user_guide/batch_computations.rst |  45 ++
+ .../MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx  |   5 +-
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  |   3 +
+ src/Batch/GlobalStiffnessMatrix.cxx           | 506 ++++++++++++------
+ src/Batch/GlobalStiffnessMatrixKernels.cxx    |   7 +
+ src/Batch/GlobalStiffnessMatrixKernels.hxx    |  12 +
+ src/Batch/StiffnessMatrices.cxx               | 172 +++---
+ tests/CMakeLists.txt                          |  29 +-
+ tests/GlobalStiffnessMatrixTest.cmake         |  64 ++-
+ tests/GradientsKernelsTest.cxx                |   7 +-
+ 11 files changed, 608 insertions(+), 247 deletions(-)
+
+diff --git a/docs/source/installation_guide/installation_guide.rst b/docs/source/installation_guide/installation_guide.rst
+index ff6e431cc7..4d110ea888 100644
+--- a/docs/source/installation_guide/installation_guide.rst
++++ b/docs/source/installation_guide/installation_guide.rst
+@@ -182,8 +182,9 @@ CMake options
+   searched in the ``ROCm`` of ``HIP`` or in the one given by
+   ``ROCTX_DIR``, see :ref:`mfem_mgis_profiling_tracing`);
+ - ``enable-openmp`` (``OFF``): setup loops of the host shared between the
+-  threads of ``OpenMP``, whose number is given by ``OMP_NUM_THREADS``.
+-  ``MFEM`` does not need to be compiled with ``OpenMP``;
++  threads of ``OpenMP``, whose number is given by ``OMP_NUM_THREADS`` (see
++  :ref:`mfem_mgis_batch_computations_host_threads`). ``MFEM`` does not
++  need to be compiled with ``OpenMP``;
+ - ``enable-kokkos`` (``OFF``): initialization of ``Kokkos`` (see below);
+ - ``enable-trilinos`` (``OFF``): solvers and preconditioners of
+   ``Trilinos`` (requires ``enable-kokkos``, see below);
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 554744d122..aa6e5083c3 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -454,6 +454,51 @@ GPU. The setup is made on the host. The global matrix is the same object at
+ each assembly: on a GPU, the copies of its values kept in it by
+ :code:`hypre` (Gauss-Seidel relaxations) are freed by each assembly.
+ 
++.. _mfem_mgis_batch_computations_host_threads:
++
++Threads of the host for the setup
++---------------------------------
++
++The pattern of the local matrix and the tables of the global matrix are
++built once, on the host, by loops over the nodes and over the rows of the
++matrices. On a GPU, a process holds the part of the mesh of a whole GPU
++and has several cores of the host, which wait during the kernels: with
++:code:`mfem-mgis` built with the CMake option :code:`enable-openmp`
++(:code:`OFF` by default), these loops are shared between the threads of
++:code:`OpenMP`.
++
++The number of threads and their placement are the ones of :code:`OpenMP`,
++as for any hybrid program:
++
++- :code:`OMP_NUM_THREADS` gives the number of threads of each process;
++- without it, the runtime of :code:`OpenMP` uses the processors given to
++  the process by its launcher, for instance the ones of
++  :code:`srun --cpus-per-task=<n>` or of
++  :code:`mpirun --map-by slot:PE=<n> --bind-to core`. A process bound to
++  one core then has one thread; a process which is not bound has as many
++  threads as the machine has processors, whatever the number of processes:
++  :code:`OMP_NUM_THREADS` must then be given;
++- :code:`OMP_PROC_BIND` and :code:`OMP_PLACES` place the threads on the
++  processors of the process.
++
++For instance, for one process per GPU on nodes of 4 GPUs and 96 cores
++launched by Slurm:
++
++.. code-block:: bash
++
++   OMP_NUM_THREADS=24 srun --ntasks-per-node=4 --cpus-per-task=24 ...
++
++and :code:`OMP_NUM_THREADS=1` for a computation with one process per core.
++
++The matrices do not depend on the number of threads: each thread builds
++the rows of a range of nodes or of rows, in the arrays of the matrix, and
++the lists of the contributions to the entries of the global matrix are
++sorted in the same order. With one thread, or without the option, the same
++loops run on the calling thread. The threads only run these loops: they
++call neither :code:`MPI`, initialized with the level
++:code:`MPI_THREAD_FUNNELED`, nor the GPU. :code:`MFEM` and :code:`hypre`
++do not need :code:`OpenMP`, and their kernels are not affected.
++
+ .. _mfem_mgis_batch_computations_matrix_free:
+ 
+ Application without assembly
+diff --git a/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx b/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx
+index 9e0153b92a..30f2cc2390 100644
+--- a/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx
++++ b/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx
+@@ -63,7 +63,10 @@ namespace mfem_mgis::batch {
+    * on the host otherwise. The setup is made on the host, from copies of
+    * the prolongation and of the pattern of the global matrix: on a GPU, the
+    * matrices are not moved to the host, and the lists of the contributions
+-   * are copied to the GPU without being kept on the host.
++   * are copied to the GPU without being kept on the host. When the library
++   * is built with the option `enable-openmp`, the rows of the global matrix
++   * are shared between the threads of OpenMP: the lists of the
++   * contributions do not depend on their number.
+    *
+    * The global matrix is the same object at each assembly. Each assembly
+    * frees the copies of its former values kept in it on a GPU: its
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index a287bebeed..46da2a6710 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -238,6 +238,9 @@ namespace mfem_mgis::batch {
+    * `mfem::HypreParMatrix` imposes on the rows of a local matrix that it
+    * uses (the columns of a sorted row would not stay sorted). The pattern is
+    * built for the nodes of the space, then expanded to their components.
++   * When the library is built with the option `enable-openmp`, the nodes
++   * are shared between the threads of OpenMP: the matrix does not depend on
++   * their number.
+    * \return the matrix, or a null pointer on error
+    * \param[in, out] ctx: execution context
+    * \param[in] fes: finite element space
+diff --git a/src/Batch/GlobalStiffnessMatrix.cxx b/src/Batch/GlobalStiffnessMatrix.cxx
+index edbfe12f57..0aa246fcc4 100644
+--- a/src/Batch/GlobalStiffnessMatrix.cxx
++++ b/src/Batch/GlobalStiffnessMatrix.cxx
+@@ -10,9 +10,12 @@
+ #ifdef MFEM_USE_MPI
+ 
+ #include <tuple>
++#include <atomic>
+ #include <limits>
++#include <memory>
+ #include <string>
+ #include <utility>
++#include <numeric>
+ #include <algorithm>
+ #include <exception>
+ #include "mfem/general/forall.hpp"
+@@ -20,6 +23,7 @@
+ #include "mfem/linalg/handle.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
+ #include "mfem/fem/pfespace.hpp"
++#include "HostThreads.hxx"
+ #include "GlobalStiffnessMatrixKernels.hxx"
+ 
+ namespace mfem_mgis::batch {
+@@ -35,9 +39,11 @@ namespace mfem_mgis::batch {
+     //! \brief offsets of the rows
+     std::vector<HYPRE_Int> rows;
+     //! \brief columns of the entries
+-    std::vector<HYPRE_Int> columns;
++    std::unique_ptr<HYPRE_Int[]> columns;
+     //! \brief values of the entries, if they were asked
+-    std::vector<HYPRE_Complex> values;
++    std::unique_ptr<HYPRE_Complex[]> values;
++    //! \brief number of entries
++    HYPRE_Int size = 0;
+   };
+ 
+   /*!
+@@ -62,13 +68,22 @@ namespace mfem_mgis::batch {
+                     HYPRE_MEMORY_HOST, location);
+     }
+     if (nnz != 0) {
+-      c.columns.resize(static_cast<std::size_t>(nnz));
+-      hypre_TMemcpy(c.columns.data(), hypre_CSRMatrixJ(block), HYPRE_Int, nnz,
++      c.size = nnz;
++      c.columns = std::make_unique_for_overwrite<HYPRE_Int[]>(
++          static_cast<std::size_t>(nnz));
++      // the array is first written by the threads: the copy from a GPU
++      // takes several times longer when it also maps its pages
++      internals::forEachThreadRange(
++          nnz, [&c](const HYPRE_Int begin, const HYPRE_Int end) {
++            std::fill(c.columns.get() + begin, c.columns.get() + end, 0);
++          });
++      hypre_TMemcpy(c.columns.get(), hypre_CSRMatrixJ(block), HYPRE_Int, nnz,
+                     HYPRE_MEMORY_HOST, location);
+       if (values) {
+-        c.values.resize(static_cast<std::size_t>(nnz));
+-        hypre_TMemcpy(c.values.data(), hypre_CSRMatrixData(block),
+-                      HYPRE_Complex, nnz, HYPRE_MEMORY_HOST, location);
++        c.values = std::make_unique_for_overwrite<HYPRE_Complex[]>(
++            static_cast<std::size_t>(nnz));
++        hypre_TMemcpy(c.values.get(), hypre_CSRMatrixData(block), HYPRE_Complex,
++                      nnz, HYPRE_MEMORY_HOST, location);
+       }
+     }
+     return c;
+@@ -107,122 +122,167 @@ namespace mfem_mgis::batch {
+   }  // end of getGlobalTrueDegreesOfFreedom
+ 
+   /*!
+-   * \brief positions of the entries of the part of a global matrix owned by
+-   * the process, searched row by row: the positions of the entries of the
+-   * last row asked are kept by column, so that the entries of a row of a
+-   * local matrix, which follow each other and belong to the same row of
+-   * the global matrix, are found without searching this row again
++   * \brief copy on the host of the pattern of the part of a global matrix
++   * owned by the process, in which the positions of its entries are
++   * searched (see `GlobalPositionsFinder`)
+    */
+-  struct GlobalPositionsFinder {
++  struct GlobalPattern {
+     /*!
+      * \brief constructor
+      * \param[in] m: global matrix, which must outlive this object. The
+      * patterns of its blocks are copied to the host (see `copyBlock`).
+      */
+-    explicit GlobalPositionsFinder(const hypre_ParCSRMatrix* const m)
+-        : A(m),
+-          diag(copyBlock(hypre_ParCSRMatrixDiag(m), false)),
++    explicit GlobalPattern(const hypre_ParCSRMatrix* const m)
++        : diag(copyBlock(hypre_ParCSRMatrixDiag(m), false)),
+           offd(copyBlock(hypre_ParCSRMatrixOffd(m), false)),
++          column_map(hypre_ParCSRMatrixColMapOffd(m)),
+           first_row(hypre_ParCSRMatrixFirstRowIndex(m)),
+           last_row(hypre_ParCSRMatrixLastRowIndex(m)),
+           first_column(hypre_ParCSRMatrixFirstColDiag(m)),
+           last_column(hypre_ParCSRMatrixLastColDiag(m)),
+-          diagonal_block(static_cast<std::size_t>(
++          diagonal_block_columns(static_cast<std::size_t>(
+               hypre_CSRMatrixNumCols(hypre_ParCSRMatrixDiag(m)))),
+-          off_diagonal_block(static_cast<std::size_t>(
++          off_diagonal_block_columns(static_cast<std::size_t>(
+               hypre_CSRMatrixNumCols(hypre_ParCSRMatrixOffd(m)))) {
++    }  // end of GlobalPattern
++    //! \brief pattern of the diagonal block
++    const BlockCopy diag;
++    //! \brief pattern of the off diagonal block
++    const BlockCopy offd;
++    //! \brief global numbers of the columns of the off diagonal block
++    const HYPRE_BigInt* const column_map;
++    //! \brief first row owned by the process
++    const HYPRE_BigInt first_row;
++    //! \brief last row owned by the process
++    const HYPRE_BigInt last_row;
++    //! \brief first column of the diagonal block
++    const HYPRE_BigInt first_column;
++    //! \brief last column of the diagonal block
++    const HYPRE_BigInt last_column;
++    //! \brief number of columns of the diagonal block
++    const std::size_t diagonal_block_columns;
++    //! \brief number of columns of the off diagonal block
++    const std::size_t off_diagonal_block_columns;
++  };  // end of struct GlobalPattern
++
++  /*!
++   * \brief positions of the entries of the part of a global matrix owned by
++   * the process, searched row by row: the entries of the selected row are
++   * kept by column, so that the entries of a row of a local matrix, which
++   * follow each other and belong to the same row of the global matrix, are
++   * found without searching this row again. The pattern is shared: each
++   * thread searching entries has its own finder.
++   */
++  struct GlobalPositionsFinder {
++    /*!
++     * \brief constructor
++     * \param[in] p: pattern of the global matrix, which must outlive this
++     * object
++     */
++    explicit GlobalPositionsFinder(const GlobalPattern& p)
++        : pattern(p),
++          diagonal_block(p.diagonal_block_columns, -1),
++          off_diagonal_block(p.off_diagonal_block_columns, -1) {
+     }  // end of GlobalPositionsFinder
+     /*!
+-     * \return the position of the entry `(I, J)` (global numbers) in the
+-     * values of the part of the global matrix owned by the process
++     * \brief selects the row of the entries searched by `find`
++     * \param[in] I: row (global number)
++     */
++    void setRow(const HYPRE_BigInt I) {
++      if (I == this->row) {
++        return;
++      }
++      const auto& p = this->pattern;
++      this->row = I;
++      if ((I < p.first_row) || (I > p.last_row)) {
++        this->diagonal = {};
++        this->off_diagonal = {};
++        return;
++      }
++      const auto r = static_cast<std::size_t>(I - p.first_row);
++      this->diagonal = keepEntries(this->diagonal_block, p.diag, r);
++      this->off_diagonal = keepEntries(this->off_diagonal_block, p.offd, r);
++    }  // end of setRow
++    /*!
++     * \return the position of the entry of a column of the selected row in
++     * the values of the part of the global matrix owned by the process
+      * (positions in the diagonal block, then in the off diagonal block from
+      * the number of entries of the diagonal block), or -1 if the entry is
+-     * not in the pattern of the matrix or if its row is not owned by the
++     * not in the pattern of the matrix or if the row is not owned by the
+      * process
+-     * \param[in] I: row
+-     * \param[in] J: column
++     * \param[in] J: column (global number)
+      */
+-    [[nodiscard]] int find(const HYPRE_BigInt I, const HYPRE_BigInt J) {
+-      if ((I < this->first_row) || (I > this->last_row)) {
+-        return -1;
+-      }
+-      const auto r = static_cast<HYPRE_Int>(I - this->first_row);
+-      if (r != this->row) {
+-        this->row = r;
+-        this->setRow(this->diagonal_block, this->diag, 0);
+-        this->setRow(this->off_diagonal_block, this->offd,
+-                     static_cast<HYPRE_Int>(this->diag.columns.size()));
+-      }
+-      if ((J >= this->first_column) && (J <= this->last_column)) {
+-        return this->getPosition(
+-            this->diagonal_block,
+-            static_cast<std::size_t>(J - this->first_column));
++    [[nodiscard]] int find(const HYPRE_BigInt J) const {
++      const auto& p = this->pattern;
++      if ((J >= p.first_column) && (J <= p.last_column)) {
++        const auto c = static_cast<std::size_t>(J - p.first_column);
++        return getPosition(this->diagonal_block[c], this->diagonal, 0);
+       }
+-      const auto* const cmap = hypre_ParCSRMatrixColMapOffd(this->A);
+-      const auto nc = this->off_diagonal_block.size();
++      const auto* const cmap = p.column_map;
++      const auto nc = p.off_diagonal_block_columns;
+       const auto* const c = std::lower_bound(cmap, cmap + nc, J);
+       if ((c == cmap + nc) || (*c != J)) {
+         return -1;
+       }
+-      return this->getPosition(this->off_diagonal_block,
+-                               static_cast<std::size_t>(c - cmap));
++      return getPosition(
++          this->off_diagonal_block[static_cast<std::size_t>(c - cmap)],
++          this->off_diagonal, p.diag.size);
+     }  // end of find
+ 
+    private:
+-    //! \brief position of the entry of a column in a row of a block
+-    struct Position {
+-      //! \brief row of the block in which the entry was found
+-      HYPRE_Int row = -1;
+-      //! \brief position of the entry in the values of the global matrix
+-      int position = -1;
++    //! \brief entries of a row of a block
++    struct Row {
++      //! \brief first entry
++      HYPRE_Int begin = 0;
++      //! \brief entry following the last one
++      HYPRE_Int end = 0;
+     };
+     /*!
+-     * \brief keeps the positions of the entries of the current row of a
+-     * block
+-     * \param[out] positions: positions by column of the block
++     * \brief keeps the entries of a row of a block
++     * \return the entries of the row
++     * \param[out] entries: last entry met in each column of the block
+      * \param[in] block: pattern of the block
+-     * \param[in] offset: position of the first value of the block
++     * \param[in] r: row
+      */
+-    void setRow(std::vector<Position>& positions,
+-                const BlockCopy& block,
+-                const HYPRE_Int offset) const {
+-      const auto r = static_cast<std::size_t>(this->row);
+-      for (auto p = block.rows[r]; p != block.rows[r + 1]; ++p) {
+-        positions[static_cast<std::size_t>(
+-            block.columns[static_cast<std::size_t>(p)])] = {
+-            this->row, static_cast<int>(offset + p)};
++    static Row keepEntries(std::vector<HYPRE_Int>& entries,
++                           const BlockCopy& block,
++                           const std::size_t r) {
++      const auto row = Row{block.rows[r], block.rows[r + 1]};
++      for (auto e = row.begin; e != row.end; ++e) {
++        entries[static_cast<std::size_t>(
++            block.columns[static_cast<std::size_t>(e)])] = e;
+       }
+-    }  // end of setRow
++      return row;
++    }  // end of keepEntries
+     /*!
+-     * \return the position of the entry of a column of a block in the
+-     * current row, or -1
+-     * \param[in] positions: positions by column of the block
+-     * \param[in] c: column of the block
++     * \return the position of an entry kept for a column if it belongs to
++     * the selected row, or -1: the entry kept for a column is the last one
++     * met in this column, in any row
++     * \param[in] e: entry kept for the column
++     * \param[in] row: entries of the selected row
++     * \param[in] offset: position of the first value of the block
+      */
+-    [[nodiscard]] int getPosition(const std::vector<Position>& positions,
+-                                  const std::size_t c) const {
+-      return positions[c].row == this->row ? positions[c].position : -1;
++    [[nodiscard]] static int getPosition(const HYPRE_Int e,
++                                         const Row& row,
++                                         const HYPRE_Int offset) {
++      return ((e >= row.begin) && (e < row.end)) ? static_cast<int>(offset + e)
++                                                 : -1;
+     }  // end of getPosition
+-    //! \brief global matrix
+-    const hypre_ParCSRMatrix* A;
+-    //! \brief pattern of the diagonal block
+-    BlockCopy diag;
+-    //! \brief pattern of the off diagonal block
+-    BlockCopy offd;
+-    //! \brief first row owned by the process
+-    HYPRE_BigInt first_row;
+-    //! \brief last row owned by the process
+-    HYPRE_BigInt last_row;
+-    //! \brief first column of the diagonal block
+-    HYPRE_BigInt first_column;
+-    //! \brief last column of the diagonal block
+-    HYPRE_BigInt last_column;
+-    //! \brief current row, whose positions are kept
+-    HYPRE_Int row = -1;
+-    //! \brief positions of the entries of the diagonal block, by column
+-    std::vector<Position> diagonal_block;
+-    //! \brief positions of the entries of the off diagonal block, by column
+-    std::vector<Position> off_diagonal_block;
++    //! \brief pattern of the global matrix
++    const GlobalPattern& pattern;
++    //! \brief selected row (global number), none at first
++    HYPRE_BigInt row = -1;
++    //! \brief entries of the selected row in the diagonal block
++    Row diagonal;
++    //! \brief entries of the selected row in the off diagonal block
++    Row off_diagonal;
++    /*!
++     * \brief last entry met in each column of the diagonal block (index in
++     * the block), or -1
++     */
++    std::vector<HYPRE_Int> diagonal_block;
++    //! \brief last entry met in each column of the off diagonal block, or -1
++    std::vector<HYPRE_Int> off_diagonal_block;
+   };  // end of struct GlobalPositionsFinder
+ 
+   /*!
+@@ -264,8 +324,17 @@ namespace mfem_mgis::batch {
+    */
+   static std::unique_ptr<mfem::HypreParMatrix> makeGlobalPattern(
+       const mfem::ParFiniteElementSpace& fes, const mfem::SparseMatrix& A) {
+-    auto ones = mfem::SparseMatrix(A);
+-    ones = real{1};
++    // matrix of ones of the pattern of `A`, built where hypre computes: on a
++    // GPU, its arrays are copied from the ones of `A` on the GPU, which the
++    // kernels of the assembly use, and its values are set by a kernel,
++    // without going through the host
++    const auto use_device = isHypreUsingGPU();
++    auto ones =
++        mfem::SparseMatrix(A, true,
++                           use_device ? mfem::Device::GetDeviceMemoryType()
++                                      : mfem::MemoryType::PRESERVE);
++    internals::launchGlobalStiffnessMatrixOnesKernel(
++        ones.WriteData(use_device), ones.NumNonZeroElems(), use_device);
+     auto dA = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+     auto Ph = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+     auto G = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+@@ -285,23 +354,70 @@ namespace mfem_mgis::batch {
+    * the memory of the host.
+    * \param[out] a: array
+    * \param[in] v: indices
++   * \param[in] n: number of indices
+    * \param[in] use_device: if true, the kernels run on the device
+    */
+   static void setIndices(mfem::Array<int>& a,
+-                         const std::vector<int>& v,
++                         const int* const v,
++                         const int n,
+                          const bool use_device) {
+-    const auto n = static_cast<int>(v.size());
+     if (!use_device) {
+       a.SetSize(n);
+-      std::copy(v.begin(), v.end(), a.HostWrite());
++      std::copy(v, v + n, a.HostWrite());
+       return;
+     }
+     a.SetSize(n, mfem::Device::GetDeviceMemoryType());
+     if (n != 0) {
+-      a.GetMemory().CopyFromHost(v.data(), n);
++      a.GetMemory().CopyFromHost(v, n);
+     }
+   }  // end of setIndices
+ 
++  /*!
++   * \brief rows of a local matrix added to each row of the part of the
++   * global matrix owned by the process, in increasing order. The entries of
++   * two rows of the global matrix have no common contribution from the
++   * local matrix: the threads treat different rows of the global matrix
++   * (see `forEachThreadRange`).
++   */
++  struct LocalRows {
++    /*!
++     * \brief constructor
++     * \param[in] T: global numbers of the true degrees of freedom of the
++     * rows of the local matrix
++     * \param[in] p: pattern of the global matrix
++     */
++    LocalRows(const std::vector<HYPRE_BigInt>& T, const GlobalPattern& p)
++        : offsets(p.diag.rows.size(), 0) {
++      const auto owned = [&p](const HYPRE_BigInt I) {
++        return (I >= p.first_row) && (I <= p.last_row);
++      };
++      for (const auto I : T) {
++        if (owned(I)) {
++          ++(this->offsets[static_cast<std::size_t>(I - p.first_row) + 1]);
++        }
++      }
++      std::partial_sum(this->offsets.begin(), this->offsets.end(),
++                       this->offsets.begin());
++      this->rows.resize(static_cast<std::size_t>(this->offsets.back()));
++      auto next =
++          std::vector<int>(this->offsets.begin(), this->offsets.end() - 1);
++      for (std::size_t r = 0; r != T.size(); ++r) {
++        if (owned(T[r])) {
++          const auto i = static_cast<std::size_t>(T[r] - p.first_row);
++          this->rows[static_cast<std::size_t>(next[i]++)] = static_cast<int>(r);
++        }
++      }
++    }  // end of LocalRows
++    //! \return the number of rows of the global matrix
++    [[nodiscard]] int size() const {
++      return static_cast<int>(this->offsets.size()) - 1;
++    }
++    //! \brief offsets of the local rows of each row of the global matrix
++    std::vector<int> offsets;
++    //! \brief local rows
++    std::vector<int> rows;
++  };  // end of struct LocalRows
++
+   /*!
+    * \brief builds the lists of the contributions to the entries of the
+    * global matrix: for each entry, the entries of the local matrix, then
+@@ -309,44 +425,82 @@ namespace mfem_mgis::batch {
+    * matrix), in increasing order
+    * \param[out] offsets: offsets of the contributions to each entry
+    * \param[out] contributions: contributions
++   * \param[in] rows: rows of the local matrix of each row of the global
++   * matrix
++   * \param[in] Ai: offsets of the rows of the local matrix
+    * \param[in] positions: positions in the global matrix of the entries of
+    * the local matrix, or -1
+    * \param[in] received_positions: positions in the global matrix of the
+    * received values, or -1
++   * \param[in] n: number of entries of the local matrix
+    * \param[in] ng: number of entries of the global matrix
+    * \param[in] use_device: if true, the kernels run on the device
+    */
+   static void setContributions(mfem::Array<int>& offsets,
+                                mfem::Array<int>& contributions,
+-                               const std::vector<int>& positions,
++                               const LocalRows& rows,
++                               const int* const Ai,
++                               const int* const positions,
+                                const std::vector<int>& received_positions,
++                               const int n,
+                                const std::size_t ng,
+                                const bool use_device) {
+-    auto o = std::vector<int>(ng + 1, 0);
+-    for (const auto* const ps : {&positions, &received_positions}) {
+-      for (const auto p : *ps) {
+-        if (p >= 0) {
+-          ++o[static_cast<std::size_t>(p) + 1];
+-        }
++    // calls `f(k, p)` for each entry `k` of the local matrix added to an
++    // entry `p` of the global matrix, in increasing order for each `p`
++    const auto forEachLocalContribution = [&rows, Ai,
++                                           positions](const auto& f) {
++      internals::forEachThreadRange(
++          rows.size(),
++          [&rows, Ai, positions, &f](const int begin, const int end) {
++            for (auto i = rows.offsets[static_cast<std::size_t>(begin)];
++                 i != rows.offsets[static_cast<std::size_t>(end)]; ++i) {
++              const auto r = rows.rows[static_cast<std::size_t>(i)];
++              for (auto k = Ai[r]; k != Ai[r + 1]; ++k) {
++                if (positions[k] >= 0) {
++                  f(k, static_cast<std::size_t>(positions[k]));
++                }
++              }
++            }
++          });
++    };
++    // number of contributions to each entry, kept in the next offset
++    auto o = std::make_unique_for_overwrite<int[]>(ng + 1);
++    internals::forEachThreadRange(
++        ng + 1, [&o](const std::size_t begin, const std::size_t end) {
++          std::fill(o.get() + begin, o.get() + end, 0);
++        });
++    forEachLocalContribution(
++        [&o](const int, const std::size_t p) { ++o[p + 1]; });
++    for (const auto p : received_positions) {
++      if (p >= 0) {
++        ++o[static_cast<std::size_t>(p) + 1];
+       }
+     }
++    // first contribution to each entry, kept in the next offset too
++    auto size = 0;
+     for (std::size_t p = 0; p != ng; ++p) {
+-      o[p + 1] += o[p];
++      const auto count = o[p + 1];
++      o[p + 1] = size;
++      size += count;
+     }
+-    auto c = std::vector<int>(static_cast<std::size_t>(o[ng]));
+-    auto next = std::vector<int>(o.begin(), o.end() - 1);
+-    auto contribution = 0;
+-    for (const auto* const ps : {&positions, &received_positions}) {
+-      for (const auto p : *ps) {
+-        if (p >= 0) {
+-          const auto t = next[static_cast<std::size_t>(p)]++;
+-          c[static_cast<std::size_t>(t)] = contribution;
+-        }
+-        ++contribution;
++    // the contributions are visited by increasing index, which sorts the
++    // ones of each entry, whose next offset ends as the offset of the next
++    // entry
++    auto c =
++        std::make_unique_for_overwrite<int[]>(static_cast<std::size_t>(size));
++    forEachLocalContribution([&o, &c](const int k, const std::size_t p) {
++      c[static_cast<std::size_t>(o[p + 1]++)] = k;
++    });
++    auto contribution = n;
++    for (const auto p : received_positions) {
++      if (p >= 0) {
++        c[static_cast<std::size_t>(o[static_cast<std::size_t>(p) + 1]++)] =
++            contribution;
+       }
++      ++contribution;
+     }
+-    setIndices(offsets, o, use_device);
+-    setIndices(contributions, c, use_device);
++    setIndices(offsets, o.get(), static_cast<int>(ng + 1), use_device);
++    setIndices(contributions, c.get(), size, use_device);
+   }  // end of setContributions
+ 
+   bool GlobalStiffnessMatrix::isSupported(
+@@ -404,7 +558,7 @@ namespace mfem_mgis::batch {
+     }
+     // from here, all the processes take part in all the collective calls;
+     // an entry not found is reported at the end
+-    auto found = true;
++    auto found = std::atomic<bool>{true};
+     // the tables read by the kernels are located where hypre computes
+     const auto use_device = isHypreUsingGPU();
+     this->matrix = makeGlobalPattern(*(this->fes), A);
+@@ -428,7 +582,8 @@ namespace mfem_mgis::batch {
+       return static_cast<int>(it - first_rows.begin()) - 1;
+     };
+     // destinations of the entries of the local matrix
+-    auto finder = GlobalPositionsFinder(g);
++    const auto pattern = GlobalPattern(g);
++    const auto local_rows = LocalRows(T, pattern);
+     const auto* const Ai = A.HostReadI();
+     const auto* const Aj = A.HostReadJ();
+     const auto n = A.NumNonZeroElems();
+@@ -436,42 +591,73 @@ namespace mfem_mgis::batch {
+     // the process in the values of the global matrix: positions in the
+     // diagonal block, then, from its number of entries, in the off diagonal
+     // block; -1 for the entries sent to other processes
+-    auto positions = std::vector<int>(static_cast<std::size_t>(n), -1);
+-    auto sent_to =
+-        std::vector<std::vector<int>>(static_cast<std::size_t>(nprocs));
+-    auto pairs = std::vector<std::vector<HYPRE_BigInt>>(
+-        static_cast<std::size_t>(nprocs));
++    auto positions =
++        std::make_unique_for_overwrite<int[]>(static_cast<std::size_t>(n));
++    internals::forEachThreadRange(
++        local_rows.size(), [&](const int begin, const int end) {
++          auto finder = GlobalPositionsFinder(pattern);
++          auto all = true;
++          for (auto i = local_rows.offsets[static_cast<std::size_t>(begin)];
++               i != local_rows.offsets[static_cast<std::size_t>(end)]; ++i) {
++            const auto r = local_rows.rows[static_cast<std::size_t>(i)];
++            finder.setRow(T[static_cast<std::size_t>(r)]);
++            for (auto k = Ai[r]; k != Ai[r + 1]; ++k) {
++              const auto p = finder.find(T[static_cast<std::size_t>(Aj[k])]);
++              all = all && (p >= 0);
++              positions[static_cast<std::size_t>(k)] = p;
++            }
++          }
++          if (!all) {
++            found = false;
++          }
++        });
++    // rows owned by other processes: their entries are sent, ordered by
++    // process. The place of the entries of a row among the ones sent to its
++    // owner follows from the rows before it: the rows are then written by
++    // the threads.
++    struct SentRow {
++      //! \brief row of the local matrix
++      int row;
++      //! \brief process owning the row
++      int owner;
++      //! \brief first entry of the row in the entries sent to its owner
++      int offset;
++    };
++    const auto np = static_cast<std::size_t>(nprocs);
++    auto send_counts = std::vector<int>(np, 0);
++    auto sent_rows = std::vector<SentRow>{};
+     for (int r = 0; r != A.Height(); ++r) {
+-      const auto I = T[static_cast<std::size_t>(r)];
+-      const auto o = owner(I);
+-      for (auto k = Ai[r]; k != Ai[r + 1]; ++k) {
+-        const auto J = T[static_cast<std::size_t>(Aj[k])];
+-        if (o == rank) {
+-          const auto p = finder.find(I, J);
+-          found = found && (p >= 0);
+-          positions[static_cast<std::size_t>(k)] = p;
+-        } else {
+-          sent_to[static_cast<std::size_t>(o)].push_back(k);
+-          pairs[static_cast<std::size_t>(o)].push_back(I);
+-          pairs[static_cast<std::size_t>(o)].push_back(J);
+-        }
++      const auto o = owner(T[static_cast<std::size_t>(r)]);
++      if (o != rank) {
++        auto& count = send_counts[static_cast<std::size_t>(o)];
++        sent_rows.push_back({r, o, count});
++        count += Ai[r + 1] - Ai[r];
+       }
+     }
+-    // exchanges: the entries sent, ordered by process
+-    const auto np = static_cast<std::size_t>(nprocs);
+-    auto send_counts = std::vector<int>(np);
+     auto send_offsets = std::vector<int>(np);
+-    auto sent_entries_values = std::vector<int>{};
+-    auto sent_pairs = std::vector<HYPRE_BigInt>{};
+-    for (std::size_t q = 0; q != np; ++q) {
+-      send_offsets[q] = static_cast<int>(sent_entries_values.size());
+-      send_counts[q] = static_cast<int>(sent_to[q].size());
+-      sent_entries_values.insert(sent_entries_values.end(), sent_to[q].begin(),
+-                                 sent_to[q].end());
+-      sent_pairs.insert(sent_pairs.end(), pairs[q].begin(), pairs[q].end());
+-    }
+-    const auto sent = static_cast<int>(sent_entries_values.size());
+-    setIndices(this->sent_entries, sent_entries_values, use_device);
++    std::exclusive_scan(send_counts.begin(), send_counts.end(),
++                        send_offsets.begin(), 0);
++    const auto sent = send_offsets.back() + send_counts.back();
++    auto sent_entries_values = std::vector<int>(static_cast<std::size_t>(sent));
++    auto sent_pairs =
++        std::vector<HYPRE_BigInt>(2 * static_cast<std::size_t>(sent));
++    internals::forEachThreadRange(
++        sent_rows.size(), [&](const std::size_t begin, const std::size_t end) {
++          for (auto i = begin; i != end; ++i) {
++            const auto r = sent_rows[i].row;
++            auto e = static_cast<std::size_t>(
++                send_offsets[static_cast<std::size_t>(sent_rows[i].owner)] +
++                sent_rows[i].offset);
++            for (auto k = Ai[r]; k != Ai[r + 1]; ++k, ++e) {
++              positions[static_cast<std::size_t>(k)] = -1;
++              sent_entries_values[e] = k;
++              sent_pairs[2 * e] = T[static_cast<std::size_t>(r)];
++              sent_pairs[2 * e + 1] = T[static_cast<std::size_t>(Aj[k])];
++            }
++          }
++        });
++    setIndices(this->sent_entries, sent_entries_values.data(), sent,
++               use_device);
+     auto receive_counts = std::vector<int>(np);
+     MPI_Alltoall(send_counts.data(), 1, MPI_INT, receive_counts.data(), 1,
+                  MPI_INT, comm);
+@@ -509,12 +695,21 @@ namespace mfem_mgis::batch {
+     // positions of the received entries in the values of the global matrix
+     auto received_positions =
+         std::vector<int>(static_cast<std::size_t>(received));
+-    for (std::size_t i = 0; i != static_cast<std::size_t>(received); ++i) {
+-      const auto p =
+-          finder.find(received_pairs[2 * i], received_pairs[2 * i + 1]);
+-      found = found && (p >= 0);
+-      received_positions[i] = p;
+-    }
++    internals::forEachThreadRange(
++        static_cast<std::size_t>(received),
++        [&](const std::size_t begin, const std::size_t end) {
++          auto finder = GlobalPositionsFinder(pattern);
++          auto all = true;
++          for (auto i = begin; i != end; ++i) {
++            finder.setRow(received_pairs[2 * i]);
++            const auto p = finder.find(received_pairs[2 * i + 1]);
++            all = all && (p >= 0);
++            received_positions[i] = p;
++          }
++          if (!all) {
++            found = false;
++          }
++        });
+     // a contribution is the index of an entry of the local matrix, or the
+     // one of a received value from the number of entries of the local matrix
+     too_many_entries =
+@@ -522,7 +717,8 @@ namespace mfem_mgis::batch {
+                              std::numeric_limits<int>::max());
+     if (!too_many_entries) {
+       setContributions(
+-          this->offsets, this->contributions, positions, received_positions,
++          this->offsets, this->contributions, local_rows, Ai, positions.get(),
++          received_positions, n,
+           static_cast<std::size_t>(nd) + static_cast<std::size_t>(no),
+           use_device);
+     }
+diff --git a/src/Batch/GlobalStiffnessMatrixKernels.cxx b/src/Batch/GlobalStiffnessMatrixKernels.cxx
+index 6df50e35d7..1551ff2228 100644
+--- a/src/Batch/GlobalStiffnessMatrixKernels.cxx
++++ b/src/Batch/GlobalStiffnessMatrixKernels.cxx
+@@ -13,6 +13,13 @@
+ 
+ namespace mfem_mgis::batch::internals {
+ 
++  void launchGlobalStiffnessMatrixOnesKernel(real* const v,
++                                             const int n,
++                                             const bool use_device) {
++    mfem::forall_switch(use_device, n,
++                        [v] MFEM_HOST_DEVICE(int i) { v[i] = real{1}; });
++  }  // end of launchGlobalStiffnessMatrixOnesKernel
++
+   void launchGlobalStiffnessMatrixSentValuesKernel(real* const s,
+                                                    const int* const entries,
+                                                    const real* const a,
+diff --git a/src/Batch/GlobalStiffnessMatrixKernels.hxx b/src/Batch/GlobalStiffnessMatrixKernels.hxx
+index 89345c5750..c3cac43df8 100644
+--- a/src/Batch/GlobalStiffnessMatrixKernels.hxx
++++ b/src/Batch/GlobalStiffnessMatrixKernels.hxx
+@@ -47,6 +47,18 @@ namespace mfem_mgis::batch::internals {
+     int off_diagonal_block_entries = 0;
+   };
+ 
++  /*!
++   * \brief sets values to one (matrix giving the pattern of the global
++   * matrix)
++   * \param[out] v: values
++   * \param[in] n: number of values
++   * \param[in] use_device: if true, the kernel is run on the device and
++   * the pointer is located on the device
++   */
++  void launchGlobalStiffnessMatrixOnesKernel(real* const,
++                                             const int,
++                                             const bool);
++
+   /*!
+    * \brief copies the values of the local matrix sent to the other
+    * processes
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index bd45b271ae..5eaa9d71e1 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -16,6 +16,7 @@
+ #include <vector>
+ #include <cstddef>
+ #include <cstdint>
++#include <atomic>
+ #include <numeric>
+ #include <algorithm>
+ #include <exception>
+@@ -26,6 +27,7 @@
+ #include "mfem/linalg/sparsemat.hpp"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
++#include "HostThreads.hxx"
+ #include "StiffnessMatricesKernels.hxx"
+ 
+ namespace mfem_mgis::batch {
+@@ -428,24 +430,39 @@ namespace mfem_mgis::batch {
+       // by component (see `computeElementsDegreesOfFreedom`)
+       const auto* const d = dofs.HostRead();
+       auto nodes = std::vector<int>(static_cast<std::size_t>(nne) * ne);
+-      for (int e = 0; e != ne; ++e) {
+-        for (int j = 0; j != nne; ++j) {
+-          const auto v = d[nde * e + j];
+-          if ((v < 0) || (v >= n)) {
+-            std::ignore = ctx.registerErrorMessage(
+-                "makeAssembledStiffnessMatrix: invalid degree of freedom");
+-            return {};
+-          }
+-          for (int c = 0; c != vdim; ++c) {
+-            if (d[nde * e + nne * c + j] != dof(node(v), c)) {
+-              std::ignore = ctx.registerErrorMessage(
+-                  "makeAssembledStiffnessMatrix: the degrees of freedom of "
+-                  "an element are not the components of its nodes");
+-              return {};
++      auto invalid_dofs = std::atomic<bool>{false};
++      auto other_dofs = std::atomic<bool>{false};
++      internals::forEachThreadRange(ne, [&](const int first_element,
++                                            const int last_element) {
++        auto invalid = false;
++        auto other = false;
++        for (int e = first_element; e != last_element; ++e) {
++          for (int j = 0; j != nne; ++j) {
++            const auto v = d[nde * e + j];
++            invalid = invalid || (v < 0) || (v >= n);
++            for (int c = 0; c != vdim; ++c) {
++              other = other || (d[nde * e + nne * c + j] != dof(node(v), c));
+             }
++            nodes[static_cast<std::size_t>(nne) * e + j] = node(v);
+           }
+-          nodes[static_cast<std::size_t>(nne) * e + j] = node(v);
+         }
++        if (invalid) {
++          invalid_dofs = true;
++        }
++        if (other) {
++          other_dofs = true;
++        }
++      });
++      if (invalid_dofs) {
++        std::ignore = ctx.registerErrorMessage(
++            "makeAssembledStiffnessMatrix: invalid degree of freedom");
++        return {};
++      }
++      if (other_dofs) {
++        std::ignore = ctx.registerErrorMessage(
++            "makeAssembledStiffnessMatrix: the degrees of freedom of "
++            "an element are not the components of its nodes");
++        return {};
+       }
+       // elements of each node
+       auto offsets = std::vector<int>(static_cast<std::size_t>(nn) + 1, 0);
+@@ -463,29 +480,44 @@ namespace mfem_mgis::batch {
+         }
+       }
+       // nodes coupled to each node: the nodes of its elements, without
+-      // repetitions, sorted
+-      auto node_rows = std::vector<std::size_t>(nn + std::size_t{1}, 0);
+-      auto node_columns = std::vector<int>{};
+-      auto last_row = std::vector<int>(static_cast<std::size_t>(nn), -1);
+-      for (int r = 0; r != nn; ++r) {
+-        const auto begin = node_columns.size();
+-        for (auto p = offsets[r]; p != offsets[r + 1]; ++p) {
+-          const auto* const element_nodes =
+-              nodes.data() + static_cast<std::size_t>(nne) *
+-                                 elements[static_cast<std::size_t>(p)];
+-          for (int j = 0; j != nne; ++j) {
+-            const auto c = element_nodes[j];
+-            if (last_row[static_cast<std::size_t>(c)] != r) {
+-              last_row[static_cast<std::size_t>(c)] = r;
+-              node_columns.push_back(c);
++      // repetitions, sorted. They are written at the place of the node in an
++      // array which has room for the nodes of all its elements, so that the
++      // threads write the ones of different nodes without knowing how many
++      // the previous nodes have.
++      const auto coupled_nodes = std::make_unique_for_overwrite<int[]>(
++          nodes.size() * static_cast<std::size_t>(nne));
++      const auto getCoupledNodes = [&coupled_nodes, &offsets,
++                                    nne](const int r) {
++        return coupled_nodes.get() +
++               static_cast<std::size_t>(offsets[static_cast<std::size_t>(r)]) *
++                   nne;
++      };
++      auto sizes = std::vector<int>(static_cast<std::size_t>(nn));
++      internals::forEachThreadRange(
++          nn, [&](const int first_node, const int last_node) {
++            // last node for which each node was met
++            auto last_row = std::vector<int>(static_cast<std::size_t>(nn), -1);
++            for (int r = first_node; r != last_node; ++r) {
++              auto* const row = getCoupledNodes(r);
++              auto* end = row;
++              for (auto p = offsets[static_cast<std::size_t>(r)];
++                   p != offsets[static_cast<std::size_t>(r) + 1]; ++p) {
++                const auto* const element_nodes =
++                    nodes.data() + static_cast<std::size_t>(nne) *
++                                       elements[static_cast<std::size_t>(p)];
++                for (int j = 0; j != nne; ++j) {
++                  const auto c = element_nodes[j];
++                  if (last_row[static_cast<std::size_t>(c)] != r) {
++                    last_row[static_cast<std::size_t>(c)] = r;
++                    *end++ = c;
++                  }
++                }
++              }
++              std::sort(row, end);
++              sizes[static_cast<std::size_t>(r)] = static_cast<int>(end - row);
+             }
+-          }
+-        }
+-        std::sort(node_columns.begin() + static_cast<std::ptrdiff_t>(begin),
+-                  node_columns.end());
+-        node_rows[static_cast<std::size_t>(r) + 1] = node_columns.size();
+-      }
+-      if (node_columns.size() >
++          });
++      if (std::accumulate(sizes.begin(), sizes.end(), std::size_t{}) >
+           static_cast<std::size_t>(std::numeric_limits<int>::max()) /
+               (static_cast<std::size_t>(vdim) * vdim)) {
+         std::ignore = ctx.registerErrorMessage(
+@@ -493,41 +525,51 @@ namespace mfem_mgis::batch {
+         return {};
+       }
+       // arrays allocated by the memory manager of MFEM (as
+-      // `mfem::Transpose`), owned by the matrix, whose values are allocated
+-      // and set to zero by its constructor
+-      const auto nnz = static_cast<int>(node_columns.size()) * vdim * vdim;
++      // `mfem::Transpose`), owned by the matrix; the columns and the values
++      // are written below
+       int* const I = mfem::Memory<int>(n + 1);
+-      int* const J = mfem::Memory<int>(nnz);
+-      // columns of each row: the components of the nodes coupled to its
+-      // node, written in increasing order, then the diagonal first
+       I[0] = 0;
+       for (int r = 0; r != n; ++r) {
+-        const auto i = static_cast<std::size_t>(node(r));
+-        const auto* const first = node_columns.data() + node_rows[i];
+-        const auto* const last = node_columns.data() + node_rows[i + 1];
+-        auto* const row = J + I[r];
+-        auto* end = row;
+-        if (by_vdim) {
+-          for (const auto* q = first; q != last; ++q) {
+-            for (int c = 0; c != vdim; ++c) {
+-              *end++ = dof(*q, c);
++        I[r + 1] = I[r] + vdim * sizes[static_cast<std::size_t>(node(r))];
++      }
++      int* const J = mfem::Memory<int>(I[n]);
++      real* const values = mfem::Memory<real>(I[n]);
++      auto m = std::make_unique<mfem::SparseMatrix>(I, J, values, n, n, true,
++                                                    true, false);
++      // rows of the components of each node: the components of the nodes
++      // coupled to it, written in increasing order, then the diagonal
++      // first, and null values
++      internals::forEachThreadRange(nn, [&](const int first_node,
++                                            const int last_node) {
++        for (int i = first_node; i != last_node; ++i) {
++          const auto* const first = getCoupledNodes(i);
++          const auto* const last = first + sizes[static_cast<std::size_t>(i)];
++          for (int ci = 0; ci != vdim; ++ci) {
++            const auto r = dof(i, ci);
++            auto* const row = J + I[r];
++            auto* end = row;
++            if (by_vdim) {
++              for (const auto* q = first; q != last; ++q) {
++                for (int c = 0; c != vdim; ++c) {
++                  *end++ = dof(*q, c);
++                }
++              }
++            } else {
++              for (int c = 0; c != vdim; ++c) {
++                for (const auto* q = first; q != last; ++q) {
++                  *end++ = dof(*q, c);
++                }
++              }
+             }
+-          }
+-        } else {
+-          for (int c = 0; c != vdim; ++c) {
+-            for (const auto* q = first; q != last; ++q) {
+-              *end++ = dof(*q, c);
++            const auto diagonal = std::lower_bound(row, end, r);
++            if ((diagonal != end) && (*diagonal == r)) {
++              std::rotate(row, diagonal, diagonal + 1);
+             }
++            std::fill(values + I[r], values + I[r + 1], real{0});
+           }
+         }
+-        const auto diagonal = std::lower_bound(row, end, r);
+-        if ((diagonal != end) && (*diagonal == r)) {
+-          std::rotate(row, diagonal, diagonal + 1);
+-        }
+-        I[r + 1] = static_cast<int>(end - J);
+-      }
+-      return std::make_unique<mfem::SparseMatrix>(I, J, nullptr, n, n, true,
+-                                                  true, false);
++      });
++      return m;
+     } catch (...) {
+       std::ignore = registerExceptionInErrorBacktrace(ctx);
+     }
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 110ea260e9..ded6aeb9f5 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1698,14 +1698,31 @@ if(MFEM_MGIS_HAVE_TFEL)
+              COMMAND GradientsKernelsTest --device cuda
+                      ${gradients_kernels_test_arguments})
+   endif()
++  # with the option enable-openmp, the pattern of the assembled matrix is
++  # built by several threads (more threads than elements for the smallest
++  # meshes): same arrays
++  if(MFEM_MGIS_HAVE_OPENMP)
++    add_test(NAME GradientsKernelsTest-threads
++             COMMAND GradientsKernelsTest ${gradients_kernels_test_arguments})
++    set_tests_properties(GradientsKernelsTest-threads
++                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=7)
++  endif()
+   # GlobalStiffnessMatrixTest executable: global matrix assembled from the
+   # local matrices with a pattern and exchanges computed once, compared to
+   # the product of hypre, on one, two and four processes. With a GPU, the
+   # values assembled on the host and on the GPU must be the same bit for
+-  # bit, also when the values exchanged are given to MPI on the GPU
++  # bit, also when the values exchanged are given to MPI on the GPU; with
++  # the option enable-openmp, the values must be the same bit for bit when
++  # the setup is shared between several threads, on the host and on the GPU
+   # (GlobalStiffnessMatrixTest.cmake)
+   if(MFEM_USE_MPI)
+     add_test_executable(GlobalStiffnessMatrixTest)
++    # number of threads of the setup compared to one thread (none without
++    # the option enable-openmp)
++    set(global_stiffness_matrix_test_threads "")
++    if(MFEM_MGIS_HAVE_OPENMP)
++      set(global_stiffness_matrix_test_threads 5)
++    endif()
+     set(global_stiffness_matrix_test_device "")
+     if(enable-gpu-tests)
+       if(MFEM_USE_CUDA STREQUAL "YES")
+@@ -1721,12 +1738,22 @@ if(MFEM_MGIS_HAVE_TFEL)
+                        ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh)
+       set_tests_properties(GlobalStiffnessMatrixTest-np${_np}
+                            PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++      if(MFEM_MGIS_HAVE_OPENMP)
++        add_test(NAME GlobalStiffnessMatrixTest-np${_np}-threads
++                 COMMAND ${CMAKE_COMMAND}
++                         -DNP=${_np}
++                         -DTHREADS=${global_stiffness_matrix_test_threads}
++                         -DTEST=$<TARGET_FILE:GlobalStiffnessMatrixTest>
++                         -DMESH=${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
++                         -P ${CMAKE_CURRENT_SOURCE_DIR}/GlobalStiffnessMatrixTest.cmake)
++      endif()
+       if(global_stiffness_matrix_test_device)
+         foreach(_mpi host gpu-aware-mpi)
+           add_test(NAME GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
+                    COMMAND ${CMAKE_COMMAND}
+                            -DNP=${_np} -DMPI=${_mpi}
+                            -DDEVICE=${global_stiffness_matrix_test_device}
++                           -DTHREADS=${global_stiffness_matrix_test_threads}
+                            -DTEST=$<TARGET_FILE:GlobalStiffnessMatrixTest>
+                            -DMESH=${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
+                            -P ${CMAKE_CURRENT_SOURCE_DIR}/GlobalStiffnessMatrixTest.cmake)
+diff --git a/tests/GlobalStiffnessMatrixTest.cmake b/tests/GlobalStiffnessMatrixTest.cmake
+index e0a75d4278..cd0e1057b3 100644
+--- a/tests/GlobalStiffnessMatrixTest.cmake
++++ b/tests/GlobalStiffnessMatrixTest.cmake
+@@ -1,17 +1,37 @@
+-# Runs GlobalStiffnessMatrixTest on the host, then on a GPU, and checks that
+-# the checksums of the global matrices are the same: the values assembled on
+-# the GPU are the ones of the host, bit for bit. With MPI=gpu-aware-mpi, the
+-# values exchanged between the processes are given to MPI on the GPU.
++# Runs GlobalStiffnessMatrixTest on the host with one thread, then in other
++# settings, and checks that the checksums of the global matrices are the
++# same, that is that their values are the same bit for bit:
++# - with DEVICE, on a GPU: the values assembled on the GPU are the ones of
++#   the host. With MPI=gpu-aware-mpi, the values exchanged between the
++#   processes are given to MPI on the GPU;
++# - with THREADS (mfem-mgis built with the option enable-openmp), with
++#   this number of threads of OpenMP, on the host and on the GPU if any:
++#   the setup shared between the threads gives the same matrices.
+ #
+-# usage: cmake -DNP=<processes> -DDEVICE=<cuda|hip> -DMPI=<host|gpu-aware-mpi>
++# usage: cmake -DNP=<processes> [-DDEVICE=<cuda|hip>]
++#          [-DMPI=<host|gpu-aware-mpi>] [-DTHREADS=<threads>]
+ #          -DTEST=<executable> -DMESH=<mesh>
+ #          -P GlobalStiffnessMatrixTest.cmake
+-set(ENV{OMP_NUM_THREADS} 1)
+ if(MPI STREQUAL "gpu-aware-mpi")
+   set(ENV{MFEM_MGIS_GPU_AWARE_MPI} 1)
+ endif()
+-foreach(_device cpu ${DEVICE})
++# settings: device and number of threads, the first one being the reference
++set(_settings cpu:1)
++if(DEVICE)
++  list(APPEND _settings ${DEVICE}:1)
++endif()
++if(THREADS)
++  list(APPEND _settings cpu:${THREADS})
++  if(DEVICE)
++    list(APPEND _settings ${DEVICE}:${THREADS})
++  endif()
++endif()
++foreach(_setting ${_settings})
++  string(REPLACE ":" ";" _fields ${_setting})
++  list(GET _fields 0 _device)
++  list(GET _fields 1 _threads)
+   set(ENV{MFEM_MGIS_DEVICE} ${_device})
++  set(ENV{OMP_NUM_THREADS} ${_threads})
+   execute_process(
+     COMMAND mpirun -n ${NP} "${TEST}" --mesh "${MESH}"
+     RESULT_VARIABLE _status
+@@ -19,19 +39,21 @@ foreach(_device cpu ${DEVICE})
+   message("${_output}")
+   if(NOT _status EQUAL 0)
+     message(FATAL_ERROR "GlobalStiffnessMatrixTest failed on the device "
+-            "${_device} (${_status})")
++            "${_device} with ${_threads} thread(s) (${_status})")
++  endif()
++  string(REGEX MATCHALL "[^\n]*: checksum [0-9a-f]+" _checksums "${_output}")
++  if(NOT DEFINED _reference)
++    set(_reference "${_checksums}")
++    list(LENGTH _reference _n)
++    if(_n EQUAL 0)
++      message(FATAL_ERROR
++              "no checksum in the output of GlobalStiffnessMatrixTest")
++    endif()
++  elseif(NOT "${_checksums}" STREQUAL "${_reference}")
++    message(FATAL_ERROR "the global matrices assembled on the host with one "
++            "thread and on the device ${_device} with ${_threads} thread(s) "
++            "differ:\n${_reference}\n${_checksums}")
+   endif()
+-  string(REGEX MATCHALL "[^\n]*: checksum [0-9a-f]+" _checksums_${_device}
+-         "${_output}")
+ endforeach()
+-list(LENGTH _checksums_cpu _n)
+-if(_n EQUAL 0)
+-  message(FATAL_ERROR "no checksum in the output of GlobalStiffnessMatrixTest")
+-endif()
+-if(NOT "${_checksums_cpu}" STREQUAL "${_checksums_${DEVICE}}")
+-  message(FATAL_ERROR "the global matrices assembled on the host and on the "
+-          "device ${DEVICE} differ:\n${_checksums_cpu}\n"
+-          "${_checksums_${DEVICE}}")
+-endif()
+-message(STATUS "${_n} global matrices: same values on the host and on the "
+-        "device ${DEVICE}")
++message(STATUS "${_n} global matrices: same values in the settings "
++        "${_settings} (device:threads)")
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index 23f884d1a0..23bde9337d 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -196,7 +196,9 @@ static int checkPositions(const std::string& name,
+ /*!
+  * \return true if a matrix created by `batch::makeAssembledStiffnessMatrix`
+  * has the pattern built by MFEM from the matrices of all the elements, the
+- * diagonal entry being the first of each row, and null values
++ * diagonal entry being the first of each row and the other columns being
++ * sorted, and null values: the arrays of the matrix are then the same
++ * whatever the number of threads which built them
+  * \param[in] fes: finite element space
+  * \param[in] m: matrix
+  */
+@@ -223,7 +225,8 @@ static bool hasPatternOfMFEM(const mfem::FiniteElementSpace& fes,
+   const auto* const J = m.HostReadJ();
+   const auto* const v = m.HostReadData();
+   for (int r = 0; r != m.Height(); ++r) {
+-    if ((I[r] == I[r + 1]) || (J[I[r]] != r)) {
++    if ((I[r] == I[r + 1]) || (J[I[r]] != r) ||
++        (!std::is_sorted(J + I[r] + 1, J + I[r + 1]))) {
+       return false;
+     }
+   }
+-- 
+2.34.1
+

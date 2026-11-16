@@ -454,6 +454,51 @@ GPU. The setup is made on the host. The global matrix is the same object at
 each assembly: on a GPU, the copies of its values kept in it by
 :code:`hypre` (Gauss-Seidel relaxations) are freed by each assembly.
 
+.. _mfem_mgis_batch_computations_host_threads:
+
+Threads of the host for the setup
+---------------------------------
+
+The pattern of the local matrix and the tables of the global matrix are
+built once, on the host, by loops over the nodes and over the rows of the
+matrices. On a GPU, a process holds the part of the mesh of a whole GPU
+and has several cores of the host, which wait during the kernels: with
+:code:`mfem-mgis` built with the CMake option :code:`enable-openmp`
+(:code:`OFF` by default), these loops are shared between the threads of
+:code:`OpenMP`.
+
+The number of threads and their placement are the ones of :code:`OpenMP`,
+as for any hybrid program:
+
+- :code:`OMP_NUM_THREADS` gives the number of threads of each process;
+- without it, the runtime of :code:`OpenMP` uses the processors given to
+  the process by its launcher, for instance the ones of
+  :code:`srun --cpus-per-task=<n>` or of
+  :code:`mpirun --map-by slot:PE=<n> --bind-to core`. A process bound to
+  one core then has one thread; a process which is not bound has as many
+  threads as the machine has processors, whatever the number of processes:
+  :code:`OMP_NUM_THREADS` must then be given;
+- :code:`OMP_PROC_BIND` and :code:`OMP_PLACES` place the threads on the
+  processors of the process.
+
+For instance, for one process per GPU on nodes of 4 GPUs and 96 cores
+launched by Slurm:
+
+.. code-block:: bash
+
+   OMP_NUM_THREADS=24 srun --ntasks-per-node=4 --cpus-per-task=24 ...
+
+and :code:`OMP_NUM_THREADS=1` for a computation with one process per core.
+
+The matrices do not depend on the number of threads: each thread builds
+the rows of a range of nodes or of rows, in the arrays of the matrix, and
+the lists of the contributions to the entries of the global matrix are
+sorted in the same order. With one thread, or without the option, the same
+loops run on the calling thread. The threads only run these loops: they
+call neither :code:`MPI`, initialized with the level
+:code:`MPI_THREAD_FUNNELED`, nor the GPU. :code:`MFEM` and :code:`hypre`
+do not need :code:`OpenMP`, and their kernels are not affected.
+
 .. _mfem_mgis_batch_computations_matrix_free:
 
 Application without assembly

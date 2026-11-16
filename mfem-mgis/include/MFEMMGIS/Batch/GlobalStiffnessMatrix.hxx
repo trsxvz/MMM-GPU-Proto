@@ -63,7 +63,10 @@ namespace mfem_mgis::batch {
    * on the host otherwise. The setup is made on the host, from copies of
    * the prolongation and of the pattern of the global matrix: on a GPU, the
    * matrices are not moved to the host, and the lists of the contributions
-   * are copied to the GPU without being kept on the host.
+   * are copied to the GPU without being kept on the host. When the library
+   * is built with the option `enable-openmp`, the rows of the global matrix
+   * are shared between the threads of OpenMP: the lists of the
+   * contributions do not depend on their number.
    *
    * The global matrix is the same object at each assembly. Each assembly
    * frees the copies of its former values kept in it on a GPU: its

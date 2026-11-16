@@ -1698,14 +1698,31 @@ if(MFEM_MGIS_HAVE_TFEL)
              COMMAND GradientsKernelsTest --device cuda
                      ${gradients_kernels_test_arguments})
   endif()
+  # with the option enable-openmp, the pattern of the assembled matrix is
+  # built by several threads (more threads than elements for the smallest
+  # meshes): same arrays
+  if(MFEM_MGIS_HAVE_OPENMP)
+    add_test(NAME GradientsKernelsTest-threads
+             COMMAND GradientsKernelsTest ${gradients_kernels_test_arguments})
+    set_tests_properties(GradientsKernelsTest-threads
+                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=7)
+  endif()
   # GlobalStiffnessMatrixTest executable: global matrix assembled from the
   # local matrices with a pattern and exchanges computed once, compared to
   # the product of hypre, on one, two and four processes. With a GPU, the
   # values assembled on the host and on the GPU must be the same bit for
-  # bit, also when the values exchanged are given to MPI on the GPU
+  # bit, also when the values exchanged are given to MPI on the GPU; with
+  # the option enable-openmp, the values must be the same bit for bit when
+  # the setup is shared between several threads, on the host and on the GPU
   # (GlobalStiffnessMatrixTest.cmake)
   if(MFEM_USE_MPI)
     add_test_executable(GlobalStiffnessMatrixTest)
+    # number of threads of the setup compared to one thread (none without
+    # the option enable-openmp)
+    set(global_stiffness_matrix_test_threads "")
+    if(MFEM_MGIS_HAVE_OPENMP)
+      set(global_stiffness_matrix_test_threads 5)
+    endif()
     set(global_stiffness_matrix_test_device "")
     if(enable-gpu-tests)
       if(MFEM_USE_CUDA STREQUAL "YES")
@@ -1721,12 +1738,22 @@ if(MFEM_MGIS_HAVE_TFEL)
                        ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh)
       set_tests_properties(GlobalStiffnessMatrixTest-np${_np}
                            PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+      if(MFEM_MGIS_HAVE_OPENMP)
+        add_test(NAME GlobalStiffnessMatrixTest-np${_np}-threads
+                 COMMAND ${CMAKE_COMMAND}
+                         -DNP=${_np}
+                         -DTHREADS=${global_stiffness_matrix_test_threads}
+                         -DTEST=$<TARGET_FILE:GlobalStiffnessMatrixTest>
+                         -DMESH=${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
+                         -P ${CMAKE_CURRENT_SOURCE_DIR}/GlobalStiffnessMatrixTest.cmake)
+      endif()
       if(global_stiffness_matrix_test_device)
         foreach(_mpi host gpu-aware-mpi)
           add_test(NAME GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
                    COMMAND ${CMAKE_COMMAND}
                            -DNP=${_np} -DMPI=${_mpi}
                            -DDEVICE=${global_stiffness_matrix_test_device}
+                           -DTHREADS=${global_stiffness_matrix_test_threads}
                            -DTEST=$<TARGET_FILE:GlobalStiffnessMatrixTest>
                            -DMESH=${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
                            -P ${CMAKE_CURRENT_SOURCE_DIR}/GlobalStiffnessMatrixTest.cmake)

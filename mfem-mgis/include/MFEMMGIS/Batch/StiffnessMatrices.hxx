@@ -238,6 +238,9 @@ namespace mfem_mgis::batch {
    * `mfem::HypreParMatrix` imposes on the rows of a local matrix that it
    * uses (the columns of a sorted row would not stay sorted). The pattern is
    * built for the nodes of the space, then expanded to their components.
+   * When the library is built with the option `enable-openmp`, the nodes
+   * are shared between the threads of OpenMP: the matrix does not depend on
+   * their number.
    * \return the matrix, or a null pointer on error
    * \param[in, out] ctx: execution context
    * \param[in] fes: finite element space

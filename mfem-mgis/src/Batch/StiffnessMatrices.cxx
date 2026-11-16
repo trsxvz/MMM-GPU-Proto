@@ -16,6 +16,7 @@
 #include <vector>
 #include <cstddef>
 #include <cstdint>
+#include <atomic>
 #include <numeric>
 #include <algorithm>
 #include <exception>
@@ -26,6 +27,7 @@
 #include "mfem/linalg/sparsemat.hpp"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
+#include "HostThreads.hxx"
 #include "StiffnessMatricesKernels.hxx"
 
 namespace mfem_mgis::batch {
@@ -428,24 +430,39 @@ namespace mfem_mgis::batch {
       // by component (see `computeElementsDegreesOfFreedom`)
       const auto* const d = dofs.HostRead();
       auto nodes = std::vector<int>(static_cast<std::size_t>(nne) * ne);
-      for (int e = 0; e != ne; ++e) {
-        for (int j = 0; j != nne; ++j) {
-          const auto v = d[nde * e + j];
-          if ((v < 0) || (v >= n)) {
-            std::ignore = ctx.registerErrorMessage(
-                "makeAssembledStiffnessMatrix: invalid degree of freedom");
-            return {};
-          }
-          for (int c = 0; c != vdim; ++c) {
-            if (d[nde * e + nne * c + j] != dof(node(v), c)) {
-              std::ignore = ctx.registerErrorMessage(
-                  "makeAssembledStiffnessMatrix: the degrees of freedom of "
-                  "an element are not the components of its nodes");
-              return {};
+      auto invalid_dofs = std::atomic<bool>{false};
+      auto other_dofs = std::atomic<bool>{false};
+      internals::forEachThreadRange(ne, [&](const int first_element,
+                                            const int last_element) {
+        auto invalid = false;
+        auto other = false;
+        for (int e = first_element; e != last_element; ++e) {
+          for (int j = 0; j != nne; ++j) {
+            const auto v = d[nde * e + j];
+            invalid = invalid || (v < 0) || (v >= n);
+            for (int c = 0; c != vdim; ++c) {
+              other = other || (d[nde * e + nne * c + j] != dof(node(v), c));
             }
+            nodes[static_cast<std::size_t>(nne) * e + j] = node(v);
           }
-          nodes[static_cast<std::size_t>(nne) * e + j] = node(v);
         }
+        if (invalid) {
+          invalid_dofs = true;
+        }
+        if (other) {
+          other_dofs = true;
+        }
+      });
+      if (invalid_dofs) {
+        std::ignore = ctx.registerErrorMessage(
+            "makeAssembledStiffnessMatrix: invalid degree of freedom");
+        return {};
+      }
+      if (other_dofs) {
+        std::ignore = ctx.registerErrorMessage(
+            "makeAssembledStiffnessMatrix: the degrees of freedom of "
+            "an element are not the components of its nodes");
+        return {};
       }
       // elements of each node
       auto offsets = std::vector<int>(static_cast<std::size_t>(nn) + 1, 0);
@@ -463,29 +480,44 @@ namespace mfem_mgis::batch {
         }
       }
       // nodes coupled to each node: the nodes of its elements, without
-      // repetitions, sorted
-      auto node_rows = std::vector<std::size_t>(nn + std::size_t{1}, 0);
-      auto node_columns = std::vector<int>{};
-      auto last_row = std::vector<int>(static_cast<std::size_t>(nn), -1);
-      for (int r = 0; r != nn; ++r) {
-        const auto begin = node_columns.size();
-        for (auto p = offsets[r]; p != offsets[r + 1]; ++p) {
-          const auto* const element_nodes =
-              nodes.data() + static_cast<std::size_t>(nne) *
-                                 elements[static_cast<std::size_t>(p)];
-          for (int j = 0; j != nne; ++j) {
-            const auto c = element_nodes[j];
-            if (last_row[static_cast<std::size_t>(c)] != r) {
-              last_row[static_cast<std::size_t>(c)] = r;
-              node_columns.push_back(c);
+      // repetitions, sorted. They are written at the place of the node in an
+      // array which has room for the nodes of all its elements, so that the
+      // threads write the ones of different nodes without knowing how many
+      // the previous nodes have.
+      const auto coupled_nodes = std::make_unique_for_overwrite<int[]>(
+          nodes.size() * static_cast<std::size_t>(nne));
+      const auto getCoupledNodes = [&coupled_nodes, &offsets,
+                                    nne](const int r) {
+        return coupled_nodes.get() +
+               static_cast<std::size_t>(offsets[static_cast<std::size_t>(r)]) *
+                   nne;
+      };
+      auto sizes = std::vector<int>(static_cast<std::size_t>(nn));
+      internals::forEachThreadRange(
+          nn, [&](const int first_node, const int last_node) {
+            // last node for which each node was met
+            auto last_row = std::vector<int>(static_cast<std::size_t>(nn), -1);
+            for (int r = first_node; r != last_node; ++r) {
+              auto* const row = getCoupledNodes(r);
+              auto* end = row;
+              for (auto p = offsets[static_cast<std::size_t>(r)];
+                   p != offsets[static_cast<std::size_t>(r) + 1]; ++p) {
+                const auto* const element_nodes =
+                    nodes.data() + static_cast<std::size_t>(nne) *
+                                       elements[static_cast<std::size_t>(p)];
+                for (int j = 0; j != nne; ++j) {
+                  const auto c = element_nodes[j];
+                  if (last_row[static_cast<std::size_t>(c)] != r) {
+                    last_row[static_cast<std::size_t>(c)] = r;
+                    *end++ = c;
+                  }
+                }
+              }
+              std::sort(row, end);
+              sizes[static_cast<std::size_t>(r)] = static_cast<int>(end - row);
             }
-          }
-        }
-        std::sort(node_columns.begin() + static_cast<std::ptrdiff_t>(begin),
-                  node_columns.end());
-        node_rows[static_cast<std::size_t>(r) + 1] = node_columns.size();
-      }
-      if (node_columns.size() >
+          });
+      if (std::accumulate(sizes.begin(), sizes.end(), std::size_t{}) >
           static_cast<std::size_t>(std::numeric_limits<int>::max()) /
               (static_cast<std::size_t>(vdim) * vdim)) {
         std::ignore = ctx.registerErrorMessage(
@@ -493,41 +525,51 @@ namespace mfem_mgis::batch {
         return {};
       }
       // arrays allocated by the memory manager of MFEM (as
-      // `mfem::Transpose`), owned by the matrix, whose values are allocated
-      // and set to zero by its constructor
-      const auto nnz = static_cast<int>(node_columns.size()) * vdim * vdim;
+      // `mfem::Transpose`), owned by the matrix; the columns and the values
+      // are written below
       int* const I = mfem::Memory<int>(n + 1);
-      int* const J = mfem::Memory<int>(nnz);
-      // columns of each row: the components of the nodes coupled to its
-      // node, written in increasing order, then the diagonal first
       I[0] = 0;
       for (int r = 0; r != n; ++r) {
-        const auto i = static_cast<std::size_t>(node(r));
-        const auto* const first = node_columns.data() + node_rows[i];
-        const auto* const last = node_columns.data() + node_rows[i + 1];
-        auto* const row = J + I[r];
-        auto* end = row;
-        if (by_vdim) {
-          for (const auto* q = first; q != last; ++q) {
-            for (int c = 0; c != vdim; ++c) {
-              *end++ = dof(*q, c);
-            }
-          }
-        } else {
-          for (int c = 0; c != vdim; ++c) {
-            for (const auto* q = first; q != last; ++q) {
-              *end++ = dof(*q, c);
-            }
-          }
-        }
-        const auto diagonal = std::lower_bound(row, end, r);
-        if ((diagonal != end) && (*diagonal == r)) {
-          std::rotate(row, diagonal, diagonal + 1);
-        }
-        I[r + 1] = static_cast<int>(end - J);
+        I[r + 1] = I[r] + vdim * sizes[static_cast<std::size_t>(node(r))];
       }
-      return std::make_unique<mfem::SparseMatrix>(I, J, nullptr, n, n, true,
-                                                  true, false);
+      int* const J = mfem::Memory<int>(I[n]);
+      real* const values = mfem::Memory<real>(I[n]);
+      auto m = std::make_unique<mfem::SparseMatrix>(I, J, values, n, n, true,
+                                                    true, false);
+      // rows of the components of each node: the components of the nodes
+      // coupled to it, written in increasing order, then the diagonal
+      // first, and null values
+      internals::forEachThreadRange(nn, [&](const int first_node,
+                                            const int last_node) {
+        for (int i = first_node; i != last_node; ++i) {
+          const auto* const first = getCoupledNodes(i);
+          const auto* const last = first + sizes[static_cast<std::size_t>(i)];
+          for (int ci = 0; ci != vdim; ++ci) {
+            const auto r = dof(i, ci);
+            auto* const row = J + I[r];
+            auto* end = row;
+            if (by_vdim) {
+              for (const auto* q = first; q != last; ++q) {
+                for (int c = 0; c != vdim; ++c) {
+                  *end++ = dof(*q, c);
+                }
+              }
+            } else {
+              for (int c = 0; c != vdim; ++c) {
+                for (const auto* q = first; q != last; ++q) {
+                  *end++ = dof(*q, c);
+                }
+              }
+            }
+            const auto diagonal = std::lower_bound(row, end, r);
+            if ((diagonal != end) && (*diagonal == r)) {
+              std::rotate(row, diagonal, diagonal + 1);
+            }
+            std::fill(values + I[r], values + I[r + 1], real{0});
+          }
+        }
+      });
+      return m;
     } catch (...) {
       std::ignore = registerExceptionInErrorBacktrace(ctx);
     }
