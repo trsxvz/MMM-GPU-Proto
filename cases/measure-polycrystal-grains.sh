@@ -16,6 +16,8 @@
 # - modes: `gpu` and/or `cpu` (default `gpu cpu`);
 # - nodes: nodes used (default SLURM_JOB_NUM_NODES, or 1);
 # - gpus_per_node, cores_per_node: default 4 and 96 (MI300A of Adastra);
+# - cpu_threads: cores of each process of the CPU computation, and its
+#   threads of OpenMP (default 1: one process per core);
 # - run_timeout_gpu, run_timeout_cpu: time limits of the computations in s
 #   (default 2400 and 10800; run_timeout, if given, for both);
 # - cpu_environment: variables given to the CPU computation only (for
@@ -42,9 +44,10 @@
 # gpus_per_node cores each, and as many threads of OpenMP, OMP_NUM_THREADS:
 # with mfem-mgis built with its option enable-openmp, they share the setup
 # of the matrices on the host), the CPU computation one process per core,
-# with one thread. The fixed point on the lateral stresses uses the
-# secant acceleration, the averages of the stresses per grain are written
-# at each step (post-processings without ParaView export) in
+# with one thread (or cores_per_node / cpu_threads processes per node, with
+# cpu_threads cores and threads each). The fixed point on the lateral
+# stresses uses the secant acceleration, the averages of the stresses per
+# grain are written at each step (post-processings without ParaView export) in
 # <results>/<computation>/avgStressPolycrystal. A line per computation is
 # appended to <results>/series.txt: label, mode, nodes, processes, status,
 # unknowns, total time (s, section root of the profiling: setup included),
@@ -73,6 +76,7 @@ duration=${duration:-$nsteps}
 nodes=${nodes:-${SLURM_JOB_NUM_NODES:-1}}
 gpus_per_node=${gpus_per_node:-4}
 cores_per_node=${cores_per_node:-96}
+cpu_threads=${cpu_threads:-1}
 run_timeout_gpu=${run_timeout_gpu:-${run_timeout:-2400}}
 run_timeout_cpu=${run_timeout_cpu:-${run_timeout:-10800}}
 read -r -a cpu_environment <<< "${cpu_environment:-}"
@@ -228,13 +232,13 @@ for mode in ${modes:-gpu cpu}; do
     unset PROTO_CUDA_VISIBLE_DEVICES PROTO_GPU_RANK_ORDER PROTO_GPU_PER_RANK
     device=""
   else
-    np=$((nodes * cores_per_node))
+    np=$((nodes * cores_per_node / cpu_threads))
     name=$label-r$refinement-cpu-n$nodes$suffix
     options=$solver_cpu
     run_directory=$out/$name
     run_timeout=$run_timeout_cpu
     watch_steps "$name"
-    run "$name" 1 "$np" "$generic" "$batch" "${kernels[@]}" \
+    run "$name" "$cpu_threads" "$np" "$generic" "$batch" "${kernels[@]}" \
       "${cpu_environment[@]}"
     stop_watch "$name"
   fi

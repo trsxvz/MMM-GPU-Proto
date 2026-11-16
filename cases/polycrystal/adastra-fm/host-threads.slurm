@@ -60,10 +60,10 @@ log "start, $n grains, $SLURM_JOB_NUM_NODES nodes, $nsteps steps," \
   {
     echo "GPU computation: 4 processes per node, 24 cores each"
     env OMP_NUM_THREADS=24 mpirun --map-by slot:PE=24 --bind-to core \
-      -n "$np" bash -c "$show" 2>&1 | sort -t' ' -k2 -n
+      -n "$np" bash -c "$show" 2> /dev/null | sort -t' ' -k2 -n
     echo "CPU computation: 96 processes per node, first node"
     env OMP_NUM_THREADS=1 mpirun -n $((SLURM_JOB_NUM_NODES * 96)) \
-      bash -c "$show" 2>&1 | sort -t' ' -k2 -n | head -96
+      bash -c "$show" 2> /dev/null | sort -t' ' -k2 -n | head -96
   } > placement.txt
 )
 log "placement: $(sed -n 2,5p "$out/placement.txt" | tr '\n' ';')" \

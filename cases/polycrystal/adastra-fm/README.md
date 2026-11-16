@@ -285,7 +285,10 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   the local disk. The job fails if a mutation is not detected. It also
   holds the mutations of the iterations of the linear solver written in
   the messages and of the pattern of the local matrix (`FM_MUTATIONS="i1
-  i2 s1 s2 s3"`).
+  i2 s1 s2 s3"`), and the ones of the setup shared between the threads of
+  OpenMP (16/11/2026): pattern of the local matrix (`s4 s5 s6`), ranges of
+  the threads (`t1 t2 t3`, tested by `HostThreadsTest`) and setup of the
+  global matrix (`g5 g6`).
 - **`host-threads.slurm`: setup of the host shared between threads**
   (option `enable-openmp` of mfem-mgis, 16/11/2026).
   - `build-perf.sh` builds the variant `umpire` with this option, and the
@@ -303,6 +306,13 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   - `threads.txt`: time of the first assembly of the tangent operator, of
     the mesh and of the computation, Newton iterations and axial stress of
     each computation.
+- **`host-threads-identity.slurm`: same outputs whatever the number of
+  threads.** A computation on the cores (100 grains without refinement, one
+  step by default) with 4 processes per node of 24 cores each (variable
+  `cpu_threads` of `cases/measure-polycrystal-grains.sh`), for each number
+  of threads per process of `FM_THREADS` (default `1 7 24`): the `.res`
+  file, the averages per grain and the lines of the iterations must be the
+  ones of the first number, bit for bit.
 - **`perf-walltime.py`: wall clock time of the functions of one thread**,
   from the samples of `profile-host.slurm`:
   `perf script -i perf.data -F tid,time,ip,sym,dso | perf-walltime.py
