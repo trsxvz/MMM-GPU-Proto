@@ -1659,6 +1659,26 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif()
   endif()
 
+  # HostThreadsTest executable: loops of the host shared between the
+  # threads of OpenMP (internal header of the library, compiled as the
+  # library compiles it). With the option enable-openmp, a loop is shared
+  # between as many ranges as threads, for one thread, a few threads and
+  # more threads than indices; without it, it is not shared
+  add_test_executable(HostThreadsTest)
+  target_include_directories(HostThreadsTest
+                             PRIVATE ${PROJECT_SOURCE_DIR}/src/Batch)
+  if(MFEM_MGIS_HAVE_OPENMP)
+    target_compile_definitions(HostThreadsTest PRIVATE MFEM_MGIS_HAVE_OPENMP)
+    target_link_libraries(HostThreadsTest PRIVATE OpenMP::OpenMP_CXX)
+    foreach(_threads 1 3 24)
+      add_test(NAME HostThreadsTest-${_threads}
+               COMMAND HostThreadsTest ${_threads})
+      set_tests_properties(HostThreadsTest-${_threads} PROPERTIES
+                           ENVIRONMENT OMP_NUM_THREADS=${_threads})
+    endforeach()
+  else()
+    add_test(NAME HostThreadsTest COMMAND HostThreadsTest 1)
+  endif()
   # GradientsKernelsTest executable: gradients of the behaviours computed
   # by kernels, on the host, on the debug device of MFEM and on the GPU
   add_test_executable(GradientsKernelsTest)

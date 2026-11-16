@@ -106,6 +106,20 @@ endif()
 # annotation library of ROCm (option enable-roctx)
 set(MFEMMGIS_HAVE_ROCTX @MFEM_MGIS_HAVE_ROCTX@)
 
+# true if the setup loops of the host are shared between the threads of
+# OpenMP (option enable-openmp): the static library of mfem-mgis is then
+# linked to the runtime of OpenMP
+set(MFEMMGIS_HAVE_OPENMP @MFEM_MGIS_HAVE_OPENMP@)
+if(MFEMMGIS_HAVE_OPENMP AND (NOT TARGET OpenMP::OpenMP_CXX))
+  find_package(OpenMP COMPONENTS CXX)
+  if(NOT TARGET OpenMP::OpenMP_CXX)
+    set(MFEMMGIS_FOUND FALSE)
+    set(MFEMMGIS_NOT_FOUND_MESSAGE
+        "OpenMP, used to build mfem-mgis, is not found")
+    return()
+  endif()
+endif()
+
 # numerical type of mfem-mgis (double or float), the one of MFEM, of MGIS
 # and of the behaviours (given to mfront by mfem_mgis_add_behaviours_library)
 set(MFEMMGIS_REAL_TYPE @MFEM_MGIS_REAL_TYPE@)

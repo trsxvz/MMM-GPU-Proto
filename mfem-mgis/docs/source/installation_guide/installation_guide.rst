@@ -181,6 +181,9 @@ CMake options
   profilers (requires ``MFEM`` compiled with ``HIP``, ``roctx`` being
   searched in the ``ROCm`` of ``HIP`` or in the one given by
   ``ROCTX_DIR``, see :ref:`mfem_mgis_profiling_tracing`);
+- ``enable-openmp`` (``OFF``): setup loops of the host shared between the
+  threads of ``OpenMP``, whose number is given by ``OMP_NUM_THREADS``.
+  ``MFEM`` does not need to be compiled with ``OpenMP``;
 - ``enable-kokkos`` (``OFF``): initialization of ``Kokkos`` (see below);
 - ``enable-trilinos`` (``OFF``): solvers and preconditioners of
   ``Trilinos`` (requires ``enable-kokkos``, see below);

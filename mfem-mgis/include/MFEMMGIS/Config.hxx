@@ -125,7 +125,9 @@ namespace mfem_mgis {
    * \param[in, out] argc: number of arguments
    * \param[in, out] argv: arguments
    *
-   * In parallel, this function calls the `MPI_Init` function.
+   * In parallel, this function calls the `MPI_Init` function
+   * (`MPI_Init_thread` with the level `MPI_THREAD_FUNNELED` when `mfem-mgis`
+   * is built with the option `enable-openmp`).
    * It is safe to call this function multiple times.
    *
    * The option `--execution <cpu|gpu|mixed>` (or `-x`) and, in the `mixed`

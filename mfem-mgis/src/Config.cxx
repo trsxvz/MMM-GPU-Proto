@@ -953,7 +953,14 @@ namespace mfem_mgis {
       // initialization of MPI, which an invalid option leaves untouched
       internals::readExecutionSettings(argc, argv);
       internals::readSolverOverrides(argc, argv);
+#ifdef MFEM_MGIS_HAVE_OPENMP
+      // threads of OpenMP run setup loops of the host (option
+      // enable-openmp): only the main thread calls MPI
+      auto provided = int{};
+      MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+#else  /* MFEM_MGIS_HAVE_OPENMP */
       MPI_Init(&argc, &argv);
+#endif /* MFEM_MGIS_HAVE_OPENMP */
       try {
         internals::checkSolverOverrides(MPI_COMM_WORLD);
       } catch (...) {
