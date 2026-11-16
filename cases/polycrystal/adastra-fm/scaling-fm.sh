@@ -5,9 +5,9 @@
 #   fm-chain/scaling-fm.sh meshes
 #   fm-chain/scaling-fm.sh computations
 # - Weak: 600 N grains on N nodes, N = 1 to 64.
-# - Strong: 2400 grains from 4 to 64 nodes, 9600 from 16 and 19,200 from
-#   32, doubling the nodes, each one from the fewest nodes the memory of
-#   the GPUs allows (the point of the weak series).
+# - Strong: 2400 grains from 4 to 64 nodes, 4800 from 8, 9600 from 16 and
+#   19,200 from 32, doubling the nodes, each one from the fewest nodes the
+#   memory of the GPUs allows (the point of the weak series).
 # - GPU x3, CPU x1 per point, with the executable writing the iterations
 #   of the linear solver.
 # All the points of a number of nodes are in one job (two on 64 nodes): one
@@ -44,9 +44,9 @@ case ${1:?meshes or computations} in
     ;;
   computations)
     # RVEs of the strong series on each number of nodes, the largest first
-    declare -A strong=([8]="2400" [16]="2400" [32]="9600 2400"
-      [64]="19200 9600 2400")
-    declare -A time=([8]=02:00:00 [16]=02:00:00 [32]=02:30:00)
+    declare -A strong=([8]="2400" [16]="4800 2400" [32]="9600 4800 2400"
+      [64]="19200 9600 4800 2400")
+    declare -A time=([8]=02:00:00 [16]=02:30:00 [32]=03:00:00)
     kept=
     others=
     for nodes in 1 2 4 8 16 32; do
@@ -66,7 +66,7 @@ case ${1:?meshes or computations} in
     # 64 nodes: the CPU of the strong series, the first parts written before
     first=$(FM_AFTER=afterany$others $scaling parts 19200:6144)
     last=$(FM_AFTER=afterany:$first FM_CPU_POINTS=${strong[64]} \
-      FM_TIME_CPU=01:30:00 FM_TIMEOUT_CPU=2400 $scaling nodes 64)
+      FM_TIME_CPU=02:00:00 FM_TIMEOUT_CPU=2400 $scaling nodes 64)
     FM_AFTER=afterany:$last $scaling parts $kept
     ;;
 esac

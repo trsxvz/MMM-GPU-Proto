@@ -286,9 +286,41 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   holds the mutations of the iterations of the linear solver written in
   the messages and of the pattern of the local matrix (`FM_MUTATIONS="i1
   i2 s1 s2 s3"`).
+- **`host-threads.slurm`: setup of the host shared between threads**
+  (option `enable-openmp` of mfem-mgis, 16/11/2026).
+  - `build-perf.sh` builds the variant `umpire` with this option, and the
+    variant `umpire-serial` without it.
+  - The job first writes `placement.txt`: the cores that the launcher gives
+    to each process of a GPU computation (4 processes per node, 24 cores
+    each) and of a CPU computation (96 processes per node, one core each),
+    and the settings of OpenMP they see.
+  - Then the final computation of `FM_GRAINS` grains, one step by default,
+    with the executable `FM_EXECUTABLE` for each number of threads per
+    process of `FM_THREADS` (`OMP_NUM_THREADS`, given to the computation
+    by the variable `gpu_environment` of
+    `cases/measure-polycrystal-grains.sh`), and with `FM_REFERENCE`
+    before them, `FM_REPS` times.
+  - `threads.txt`: time of the first assembly of the tangent operator, of
+    the mesh and of the computation, Newton iterations and axial stress of
+    each computation.
+- **`perf-walltime.py`: wall clock time of the functions of one thread**,
+  from the samples of `profile-host.slurm`:
+  `perf script -i perf.data -F tid,time,ip,sym,dso | perf-walltime.py
+  --root <function>`.
+  - `perf report` counts cycles of the code of the user: the waits (GPU,
+    MPI) and the first accesses to the pages of a large array are not in
+    its shares. Here each sample is given the time elapsed since the
+    previous sample of its thread: the times of the call tree add up to
+    the wall clock time of its root.
+  - `--timeline` prints the successive steps of a call instead (the
+    function called by the root, as long as it stays the same), which
+    separates the phases of a setup.
+  - The perf of the nodes (5.14) does not unwind the call stacks through
+    the library of MFEM (built by the clang of ROCm) nor through the HIP
+    runtime: these stacks are cut, and gathered under `(cut call stacks)`.
 - **Chains of jobs.** `perf-tests.slurm`, `ls-identity.slurm`,
-  `perf-ab.slurm`, `perf-load.slurm` and `perf-mutations.slurm` fail when a
-  check fails and write
+  `perf-ab.slurm`, `perf-load.slurm`, `perf-mutations.slurm` and
+  `host-threads.slurm` fail when a check fails and write
   the file `passed` in their results directory otherwise: the next job is
   submitted with `--dependency=afterok:<job>` and
   `FM_REQUIRE=<results>/passed` (see `common.sh`), so that a large job does
@@ -334,8 +366,8 @@ with the executable writing the iterations of the linear solver.
 
 - Weak series: 600 N grains on N nodes, from 1 to 64 nodes (4.94 M
   unknowns per GPU, 206,000 per core).
-- Strong series: 2400 grains from 4 to 64 nodes, 9600 from 16 and 19,200
-  from 32.
+- Strong series: 2400 grains from 4 to 64 nodes, 4800 from 8, 9600 from
+  16 and 19,200 from 32.
 - GPU three times and CPU once per point, one job per number of nodes (two
   on 64 nodes).
 
