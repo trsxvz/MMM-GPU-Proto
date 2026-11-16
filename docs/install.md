@@ -203,6 +203,39 @@ A machine is described by a directory `deps/machines/MACHINE` (see
 machine, is the default value, so that its scripts and paths are the
 ones of before.
 
+### Threads of the host of the GPU computations
+
+On a GPU, each process has several cores of the host, which wait during
+the kernels. mfem-mgis built with its CMake option `enable-openmp` (`OFF`
+by default) shares between them the setup made once on the host (pattern of
+the local matrix and tables of the global matrix of the assembly by
+kernels, see `JOURNAL.md`, 2026-11-16). Nothing is specific to a machine:
+
+- the number of threads is the one of OpenMP: `OMP_NUM_THREADS`, or
+  without it the cores given to the process by its launcher (`srun
+  --cpus-per-task`, `mpirun --map-by slot:PE=<n> --bind-to core`); their
+  placement is the one of `OMP_PROC_BIND` and `OMP_PLACES`;
+- the measurement scripts already give both (`run` of
+  `cases/measure-common.sh`): `cores_per_node / gpus_per_node` cores and
+  threads per process of a GPU computation, one per process of a CPU
+  computation. The variable `gpu_environment` of
+  `cases/measure-polycrystal-grains.sh` gives other values to a GPU
+  computation, for instance `OMP_NUM_THREADS=1`, and its variable
+  `cpu_threads` several cores and threads to each process of a CPU
+  computation;
+- a process which is not bound to its cores and has no `OMP_NUM_THREADS`
+  takes as many threads as the machine has cores, as any program using
+  OpenMP: `OMP_NUM_THREADS` must then be given. The chains of jobs of
+  Adastra give `OMP_NUM_THREADS=1` to the tests run on the host; the
+  tests of the threads set their own number.
+
+The option is given as any option of CMake of mfem-mgis
+(`-Denable-openmp=ON`): by `cases/polycrystal/adastra-fm/build-perf.sh`
+for the executables of the measurements on Adastra, and by the CI in single
+precision. `build-mfem-mgis.sh` does not give it: the deployed prototype is
+built without it until a machine profile adds it to its
+`PROTO_CMAKE_OPTIONS`.
+
 ## Jean Zay (profile `jean-zay-h100`)
 
 - **Nodes**: partition `gpu_p6`, 4 H100 80 GB (`sm_90`) and 2 Xeon

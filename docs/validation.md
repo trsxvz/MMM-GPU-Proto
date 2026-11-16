@@ -974,6 +974,50 @@ results in `fm/2026-11-15-perfimpl5` on the scratch of Adastra):
   stress within 1e-5, 1860 and 1866 iterations of the linear solver in 111
   and 112 solves.
 
+Setup of the host shared between the threads of OpenMP (16/11/2026,
+mfem-mgis patches 0300 and 0301, option `enable-openmp`, results in
+`fm/2026-11-16-hostsetup` on the scratch of Adastra; the executables are
+built by `build-perf.sh`, with the option and, for the comparisons, without
+it):
+
+- tests of mfem-mgis (job 6000164, `perf-tests.slurm` with
+  `HostThreadsTest` added): 142 out of 142 on the host, 124 out of 124 on a
+  MI300A with the kernels forced and with the choices of each test, 7 out
+  of 7 for the tests selecting a device, 8 out of 8 on a MI300A for the
+  build without the option, 14 tests of the polycrystal;
+- `HostThreadsTest` (ranges of the threads, exception thrown again),
+  `GradientsKernelsTest-threads` (pattern of the local matrix built by 7
+  threads: the one of MFEM, diagonal first, other columns sorted) and
+  `GlobalStiffnessMatrixTest-np<n>-threads` (checksums of the global
+  matrices with one and 5 threads; with a GPU, on the host and on the GPU)
+  are among them;
+- outputs of 100 grains on 96 cores identical bit for bit to the ones of
+  the previous executable (`ls-identity.slurm`), with `NewtonK0` (147.4 s
+  against 148.5 s, job 6000165) and with `Newton` (175.5 s against 170.8 s
+  in the same job, then 169.5 s against 169.4 s in the job 6000494), and to
+  the ones of the executable built without the option (148.4 s against
+  148.6 s, job 6000166; with `Newton`, 169.4 s against 171.4 s, job
+  6000493);
+- outputs of 100 grains without refinement on 4 processes of 24 cores
+  identical bit for bit with one, 7 and 24 threads per process (job
+  6000586, `host-threads-identity.slurm`);
+- 15 mutations out of 15 detected (jobs 6000174 and 6000175,
+  `perf-mutations.slurm`), among which the 8 new ones (`s4` to `s6`, `t1`
+  to `t3`, `g5`, `g6`);
+- on the CI (runs 43781934839 and 43786626402), the option is built and
+  tested in single precision and the default build in double precision, the
+  builds with CUDA and with HIP being made without it: in double 61 tests
+  of MGIS, 272 of mfem-mgis, 23 of the examples, 20 of mm-opera-hpc; in
+  float 61, 274, 22 and 20; all passed;
+- 600 grains on 1 node, 24 threads per process: first assembly of the
+  tangent operator in 5.67 and 5.68 s against 14.27 and 13.97 s, total of
+  20 steps 126.1 and 126.0 s against 135.7 and 135.7 s, same axial stress
+  within 1e-5 (job 6000167, `perf-ab.slurm`); with one thread 12.2 s, and
+  12.0 and 11.7 s for the build without the option (jobs 6000168 and
+  6000193, `host-threads.slurm`); 2400 grains on 4 nodes: first assembly in
+  10.27 and 9.37 s against 18.28 and 18.24 s, total 146.6 and 140.1 s
+  against 152.3 and 149.0 s (job 6000171).
+
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of
 mfem-mgis and to the builds of the examples and of mm-opera-hpc): each

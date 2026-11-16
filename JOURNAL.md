@@ -7689,3 +7689,223 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   `HIP_USE_RUNTIME_UNBUNDLER`, is the default of CUDA 13.0, and
   `CUDA_MODULE_LOADING` is set neither by the profiles nor by the
   environment of Jean Zay: nothing to change.
+
+### 2026-11-16, polycrystal on the GPUs: setup of the host shared between threads
+
+- Context: on 256 MI300A (38,400 grains), the first assembly of the tangent
+  operator takes 18 s on the GPUs against 8 s on the cores, and the reading
+  of the mesh 12 s against 1.5 s. Both are setups made on the host: a
+  process of a GPU computation holds 24 times more mesh than a process of a
+  CPU computation, on one of its 24 cores.
+- Wall clock profile: `perf report` counts cycles of the code of the user,
+  without the waits (GPU, MPI) nor the first accesses to the pages of the
+  large arrays. `cases/polycrystal/adastra-fm/perf-walltime.py` gives each
+  sample of `perf script` the time elapsed since the previous sample of its
+  thread, and prints the call tree of a function or its successive steps
+  (`--timeline`). At 600 grains on 1 node (4.94 M unknowns and 435 M
+  entries of the local matrix per GPU, job 5996554 of 15/11), the first
+  assembly takes 14.0 s: 9.8 s of loops on one core of the host (pattern of
+  the local matrix 1.9 s, its values set to zero by MFEM 0.65 s, matrix of
+  ones giving the pattern of the global matrix 1.1 s, copy of the pattern of
+  hypre 0.4 s, search of the positions 3.3 s, received entries 0.5 s, lists
+  of the contributions 2.0 s), 2.45 s in the product of hypre on the GPU,
+  the rest in kernels and copies. The setup of the global matrix is 73 % of
+  the wall clock time of this assembly, against 31 % of its cycles.
+- Choice of the technique: these loops read and write arrays of one
+  process, which end in the memory of its GPU, during a few seconds: threads
+  of the process. Directives of OpenMP behind one function were retained.
+  Discarded: the `omp` backend of MFEM (a device, exclusive of the GPU in a
+  `forall`, which also needs MFEM rebuilt with OpenMP); the parallel
+  algorithms of C++17 (TBB with libstdc++, absent from the stack of Adastra,
+  and a number of threads which `OMP_NUM_THREADS` does not set); threads
+  managed by hand (number, placement and exceptions to rewrite); MPI: more
+  processes per GPU degrade the loop over the time steps (86 % of the
+  time), and helper processes sharing arrays through windows of MPI-3 need
+  another communicator than `MPI_COMM_WORLD` in mfem-mgis, MFEM and the
+  polycrystal, and arrays which `std::vector`, MFEM and hypre do not
+  allocate.
+- mfem-mgis, patch 0300: `batch::internals::forEachThreadRange`
+  (`src/Batch/HostThreads.hxx`) calls a function on consecutive ranges
+  covering the indices of a loop, one per thread of OpenMP with the CMake
+  option `enable-openmp` (`OFF` by default), a single range without it
+  (neither directive nor runtime). A call only writes the values of its
+  range and declares its work arrays; an exception thrown by a call is
+  thrown again after the parallel region. The number of threads and their
+  placement are the ones of OpenMP (`OMP_NUM_THREADS`, by default the cores
+  given to the process by its launcher, `OMP_PROC_BIND`, `OMP_PLACES`):
+  nothing is specific to mfem-mgis nor to a machine. With the option, the
+  library is privately linked to the runtime of OpenMP (searched by its
+  configuration file for the programs linked to it) and MPI is initialized
+  with the level `MPI_THREAD_FUNNELED`. MFEM and hypre do not need OpenMP;
+  the sources compiled as CUDA or HIP code are not concerned.
+- mfem-mgis, patch 0301:
+  - `batch::makeAssembledStiffnessMatrix`: checks of the nodes of the
+    elements, nodes coupled to each node and rows of their components
+    written by ranges of elements and of nodes, with their null values. The
+    nodes coupled to a node are written at its place in an array with room
+    for the nodes of all its elements (0.49 GB at this size, 9 % of the
+    matrix), so that a thread does not need the sizes of the previous rows;
+    a first version, which counted then wrote, cost 0.8 s more with one
+    thread;
+  - `batch::GlobalStiffnessMatrix`: the threads share the rows of the
+    global matrix, each one with its rows of the local matrix (table
+    `LocalRows`, without assumption on the numbering). The pattern of the
+    global matrix is copied once and shared (`GlobalPattern`); each thread
+    has its finder, which keeps one integer per column instead of two and
+    selects its row once per row of the local matrix. The entries sent to
+    the other processes are written at their place, which follows from the
+    rows before them, instead of being appended to one vector per process.
+    The lists of the contributions are built without the copy of the
+    offsets (1.7 GB): the first contribution to each entry is kept in its
+    next offset, which ends as the offset of the next entry. The copies of
+    the blocks of hypre are first written by the threads (0.06 s against
+    0.4 s when the copy from the GPU also maps the pages);
+  - the matrix of ones giving the pattern of the global matrix is built
+    where hypre computes: on a GPU, copied from the arrays of the local
+    matrix on the GPU and set by a kernel, instead of 5.2 GB copied to the
+    host, set there by MFEM, and copied back.
+- Same matrices, bit for bit, whatever the number of threads: the threads
+  write integers and zeros in the final arrays, at places fixed by sums made
+  before the loops; the columns of each row (diagonal first, then
+  increasing) and the contributions to each entry (entries of the local
+  matrix, then received values, by increasing index) are in the order of
+  before.
+- Tests: `HostThreadsTest` (ranges for one, 3 and 24 threads, more threads
+  than indices, no call without index, indices beyond `int`, exception
+  thrown again; number of ranges with and without the option);
+  `GradientsKernelsTest` checks that the columns following the diagonal are
+  sorted, and runs with 7 threads with the option;
+  `GlobalStiffnessMatrixTest.cmake` compares the checksums of the global
+  matrices with one and 5 threads, on the host and on a GPU.
+- Measurements, 600 grains on 1 node (4 MI300A, 24 cores per process),
+  final configuration, executables `perfimpl5` (before) and `perfimpl6`
+  (after) of the scratch of Adastra:
+  - first assembly against the number of threads per process, one step, two
+    series (job 6000168, `host-threads.slurm`):
+
+    | Threads | First assembly (s) |
+    |---|---|
+    | before | 13.78, 13.89 |
+    | 1 | 12.24, 12.25 |
+    | 2 | 8.95, 8.89 |
+    | 4 | 7.29, 7.19 |
+    | 8 | 6.44, 6.42 |
+    | 12 | 5.95, 6.03 |
+    | 24 | 5.59, 5.46 |
+
+    With one thread, the new setup is faster than the former one: it does
+    less (no matrix of ones on the host, no copy of the offsets, one
+    integer per column in the search); built without the option (variant
+    `umpire-serial`, job 6000193), it takes 12.00 and 11.69 s;
+  - 20 steps, two computations of each executable in turn (job 6000167,
+    `perf-ab.slurm`): first assembly 5.67 and 5.68 s against 14.27 and
+    13.97 s, total 126.1 and 126.0 s against 135.7 and 135.7 s, other
+    assemblies 21.9 and 22.0 s against 22.0 and 23.1 s, linear solves 52.0
+    and 51.7 s against 52.4 and 51.7 s, energy 310 and 305 kJ against 325
+    and 314 kJ, same axial stress within 1e-5;
+  - 2400 grains on 4 nodes, 20 steps, two computations of each executable
+    in turn (job 6000171): first assembly 10.27 and 9.37 s against 18.28
+    and 18.24 s, total 146.6 and 140.1 s against 152.3 and 149.0 s;
+  - profile after (job 6000169, process 0, first assembly in 5.8 s): the
+    loops of the host take 1.5 s against 9.8 s, 1.0 s of which is shared
+    between the threads (pattern of the local matrix with its null values
+    0.5 s against 2.5 s, copy of the pattern of hypre 0.05 s against 0.4 s,
+    search of the positions 0.34 s against 3.3 s, lists of the
+    contributions 0.5 s against 2.0 s, 0.4 s of which is sequential), and
+    the GPU 4.2 s: 2.8 s for the matrix of ones and the product of hypre
+    giving the pattern of the global matrix, 1.0 s of kernels and copies
+    before it, 0.4 s after it.
+- Placement checked (`placement.txt` of the job 6000168): the 4 processes
+  of a GPU computation are bound to the cores 0-23, 24-47, 48-71 and 72-95
+  (one APU, one NUMA node each) with `OMP_NUM_THREADS=24`, the 96 processes
+  of a CPU computation to one core each with `OMP_NUM_THREADS=1`;
+  `OMP_PROC_BIND` and `OMP_PLACES` are not set by the scripts.
+- On several nodes, one process is late (not solved): the first assembly
+  takes 4 s more on 4 nodes than on one, before and after these patches
+  (18.2 s against 14.0 s, 9.4 to 10.3 s against 5.6 s), as on 64 nodes
+  before them (18 s). The 16 processes were sampled (jobs 6000863, 6000879
+  and 6000942, `profile-host.slurm` with `FM_TRACE_RANKS`): 15 of them wait
+  2.3 to 3.1 s in the first collective call of the setup (`MPI_Alltoall`)
+  for the process 8, the first of the node a1017, which spends 2.76 s in
+  the copy of the pattern of hypre from the GPU to the host
+  (`hypre_Memcpy`, 1.7 GB) against 0.05 to 0.14 s for the ones looked at.
+  600 grains on a1017 alone: 8.95 and 8.57 s against 5.5 to 5.7 s on three
+  other nodes (job 6000968): the node, not the partition. On 4 other nodes:
+  12.1 and 9.8 s (job 6000969). `MPICH_OFI_STARTUP_CONNECT=1` changes
+  nothing (jobs 6000894 and 6000895). The free memory of a1017, up for 10
+  days, is fragmented: 55 % of the one of its first NUMA node is in blocks
+  of 2 MB and more, against 87 % on a1014. In a test program copying 1.7 GB
+  from the GPU (`node-state/hip-copy.cpp` of the results directory, jobs
+  6001043 to 6001062), once the process holds 90 GB on a1017 (110 GB on
+  a1014), a new array has no huge page, its copy takes
+  0.09 to 0.16 s against 0.04 s (1.1 s once, from an array of the GPU
+  allocated at that time) and a pinned allocation 4 to 7 s against 0.36 s;
+  with `madvise(MADV_HUGEPAGE)` the array has its huge pages and the copy
+  takes 0.05 s. That the 2.76 s of the computation come from this is a
+  hypothesis (the memory of the host and of the GPU of a MI300A are the
+  same 128 GB). Not tried: huge pages asked for the large arrays of the
+  setup, compaction of the memory of the nodes between jobs.
+- Validation (Adastra, `fm/2026-11-16-hostsetup`): tests of mfem-mgis on
+  the host 142 out of 142, on a MI300A 124 out of 124 with the kernels
+  forced and 124 out of 124 with the choices of each test, 7 out of 7 for
+  the tests selecting a device (among which the global matrix, the same bit
+  for bit on the host and on the GPU with one and 5 threads), 8 out of 8 on
+  a MI300A for the build without the option, 14 tests of the polycrystal
+  (job 6000164); outputs of 100 grains on 96 cores identical bit for bit to
+  the ones of the previous executable with `NewtonK0` (147.4 s against
+  148.5 s) and with `Newton` (175.5 s against 170.8 s, then 169.5 s against
+  169.4 s: jobs 6000165 and 6000494), and to the ones of the executable
+  built without the option (148.4 s against 148.6 s and 169.4 s against
+  171.4 s, jobs 6000166 and 6000493); outputs of 100 grains without
+  refinement on 4 processes of 24 cores identical bit for bit with one, 7
+  and 24 threads per process (job 6000586, `host-threads-identity.slurm`);
+  15 mutations out of 15 detected (jobs 6000174 and 6000175), the 8 new
+  ones being: columns not sorted, values not null, nodes coupled to a node
+  repeated, only the range of the first thread treated, ranges sharing an
+  index (its test stops on an access out of its array), exception not
+  thrown again, positions of the off-diagonal block without their offset,
+  entries of the selected row not kept. CI: runs 43781934839 and
+  43786626402, in double 61 tests of MGIS, 272 of mfem-mgis, 23 of the
+  examples and 20 of mm-opera-hpc, in float with the option 61, 274, 22 and
+  20, builds with CUDA and with HIP.
+- Left as they were: the product of hypre on the GPU giving the pattern of
+  the global matrix (2.8 s with the matrix of ones and their allocations),
+  which is now the first cost of the first assembly; on the host, the
+  partial sums of the offsets and the received entries (about 0.5 s,
+  sequential). The option is not given by `build-mfem-mgis.sh`: the
+  deployed prototype is built without it (`docs/install.md`).
+- Scripts: `build-perf.sh` gives the option to the variant `umpire` and
+  builds the variant `umpire-serial` without it; `host-threads.slurm`
+  (placement, first assembly against the number of threads);
+  `host-threads-identity.slurm` (outputs against the number of threads);
+  `cases/measure-polycrystal-grains.sh` has the variables `gpu_environment`
+  (variables of the GPU computation only) and `cpu_threads` (cores and
+  threads of each process of a CPU computation, 1 by default);
+  `perf-mutations.slurm` has the mutations of both patches. On the CI, the
+  option is built and tested in single precision, the default build in
+  double precision.
+- Reading of the mesh, profile only (same samples, classified by the
+  functions still visible: the perf of the nodes does not unwind the call
+  stacks through the library of MFEM): of the 11.2 s of `ParMesh::Load` for
+  1.23 M quadratic tetrahedra per process, 3.6 s parse the text (3.0 s for
+  the 37 M reals of the nodes), 3.9 s build the face and edge tables (the
+  vertex to vertex table five times, the face table three times, because
+  the marking of the tetrahedra for refinement permutes their vertices),
+  and 3.45 s evaluate the shape functions of the nodes element by element
+  (`SetVerticesFromNodes` 2.45 s, `CheckElementOrientation` 1.0 s): the
+  nodes of a periodic mesh are discontinuous, and each evaluation of a
+  simplex basis solves a linear system. Nothing is changed in the
+  prototype, which uses MFEM unmodified; a patch of MFEM of 50 lines
+  evaluating these shape functions once per finite element (for
+  `GetNodalValues`, read from the `DofToQuad` table of the element) was
+  tried on MFEM 4.10 on the workstation: same values bit for bit on
+  simplices, prisms, pyramids, tensor-product and NURBS elements, the
+  latter two keeping the code of MFEM; `GetNodalValues` 3.7 times faster
+  and `CheckElementOrientation` 2.9 times faster on tetrahedra. It is left
+  to a decision on an upstream contribution.
+- Seen in passing: `PeriodicNonLinEvPB::set_bc` (2.4 s at this size) has
+  the same cause, `Mesh::GetNodes` projecting the nodes through a
+  coefficient, one evaluation per node of each element.
+- Trap met: a script copied into the directory read by a job running the
+  scripts it finds there was run while it was still empty; it is now
+  copied under another name, then renamed.
