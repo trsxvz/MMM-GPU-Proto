@@ -63,11 +63,16 @@ namespace mfem_mgis {
    *   `Read`, `Write` or `ReadWrite`, which copy the arrays to the device
    *   if needed;
    * - the update and the revert of a behaviour integrated on the device are
-   *   made on the device, then the arrays are synchronized on the host (see
-   *   `BehaviourIntegratorBase::update`); the ones of a point-wise model
-   *   are made on the host (see `PointWiseModel::update`), its arrays being
-   *   made valid on the host for reading after its integration on the
-   *   device.
+   *   made on the device, where the arrays stay (see
+   *   `BehaviourIntegratorBase::update`): as all the copies made by these
+   *   rules, the copies to the host are made by the codes which read or
+   *   write the arrays there, when they do it, and the arrays which are not
+   *   accessed on the host are never copied. The update and the revert of
+   *   a point-wise model are made on the host (see `PointWiseModel::update`),
+   *   its arrays being made valid on the host for reading after its
+   *   integration on the device: the other materials read them there,
+   *   without synchronization, as material properties or external state
+   *   variables given with the `EXTERNAL_STORAGE` mode.
    *
    * Without device (`cpu`, `omp`), the synchronizations do nothing, the
    * copy on the host being the only one. With the `debug` device of MFEM,

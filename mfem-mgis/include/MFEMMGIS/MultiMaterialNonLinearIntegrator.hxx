@@ -506,8 +506,10 @@ namespace mfem_mgis {
      * variables) is copied on the state at the end of the time step, and the
      * tangent operator blocks are set to zero (see
      * `BehaviourIntegratorBase::revert`). A behaviour integrated on the
-     * device is reverted on the device. In both cases, the copies of the
-     * arrays on the host are valid afterwards.
+     * device is reverted on the device, where its arrays stay: their copies
+     * on the host are made valid by the code which reads them there (see
+     * `Material::synchronizeOnHost`). A behaviour integrated on the host is
+     * reverted on the host.
      */
     void revert();
     /*!
@@ -517,8 +519,10 @@ namespace mfem_mgis {
      * variables) is copied on the state at the beginning of the time step,
      * and the tangent operator blocks are set to zero (see
      * `BehaviourIntegratorBase::update`). A behaviour integrated on the
-     * device is updated on the device. In both cases, the copies of the
-     * arrays on the host are valid afterwards.
+     * device is updated on the device, where its arrays stay: their copies
+     * on the host are made valid by the code which reads them there (see
+     * `Material::synchronizeOnHost`). A behaviour integrated on the host is
+     * updated on the host.
      */
     void update();
     /*!

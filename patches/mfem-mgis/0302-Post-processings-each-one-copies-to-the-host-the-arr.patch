@@ -1,0 +1,275 @@
+From f90bdda2ba8e444eb3eb1b39b6e0170e63fbdde9 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 18 Nov 2026 17:36:50 +0100
+Subject: [PATCH] Post-processings: each one copies to the host the arrays it
+ reads
+
+Before the post-processings, the non linear evolution problems made valid
+on the host all the arrays of all the materials: gradients, thermodynamic
+forces, internal state variables and energies of both states, and the
+tangent operator blocks. After a computation on a GPU, this copied all of
+them to the host at each time step, even when the post-processings read
+nothing there: the mean values of the thermodynamic forces computed by
+kernels (MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels) read the
+thermodynamic forces on the device.
+
+This synchronization is removed, before the post-processings and before the
+initial post-processings: the arrays follow the rule of `MaterialArrays`,
+each code accessing them on the host making valid there what it reads,
+when it reads it. The post-processings of mfem-mgis already do it, through
+the accessors of the materials (`getThermodynamicForce`,
+`getInternalStateVariable`...), `computeMeanThermodynamicForcesValues`,
+`computeResultantForceOnBoundary`, the energies, and the export of the
+results at the integration points (parameter `Results`), which reads them
+at each export. A post-processing given as a function does the same, as
+the ones of mm-opera-hpc and of mfem-mgis-examples do; the documentation
+of `addPostProcessing`, of `executePostProcessings`, of the functions
+given to the export at the integration points and of `StateManager` says
+it. On the host, without device, the synchronizations do nothing: the
+results are the same.
+
+For a polycrystal of 600 grains on one node (4 MI300A, 4.9 M unknowns per
+GPU, 20 time steps, mean stresses by kernels), the post-processings take
+0.92 s against 2.44 s, 1.55 s of which copied the arrays.
+
+MaterialArraysTest: after all the arrays are written on the device, the
+post-processings of the test (mean values of the thermodynamic forces,
+resultant force) copy one array to the host, the thermodynamic forces at
+the end of the time step; the internal state variables stay on the device.
+---
+ docs/source/user_guide/batch_computations.rst | 15 ++++---
+ .../AbstractNonLinearEvolutionProblem.hxx     | 11 +++++
+ include/MFEMMGIS/Material.hxx                 | 10 +++--
+ ...ewExportIntegrationPointResultsAtNodes.hxx | 10 ++++-
+ include/MFEMMGIS/StateManager.hxx             |  6 ++-
+ ...onLinearEvolutionProblemImplementation.cxx | 44 +++++--------------
+ tests/MaterialArraysTest.cxx                  | 15 +++++++
+ 7 files changed, 65 insertions(+), 46 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index aa6e5083c3..0b454f2508 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -1310,11 +1310,16 @@ Limitations
+   :code:`Material::synchronizeOnHostForReading`), as the example ex8 of
+   :code:`mfem-mgis-examples` does for the deformation gradients read by its
+   heat transfer behaviours.
+-- The post-processings read the materials on the host: the arrays of the
+-  materials are synchronized on the host before their execution, keeping
+-  their copies on the device valid. After a computation on the device, a
+-  direct access to the states (:code:`s0`, :code:`s1`) or to the tangent
+-  operator blocks (:code:`K`) of a material must be preceded by a call to
++- The arrays of the materials are copied to the host only when they are
++  read or written there: each post-processing makes valid on the host the
++  arrays it reads, keeping their copies on the device valid, and the
++  arrays it does not read stay on the device (for instance, the mean
++  values computed by kernels, see
++  :code:`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`, read the thermodynamic
++  forces on the device). After a computation on the device, a direct
++  access to the states (:code:`s0`, :code:`s1`) or to the tangent operator
++  blocks (:code:`K`) of a material, for instance in a post-processing given
++  as a function or between two time steps, must be preceded by a call to
+   its method :code:`synchronizeOnHost`, or :code:`synchronizeOnHostForReading`
+   for a read-only access. The accessors of :code:`mfem-mgis`, such as
+   :code:`getInternalStateVariable`, make this call.
+diff --git a/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx b/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx
+index 7c6a271651..ad883249dc 100644
+--- a/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx
++++ b/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx
+@@ -566,6 +566,14 @@ namespace mfem_mgis {
+      * \param[in, out] ctx: execution context
+      * \param[in] p: post-processing
+      * \return true on success
++     * \note as the post-processings of `mfem-mgis`, the function makes valid
++     * on the host the arrays of the materials it reads there: the accessors
++     * (`getThermodynamicForce`, `getInternalStateVariable`...) do it, and a
++     * direct access to the states (`s0`, `s1`) or to the tangent operator
++     * blocks (`K`) of a material is preceded by a call to
++     * `Material::synchronizeOnHostForReading` (see `MaterialArrays`). The
++     * arrays of the materials are not synchronized on the host before the
++     * post-processings.
+      */
+     [[nodiscard]] virtual bool addPostProcessing(
+         Context &ctx,
+@@ -594,6 +602,9 @@ namespace mfem_mgis {
+      * \param[in] t: time at the beginning of the time step
+      * \param[in] dt: time increment
+      * \return true on success
++     * \note each post-processing makes valid on the host the arrays of the
++     * materials it reads there: the arrays which are not read on the host
++     * are not copied (see `addPostProcessing`)
+      */
+     [[nodiscard]] virtual bool executePostProcessings(
+         Context &ctx, const real t, const real dt) noexcept = 0;
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index 8e09903b79..bed3dd6dea 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -166,10 +166,12 @@ namespace mfem_mgis {
+      * \brief makes the copies of the arrays on the host valid at the
+      * beginning of a phase of read-only accesses on the host, keeping their
+      * copies on the device valid. It is called by the read-only accessors,
+-     * before the post-processings, by the functions computing mean values
+-     * or resultant forces from the thermodynamic forces, and after the
+-     * integration of a point-wise model on the device (see
+-     * `PointWiseModel::computeNextState`).
++     * by the functions computing mean values or resultant forces from the
++     * thermodynamic forces, and after the integration of a point-wise model
++     * on the device (see `PointWiseModel::computeNextState`). The
++     * post-processings read the arrays of the materials through these
++     * accessors and functions: only the arrays they read are copied to the
++     * host.
+      */
+     using MaterialArrays::synchronizeOnHostForReading;
+     /*!
+diff --git a/include/MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.hxx b/include/MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.hxx
+index e7becea90e..b6874c6d13 100644
+--- a/include/MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.hxx
++++ b/include/MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.hxx
+@@ -40,7 +40,15 @@ namespace mfem_mgis {
+    * versions
+    */
+   struct MFEM_MGIS_EXPORT ParaviewExportIntegrationPointResultsAtNodesBase {
+-    //! \brief a simple structure to describe the functions to be exported.
++    /*!
++     * \brief a simple structure to describe the functions to be exported.
++     * \note the functions are read on the host at each export. Views of the
++     * arrays of a material must then be valid on the host, which the code
++     * giving them ensures (see `Material::synchronizeOnHostForReading`).
++     * The results given by their names (parameter `Results`) are read
++     * through the accessors of the materials at each export, which make
++     * them valid on the host.
++     */
+     struct ExportedFunctionsDescription {
+       //! \brief name of the exported function in the Paraview's file
+       const std::string name;
+diff --git a/include/MFEMMGIS/StateManager.hxx b/include/MFEMMGIS/StateManager.hxx
+index 24631ca304..55dbdd8a58 100644
+--- a/include/MFEMMGIS/StateManager.hxx
++++ b/include/MFEMMGIS/StateManager.hxx
+@@ -33,8 +33,10 @@ namespace mfem_mgis {
+    * these arrays on the host, which are never reallocated (see
+    * `MaterialArrays`). After a computation on the device, these copies must
+    * be made valid on the host before reading the views (see
+-   * `Material::synchronizeOnHostForReading`; the non linear evolution
+-   * problems do it before their post-processings).
++   * `Material::synchronizeOnHostForReading`): the code which reads the
++   * views makes this call, the non linear evolution problems only
++   * synchronizing on the host the arrays read by their own computations and
++   * post-processings.
+    */
+   struct MFEM_MGIS_EXPORT StateManager {
+     /*!
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 1cce3f50bf..44508a728d 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -1439,14 +1439,8 @@ namespace mfem_mgis {
+   bool
+   NonLinearEvolutionProblemImplementation<true>::executeInitialPostProcessings(
+       Context& ctx, const real t) noexcept {
+-    // the post-processings read the materials on the host
+-    if (this->mgis_integrator != nullptr) {
+-      try {
+-        this->mgis_integrator->synchronizeOnHostForReading();
+-      } catch (...) {
+-        return registerExceptionInErrorBacktrace(ctx);
+-      }
+-    }
++    // each post-processing makes valid on the host the arrays of the
++    // materials it reads there (see `MaterialArrays`)
+     for (auto& p : this->postprocessings) {
+       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
+         if (!p->executeInitialPostProcessing(ctx, *this, t)) {
+@@ -1460,15 +1454,9 @@ namespace mfem_mgis {
+   bool NonLinearEvolutionProblemImplementation<true>::executePostProcessings(
+       Context& ctx, const real t, const real dt) noexcept {
+     CatchTimeSection(ctx, "NLEP::executePostProcessings");
+-    // the post-processings read the materials on the host
+-    if (this->mgis_integrator != nullptr) {
+-      CatchTimeSection(ctx, "NLEP::PP::synchronizeOnHost");
+-      try {
+-        this->mgis_integrator->synchronizeOnHostForReading();
+-      } catch (...) {
+-        return registerExceptionInErrorBacktrace(ctx);
+-      }
+-    }
++    // each post-processing makes valid on the host the arrays of the
++    // materials it reads there, the other ones staying where they are (see
++    // `MaterialArrays`)
+     auto success = true;
+     for (auto& p : this->postprocessings) {
+       CatchTimeSection(ctx, "NLEP::PP::execute");
+@@ -1829,14 +1817,8 @@ namespace mfem_mgis {
+   bool
+   NonLinearEvolutionProblemImplementation<false>::executeInitialPostProcessings(
+       Context& ctx, const real t) noexcept {
+-    // the post-processings read the materials on the host
+-    if (this->mgis_integrator != nullptr) {
+-      try {
+-        this->mgis_integrator->synchronizeOnHostForReading();
+-      } catch (...) {
+-        return registerExceptionInErrorBacktrace(ctx);
+-      }
+-    }
++    // each post-processing makes valid on the host the arrays of the
++    // materials it reads there (see `MaterialArrays`)
+     for (auto& p : this->postprocessings) {
+       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
+         if (!p->executeInitialPostProcessing(ctx, *this, t)) {
+@@ -1850,15 +1832,9 @@ namespace mfem_mgis {
+   bool NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
+       Context& ctx, const real t, const real dt) noexcept {
+     CatchTimeSection(ctx, "NLEP::executePostProcessings");
+-    // the post-processings read the materials on the host
+-    if (this->mgis_integrator != nullptr) {
+-      CatchTimeSection(ctx, "NLEP::PP::synchronizeOnHost");
+-      try {
+-        this->mgis_integrator->synchronizeOnHostForReading();
+-      } catch (...) {
+-        return registerExceptionInErrorBacktrace(ctx);
+-      }
+-    }
++    // each post-processing makes valid on the host the arrays of the
++    // materials it reads there, the other ones staying where they are (see
++    // `MaterialArrays`)
+     auto success = true;
+     for (auto& p : this->postprocessings) {
+       CatchTimeSection(ctx, "NLEP::PP::execute");
+diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
+index baa57274e6..9889abe862 100644
+--- a/tests/MaterialArraysTest.cxx
++++ b/tests/MaterialArraysTest.cxx
+@@ -34,6 +34,7 @@
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/MaterialArrays.hxx"
+ #include "MFEMMGIS/IntegrationType.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+@@ -571,7 +572,21 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
+   // checked)
+   // post-processings, which read the arrays on the host
+   writeAllOnTheDevice(a, 4);
++  const auto before_post_processings = getMaterialArraysTransfers();
+   check(problem.executePostProcessings(ctx, 0, 1), "post-processings");
++  // they copy to the host the arrays they read, here the thermodynamic
++  // forces at the end of the time step, and only them: the other arrays
++  // stay on the device
++  if (mfem::Device::IsEnabled()) {
++    const auto copies = getMaterialArraysTransfers().device_to_host_copies -
++                        before_post_processings.device_to_host_copies;
++    check(copies == 1, "post-processings: " + std::to_string(copies) +
++                           " arrays copied to the host instead of one");
++    check(!a.getArray(StateArray::INTERNAL_STATE_VARIABLES, ets)
++               .GetMemory()
++               .HostIsValid(),
++          "post-processings: internal state variables copied to the host");
++  }
+   // mean values of the thermodynamic forces, called directly
+   writeAllOnTheDevice(a, 12);
+   check(!isInvalid(computeMeanThermodynamicForcesValues<false>(
+-- 
+2.34.1
+

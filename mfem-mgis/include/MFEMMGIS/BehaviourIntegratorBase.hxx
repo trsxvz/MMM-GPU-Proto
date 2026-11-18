@@ -37,15 +37,13 @@ namespace mfem_mgis {
     /*!
      * \brief revert the state of the material; for a behaviour integrated on
      * the device (see `integratesBatchesOnDevice`), the arrays are copied
-     * on the device, then synchronized on the host (see
-     * `copyStatesOnDevice`)
+     * on the device, where they stay (see `copyStatesOnDevice`)
      */
     void revert() override;
     /*!
      * \brief update the state of the material; for a behaviour integrated on
      * the device (see `integratesBatchesOnDevice`), the arrays are copied
-     * on the device, then synchronized on the host (see
-     * `copyStatesOnDevice`)
+     * on the device, where they stay (see `copyStatesOnDevice`)
      */
     void update() override;
     [[nodiscard]] bool hasMaterial() const noexcept override;
@@ -448,13 +446,12 @@ namespace mfem_mgis {
      * The material properties, the external state variables and the mass
      * density, stored on the host, are updated on the host as by
      * `Material::updateMaterialStates` (see
-     * `mgis::behaviour::updateInputValues`). The arrays are then
-     * synchronized on the host (see `Material::synchronizeOnHost`): as for a
-     * behaviour integrated on the host, their copies on the host are valid
-     * and may be modified directly after an update or a revert, their copies
-     * on the device being copied again at the next integration. The tangent
-     * operator blocks, set to zero, are set to zero on the host without
-     * copy.
+     * `mgis::behaviour::updateInputValues`). The states and the tangent
+     * operator blocks stay on the device, where the next integration reads
+     * them: nothing is copied to the host. A code reading or writing them on
+     * the host afterwards makes their copies on the host valid first, as
+     * after an integration on the device (accessors of the material,
+     * `Material::synchronizeOnHost`, see `MaterialArrays`).
      * \param[in] u: if true, update, otherwise revert
      */
     void copyStatesOnDevice(const bool);

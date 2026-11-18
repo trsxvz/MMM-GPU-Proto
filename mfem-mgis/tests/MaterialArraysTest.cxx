@@ -34,6 +34,7 @@
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/MaterialArrays.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
@@ -571,7 +572,21 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
   // checked)
   // post-processings, which read the arrays on the host
   writeAllOnTheDevice(a, 4);
+  const auto before_post_processings = getMaterialArraysTransfers();
   check(problem.executePostProcessings(ctx, 0, 1), "post-processings");
+  // they copy to the host the arrays they read, here the thermodynamic
+  // forces at the end of the time step, and only them: the other arrays
+  // stay on the device
+  if (mfem::Device::IsEnabled()) {
+    const auto copies = getMaterialArraysTransfers().device_to_host_copies -
+                        before_post_processings.device_to_host_copies;
+    check(copies == 1, "post-processings: " + std::to_string(copies) +
+                           " arrays copied to the host instead of one");
+    check(!a.getArray(StateArray::INTERNAL_STATE_VARIABLES, ets)
+               .GetMemory()
+               .HostIsValid(),
+          "post-processings: internal state variables copied to the host");
+  }
   // mean values of the thermodynamic forces, called directly
   writeAllOnTheDevice(a, 12);
   check(!isInvalid(computeMeanThermodynamicForcesValues<false>(

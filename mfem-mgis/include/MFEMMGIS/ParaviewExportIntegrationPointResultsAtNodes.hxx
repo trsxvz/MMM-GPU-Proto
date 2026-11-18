@@ -40,7 +40,15 @@ namespace mfem_mgis {
    * versions
    */
   struct MFEM_MGIS_EXPORT ParaviewExportIntegrationPointResultsAtNodesBase {
-    //! \brief a simple structure to describe the functions to be exported.
+    /*!
+     * \brief a simple structure to describe the functions to be exported.
+     * \note the functions are read on the host at each export. Views of the
+     * arrays of a material must then be valid on the host, which the code
+     * giving them ensures (see `Material::synchronizeOnHostForReading`).
+     * The results given by their names (parameter `Results`) are read
+     * through the accessors of the materials at each export, which make
+     * them valid on the host.
+     */
     struct ExportedFunctionsDescription {
       //! \brief name of the exported function in the Paraview's file
       const std::string name;

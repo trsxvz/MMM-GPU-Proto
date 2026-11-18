@@ -151,9 +151,9 @@ namespace mfem_mgis {
      * computed element by element, see
      * `MultiMaterialNonLinearIntegrator::integrateBatch`), and a direct
      * access to its states must be preceded by a synchronization. Its
-     * update and its revert are made on the device and end with a
-     * synchronization on the host, as for a behaviour integrated on the
-     * host.
+     * update and its revert are made on the device, where its arrays stay:
+     * a direct access to its states between two time steps must also be
+     * preceded by a synchronization.
      *
      * \note the arrays of a material used by another one as external
      * storage (material properties or external state variables given with
@@ -166,10 +166,12 @@ namespace mfem_mgis {
      * \brief makes the copies of the arrays on the host valid at the
      * beginning of a phase of read-only accesses on the host, keeping their
      * copies on the device valid. It is called by the read-only accessors,
-     * before the post-processings, by the functions computing mean values
-     * or resultant forces from the thermodynamic forces, and after the
-     * integration of a point-wise model on the device (see
-     * `PointWiseModel::computeNextState`).
+     * by the functions computing mean values or resultant forces from the
+     * thermodynamic forces, and after the integration of a point-wise model
+     * on the device (see `PointWiseModel::computeNextState`). The
+     * post-processings read the arrays of the materials through these
+     * accessors and functions: only the arrays they read are copied to the
+     * host.
      */
     using MaterialArrays::synchronizeOnHostForReading;
     /*!

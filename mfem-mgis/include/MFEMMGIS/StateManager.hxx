@@ -33,8 +33,10 @@ namespace mfem_mgis {
    * these arrays on the host, which are never reallocated (see
    * `MaterialArrays`). After a computation on the device, these copies must
    * be made valid on the host before reading the views (see
-   * `Material::synchronizeOnHostForReading`; the non linear evolution
-   * problems do it before their post-processings).
+   * `Material::synchronizeOnHostForReading`): the code which reads the
+   * views makes this call, the non linear evolution problems only
+   * synchronizing on the host the arrays read by their own computations and
+   * post-processings.
    */
   struct MFEM_MGIS_EXPORT StateManager {
     /*!

@@ -1193,24 +1193,10 @@ namespace mfem_mgis {
                           : "BehaviourIntegratorBase::revert: "} +
             ctx.getErrorMessage());
     }
-    // as after an update or a revert on the host, the copies of the arrays
-    // on the host are valid and may be modified, their copies on the device
-    // being invalid (see `MaterialArrays`). The tangent operator blocks, set
-    // to zero, are set to zero on the host instead of being copied.
-    for (const auto a :
-         {StateArrayKind::GRADIENTS, StateArrayKind::THERMODYNAMIC_FORCES,
-          StateArrayKind::INTERNAL_STATE_VARIABLES, StateArrayKind::STORED_ENERGIES,
-          StateArrayKind::DISSIPATED_ENERGIES}) {
-      for (const auto s : {bts, ets}) {
-        this->synchronizeOnHost(a, s);
-      }
-    }
-    const auto nK = static_cast<std::size_t>(
-        this->getArrays().getTangentOperatorBlocks().Size());
-    if (nK != 0) {
-      auto* const blocks = this->getArrays().writeTangentOperatorBlocks(false);
-      std::fill(blocks, blocks + nK, real{0});
-    }
+    // the states and the tangent operator blocks set to zero by a revert
+    // stay on the device, where the next integration reads them: a code
+    // reading or writing them on the host makes their copies on the host
+    // valid first (see `MaterialArrays`)
   }  // end of copyStatesOnDevice
 
   bool BehaviourIntegratorBase::isQuadratureSpaceSupportedByKernels()

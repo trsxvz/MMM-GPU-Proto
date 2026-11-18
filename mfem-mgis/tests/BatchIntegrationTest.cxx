@@ -703,19 +703,31 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
 }  // end of getRelativeDifference
 
 /*!
- * \brief checks the states of a material after an update or a revert,
- * through the copies of its arrays on the host, read without
- * synchronization: the states are equal, for a behaviour integrated on the
- * host or on the device. The tangent operator blocks are null after a
- * revert. They are kept by an update, since the prediction of the next time
- * step may use the operators of the last iteration.
+ * \brief checks the states of a material after an update or a revert: the
+ * states are equal, for a behaviour integrated on the host or on the
+ * device. The tangent operator blocks are null after a revert. They are
+ * kept by an update, since the prediction of the next time step may use
+ * the operators of the last iteration. The update and the revert of a
+ * behaviour integrated on the device leave the arrays on the device: they
+ * copy nothing to the host, and the states are read on the host after a
+ * synchronization, as by any code reading them there (with the debug
+ * device of MFEM, a read without synchronization stops the program).
  * \param[in] m: material
  * \param[in] name: name of the computation
  * \param[in] revert: true after a revert, false after an update
+ * \param[in] copies: number of arrays copied from the device to the host
+ * by the update or the revert
  */
 static void checkStatesAfterUpdateOrRevert(const mfem_mgis::Material& m,
                                            const std::string& name,
-                                           const bool revert) {
+                                           const bool revert,
+                                           const mfem_mgis::size_type copies) {
+  if (mfem_mgis::isIntegratedByBatchesOnDevice(m.b)) {
+    check(copies == 0, name + ": " + std::to_string(copies) +
+                           " arrays copied to the host by an update or a "
+                           "revert on the device");
+  }
+  m.synchronizeOnHostForReading();
   // the unused values of padded arrays are NaN: the arrays are compared
   // through their views
   auto equal = [](const mgis::FieldView<const mfem_mgis::real>& a,
@@ -1277,8 +1289,12 @@ static Results compute(mfem_mgis::Context& ctx,
                               [](const real v) noexcept { return v != 0; }),
               name + ": null prediction");
         r.predictions.insert(r.predictions.end(), pv, pv + p.Size());
+        const auto before_revert = getMaterialArraysTransfers();
         problem.revert(ctx) | or_die;
-        checkStatesAfterUpdateOrRevert(m, name, true);
+        checkStatesAfterUpdateOrRevert(
+            m, name, true,
+            getMaterialArraysTransfers().device_to_host_copies -
+                before_revert.device_to_host_copies);
         // the revert sets the temperature at the end of the time step to
         // the one at the beginning of the time step
         setTemperature(t + dt);
@@ -1306,11 +1322,19 @@ static Results compute(mfem_mgis::Context& ctx,
       checkMatrixFreeOperator<false>(problem, name);
 #endif /* MFEM_USE_MPI */
     }
+    const auto before_update = getMaterialArraysTransfers();
     problem.update(ctx) | or_die;
-    checkStatesAfterUpdateOrRevert(m, name, false);
+    checkStatesAfterUpdateOrRevert(
+        m, name, false,
+        getMaterialArraysTransfers().device_to_host_copies -
+            before_update.device_to_host_copies);
     if (opts.write_after_update && (i == 0)) {
-      // direct write in the state, valid on the host after an update,
-      // through a view accounting for the layout of the arrays
+      // direct write in the state, through a view accounting for the layout
+      // of the arrays, after its synchronization on the host: the update of
+      // a behaviour integrated on the device leaves it on the device (see
+      // `MaterialArrays`); the next integration copies it back
+      m.synchronizeOnHost(MaterialArrays::StateArray::INTERNAL_STATE_VARIABLES,
+                          bts);
       auto peeq = mgis::behaviour::getInternalStateVariableView(
           m.s0, "EquivalentPlasticStrain");
       for (size_type ip = 0; ip != peeq.getNumberOfPoints(); ++ip) {

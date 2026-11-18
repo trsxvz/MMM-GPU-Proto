@@ -265,6 +265,9 @@ static void extractResults(UniaxialTestResults& r,
   if (m.n == 0) {
     return;
   }
+  // the arrays of a behaviour integrated on a device are read on the host
+  // after a synchronization (see `mfem_mgis::MaterialArrays`)
+  m.synchronizeOnHostForReading();
   // components of the deformation gradient with the displacement gradient
   const auto shift = mgis::behaviour::usesDisplacementGradient(m.b)
                          ? mfem_mgis::real{1}
@@ -333,7 +336,8 @@ static bool checkCauchyStress([[maybe_unused]] const mfem_mgis::Material& m) {
     return false;
   }
   // deformation gradient and first Piola-Kirchhoff stress, components xx,
-  // yy, zz, xy, yx, xz, zx, yz, zy, in double
+  // yy, zz, xy, yx, xz, zx, yz, zy, in double, read on the host
+  m.synchronizeOnHostForReading();
   auto F = std::array<double, 9>{};
   auto P = std::array<double, 9>{};
   const auto gradients = mgis::behaviour::getGradientsView(m.s1);

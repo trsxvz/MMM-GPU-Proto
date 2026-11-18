@@ -1439,14 +1439,8 @@ namespace mfem_mgis {
   bool
   NonLinearEvolutionProblemImplementation<true>::executeInitialPostProcessings(
       Context& ctx, const real t) noexcept {
-    // the post-processings read the materials on the host
-    if (this->mgis_integrator != nullptr) {
-      try {
-        this->mgis_integrator->synchronizeOnHostForReading();
-      } catch (...) {
-        return registerExceptionInErrorBacktrace(ctx);
-      }
-    }
+    // each post-processing makes valid on the host the arrays of the
+    // materials it reads there (see `MaterialArrays`)
     for (auto& p : this->postprocessings) {
       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
         if (!p->executeInitialPostProcessing(ctx, *this, t)) {
@@ -1460,15 +1454,9 @@ namespace mfem_mgis {
   bool NonLinearEvolutionProblemImplementation<true>::executePostProcessings(
       Context& ctx, const real t, const real dt) noexcept {
     CatchTimeSection(ctx, "NLEP::executePostProcessings");
-    // the post-processings read the materials on the host
-    if (this->mgis_integrator != nullptr) {
-      CatchTimeSection(ctx, "NLEP::PP::synchronizeOnHost");
-      try {
-        this->mgis_integrator->synchronizeOnHostForReading();
-      } catch (...) {
-        return registerExceptionInErrorBacktrace(ctx);
-      }
-    }
+    // each post-processing makes valid on the host the arrays of the
+    // materials it reads there, the other ones staying where they are (see
+    // `MaterialArrays`)
     auto success = true;
     for (auto& p : this->postprocessings) {
       CatchTimeSection(ctx, "NLEP::PP::execute");
@@ -1829,14 +1817,8 @@ namespace mfem_mgis {
   bool
   NonLinearEvolutionProblemImplementation<false>::executeInitialPostProcessings(
       Context& ctx, const real t) noexcept {
-    // the post-processings read the materials on the host
-    if (this->mgis_integrator != nullptr) {
-      try {
-        this->mgis_integrator->synchronizeOnHostForReading();
-      } catch (...) {
-        return registerExceptionInErrorBacktrace(ctx);
-      }
-    }
+    // each post-processing makes valid on the host the arrays of the
+    // materials it reads there (see `MaterialArrays`)
     for (auto& p : this->postprocessings) {
       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
         if (!p->executeInitialPostProcessing(ctx, *this, t)) {
@@ -1850,15 +1832,9 @@ namespace mfem_mgis {
   bool NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
       Context& ctx, const real t, const real dt) noexcept {
     CatchTimeSection(ctx, "NLEP::executePostProcessings");
-    // the post-processings read the materials on the host
-    if (this->mgis_integrator != nullptr) {
-      CatchTimeSection(ctx, "NLEP::PP::synchronizeOnHost");
-      try {
-        this->mgis_integrator->synchronizeOnHostForReading();
-      } catch (...) {
-        return registerExceptionInErrorBacktrace(ctx);
-      }
-    }
+    // each post-processing makes valid on the host the arrays of the
+    // materials it reads there, the other ones staying where they are (see
+    // `MaterialArrays`)
     auto success = true;
     for (auto& p : this->postprocessings) {
       CatchTimeSection(ctx, "NLEP::PP::execute");

@@ -566,6 +566,14 @@ namespace mfem_mgis {
      * \param[in, out] ctx: execution context
      * \param[in] p: post-processing
      * \return true on success
+     * \note as the post-processings of `mfem-mgis`, the function makes valid
+     * on the host the arrays of the materials it reads there: the accessors
+     * (`getThermodynamicForce`, `getInternalStateVariable`...) do it, and a
+     * direct access to the states (`s0`, `s1`) or to the tangent operator
+     * blocks (`K`) of a material is preceded by a call to
+     * `Material::synchronizeOnHostForReading` (see `MaterialArrays`). The
+     * arrays of the materials are not synchronized on the host before the
+     * post-processings.
      */
     [[nodiscard]] virtual bool addPostProcessing(
         Context &ctx,
@@ -594,6 +602,9 @@ namespace mfem_mgis {
      * \param[in] t: time at the beginning of the time step
      * \param[in] dt: time increment
      * \return true on success
+     * \note each post-processing makes valid on the host the arrays of the
+     * materials it reads there: the arrays which are not read on the host
+     * are not copied (see `addPostProcessing`)
      */
     [[nodiscard]] virtual bool executePostProcessings(
         Context &ctx, const real t, const real dt) noexcept = 0;
