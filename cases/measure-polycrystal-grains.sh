@@ -35,6 +35,9 @@
 #   of mm-opera-hpc), for instance built against another mfem-mgis;
 # - extra_options: options added to the ones of the polycrystal (for
 #   instance --single-material);
+# - paraview_export: `yes` to export the displacement to ParaView at each
+#   step, with the fields asked by extra_options (for instance
+#   --enable-export-von-Mises-stress); default `no`, the measurements;
 # - behaviour_library_gpu, behaviour_library_cpu: libraries of the behaviour
 #   (generic-parallel interface on the GPU, generic interface on the CPU)
 #   instead of the ones of the builds, for instance variants of the law
@@ -47,7 +50,8 @@
 # with one thread (or cores_per_node / cpu_threads processes per node, with
 # cpu_threads cores and threads each). The fixed point on the lateral
 # stresses uses the secant acceleration, the averages of the stresses per
-# grain are written at each step (post-processings without ParaView export) in
+# grain are written at each step (post-processings, without ParaView export
+# by default) in
 # <results>/<computation>/avgStressPolycrystal. A line per computation is
 # appended to <results>/series.txt: label, mode, nodes, processes, status,
 # unknowns, total time (s, section root of the profiling: setup included),
@@ -90,7 +94,11 @@ summary="$summary|number of finite element unknowns"
 executable=${executable:-$B/uniaxial-polycrystal}
 case_options="-m $mesh -f $vectors --order $order -r $refinement"
 case_options="$case_options --macroscopic-secant-acceleration"
-case_options="$case_options --disable-paraview-export"
+if [ "${paraview_export:-no}" = yes ]; then
+  case_options="$case_options --enable-paraview-export"
+else
+  case_options="$case_options --disable-paraview-export"
+fi
 case_options="$case_options${extra_options:+ $extra_options}"
 batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
