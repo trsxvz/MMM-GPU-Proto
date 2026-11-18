@@ -10,8 +10,10 @@
 #   host, then on a MI300A with the settings of
 #   scripts/mfem-mgis-gpu-suite.sh (modes gpu-kernels and gpu-default of
 #   common.sh), then the tests whose name selects a device;
-# - the tests FM_DEPLOYED_TESTS on a MI300A for the variant deployed (MFEM
-#   without Umpire), mode gpu-kernels;
+# - the tests FM_DEPLOYED_TESTS for the other variants (deployed: MFEM
+#   without Umpire; umpire-serial: mfem-mgis without the option
+#   enable-openmp), in the modes FM_OTHER_MODES (default gpu-kernels: on a
+#   MI300A, the computations forced to the kernels);
 # - the tests of the polycrystal by ctest (host), variant umpire;
 # - the polycrystal of the tests (5 grains, 2 steps, final options) on the 4
 #   GPUs with the variant umpire: each process seeing its GPU; all the
@@ -88,7 +90,9 @@ for v in $variants; do
       run_ctest "$v" "$mode" "$selected"
     done
   else
-    run_ctest "$v" gpu-kernels "$selected"
+    for mode in ${FM_OTHER_MODES:-gpu-kernels}; do
+      run_ctest "$v" "$mode" "$selected"
+    done
   fi
 done
 # tests of the polycrystal by ctest (polycrystal/CMakeLists.txt of

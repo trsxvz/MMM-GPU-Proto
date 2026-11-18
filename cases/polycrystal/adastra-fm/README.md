@@ -288,7 +288,12 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   i2 s1 s2 s3"`), and the ones of the setup shared between the threads of
   OpenMP (16/11/2026): pattern of the local matrix (`s4 s5 s6`), ranges of
   the threads (`t1 t2 t3`, tested by `HostThreadsTest`) and setup of the
-  global matrix (`g5 g6`).
+  global matrix (`g5 g6`); and the ones of the copies of the arrays of the
+  materials made by the codes which read them on the host (18/11/2026,
+  `c1` to `c4`, tested by `BatchIntegrationTest` and `MaterialArraysTest`,
+  also on the debug device of MFEM, which protects the copies on the host
+  which are not valid) and of the ParaView exports (`e1 e2`, tested by
+  `ParaviewExportResultsTest`).
 - **`host-threads.slurm`: setup of the host shared between threads**
   (option `enable-openmp` of mfem-mgis, 16/11/2026).
   - `build-perf.sh` builds the variant `umpire` with this option, and the
@@ -313,6 +318,46 @@ All of them run `cases/measure-polycrystal-grains.sh`.
   of threads per process of `FM_THREADS` (default `1 7 24`): the `.res`
   file, the averages per grain and the lines of the iterations must be the
   ones of the first number, bit for bit.
+- **`synchro-identity.slurm`: same outputs before and after the patches of
+  the copies of the materials** (mfem-mgis 0302 and 0303, 18/11/2026).
+  `FM_GRAINS` grains (600 by default) with the options of the
+  measurements, partitioned for the processes, computed by
+  `FM_EXECUTABLE_A` and `FM_EXECUTABLE_B`:
+  - on the GPUs, `FM_GPU_STEPS` steps (20 by default), the element matrices
+    being added in a fixed order (`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`):
+    the computations on the GPUs are then reproducible, which the two
+    computations of A check;
+  - on the cores, `FM_CPU_STEPS` steps (3 by default).
+  The `.res` file, the averages per grain and the lines of the iterations
+  must be the same bit for bit; the copies of the arrays of the materials
+  written at the end of the logs of the GPU computations are reported in
+  the journal. With hypre on the GPUs, two computations of the same
+  executable differ from the first step (18/11/2026), even with the ordered
+  assembly: `FM_GPU_OPTIONS=--hypre-on-host` gives reproducible GPU
+  computations, with `FM_GPU_PROCESSES=24` (24 processes per GPU, variable
+  `gpu_processes` of `cases/measure-polycrystal-grains.sh`) for hypre to
+  use all the cores, and `FM_MESH_GPU` for a mesh partitioned by the
+  program.
+- **`export-ab.slurm`: ParaView export before and after the patches of the
+  exports** (mfem-mgis 0302 to 0305, mm-opera-hpc 0054 and 0055,
+  18/11/2026). The displacement and the von Mises stress written at each
+  step, element matrices added in a fixed order, three computations on the
+  same nodes: A (two collections), B (one collection,
+  `PolycrystalParaviewResults`), B in single precision. `compare-vtu.py`
+  checks that the mesh and the fields of B are the ones of A, bit for bit,
+  and that the reals of the single precision export are the roundings of
+  the ones of B; the `.res` files and the averages per grain must be the
+  same. The journal gives the size and the number of files of each
+  collection and the times of the writing (sections
+  `ParaviewExportResults::Save` and `PolycrystalParaviewOutput::Save`).
+  With `FM_REFERENCE_EXPORT`, the fields of a previous computation (atomic
+  assembly, not reproducible) are compared within a relative tolerance.
+  The exported files are then removed, except the last cycle of the
+  collections of B (quota of files).
+- **`compare-vtu.py`: comparison of the ParaView files of two computations**,
+  decoded array by array (`.vtu` of MFEM, binary, compressed by zlib):
+  `split` (two collections against one), `same` (two collections, bit for
+  bit or within a tolerance), `float` (roundings in single precision).
 - **`perf-walltime.py`: wall clock time of the functions of one thread**,
   from the samples of `profile-host.slurm`:
   `perf script -i perf.data -F tid,time,ip,sym,dso | perf-walltime.py
@@ -329,8 +374,9 @@ All of them run `cases/measure-polycrystal-grains.sh`.
     the library of MFEM (built by the clang of ROCm) nor through the HIP
     runtime: these stacks are cut, and gathered under `(cut call stacks)`.
 - **Chains of jobs.** `perf-tests.slurm`, `ls-identity.slurm`,
-  `perf-ab.slurm`, `perf-load.slurm`, `perf-mutations.slurm` and
-  `host-threads.slurm` fail when a check fails and write
+  `perf-ab.slurm`, `perf-load.slurm`, `perf-mutations.slurm`,
+  `host-threads.slurm`, `synchro-identity.slurm` and `export-ab.slurm` fail
+  when a check fails and write
   the file `passed` in their results directory otherwise: the next job is
   submitted with `--dependency=afterok:<job>` and
   `FM_REQUIRE=<results>/passed` (see `common.sh`), so that a large job does

@@ -18,6 +18,10 @@
 # - gpus_per_node, cores_per_node: default 4 and 96 (MI300A of Adastra);
 # - cpu_threads: cores of each process of the CPU computation, and its
 #   threads of OpenMP (default 1: one process per core);
+# - gpu_processes: processes per GPU of the GPU computation (default 1);
+#   with more, each GPU is shared by several processes, which share the
+#   cores of the node (for instance with hypre on the host,
+#   --hypre-on-host: its computations then use all the cores);
 # - run_timeout_gpu, run_timeout_cpu: time limits of the computations in s
 #   (default 2400 and 10800; run_timeout, if given, for both);
 # - cpu_environment: variables given to the CPU computation only (for
@@ -37,7 +41,10 @@
 #   instance --single-material);
 # - paraview_export: `yes` to export the displacement to ParaView at each
 #   step, with the fields asked by extra_options (for instance
-#   --enable-export-von-Mises-stress); default `no`, the measurements;
+#   --enable-export-von-Mises-stress: both are then written in the same
+#   files, collection PolycrystalParaviewResults, since mm-opera-hpc 0055;
+#   --enable-paraview-single-precision: in single precision); default `no`,
+#   the measurements;
 # - behaviour_library_gpu, behaviour_library_cpu: libraries of the behaviour
 #   (generic-parallel interface on the GPU, generic interface on the CPU)
 #   instead of the ones of the builds, for instance variants of the law
@@ -81,6 +88,7 @@ nodes=${nodes:-${SLURM_JOB_NUM_NODES:-1}}
 gpus_per_node=${gpus_per_node:-4}
 cores_per_node=${cores_per_node:-96}
 cpu_threads=${cpu_threads:-1}
+gpu_processes=${gpu_processes:-1}
 run_timeout_gpu=${run_timeout_gpu:-${run_timeout:-2400}}
 run_timeout_cpu=${run_timeout_cpu:-${run_timeout:-10800}}
 read -r -a cpu_environment <<< "${cpu_environment:-}"
@@ -214,12 +222,12 @@ record() {
 }
 for mode in ${modes:-gpu cpu}; do
   if [ "$mode" = gpu ]; then
-    np=$((nodes * gpus_per_node))
-    threads=$((cores_per_node / gpus_per_node))
+    np=$((nodes * gpus_per_node * gpu_processes))
+    threads=$((cores_per_node / (gpus_per_node * gpu_processes)))
     # order of the GPUs of a node (the launcher takes the local rank modulo
     # the length of the list)
     gpu_order=$(python3 -I "$P/scripts/gpus-close-to-ranks.py" \
-      "$gpus_per_node" "$threads")
+      "$((gpus_per_node * gpu_processes))" "$threads")
     if [ -n "$gpu_order" ]; then
       if [ -n "${PROTO_GPU_PER_RANK:-}" ]; then
         export PROTO_GPU_RANK_ORDER=$gpu_order

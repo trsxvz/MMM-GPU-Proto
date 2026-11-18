@@ -6,9 +6,11 @@
 # computed on the host then by kernels
 # (MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels). The variable
 # `executable` gives another executable than the one of the build
-# directory (absolute path). The profiling sections of mfem-mgis separate
-# the copy of the materials to the host (NLEP::PP::synchronizeOnHost) from
-# the execution of the post-processings (NLEP::PP::execute). The ParaView
+# directory (absolute path). Up to the patch 0301 of mfem-mgis, the
+# profiling sections separated the copy of the materials to the host
+# (NLEP::PP::synchronizeOnHost) from the execution of the post-processings
+# (NLEP::PP::execute); since the patch 0302, each post-processing copies
+# what it reads, in NLEP::PP::execute. The ParaView
 # files are written in the build directory of the case, then deleted.
 #
 # usage: cases/measure-post-processings.sh [results directory]

@@ -29,7 +29,16 @@
 #   range of the first thread treated, ranges sharing an index, exception
 #   of a range not thrown again; setup of the global matrix
 #   (GlobalStiffnessMatrixTest): positions of the off diagonal block without
-#   their offset, entries of the selected row not kept.
+#   their offset, entries of the selected row not kept;
+# - copies of the arrays of the materials made by the codes which read them
+#   on the host (BatchIntegrationTest and MaterialArraysTest, on the host
+#   and on the debug device of MFEM): states copied to the host after an
+#   update or a revert on the device, tangent operator blocks not set to
+#   zero by a revert on the device, all the arrays copied to the host before
+#   the post-processings, mean values read on the host without
+#   synchronization;
+# - ParaView exports (ParaviewExportResultsTest): parameter SinglePrecision
+#   ignored, field added to the export not written.
 # Separate build on the local disk of the node (build-perf.sh in FM_FIX,
 # variant umpire: the MFEM with Umpire of FM_FIX must exist), in another
 # directory than the one of the executables of the measurements, which are
@@ -84,8 +93,12 @@ fixed_point=$src/src/FixedPointSolver.cxx
 newton=$src/src/NewtonSolver.cxx
 stiffness=$src/src/Batch/StiffnessMatrices.cxx
 threads=$src/src/Batch/HostThreads.hxx
+integrator=$src/src/BehaviourIntegratorBase.cxx
+problem_ixx=$src/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
+export_ixx=$src/include/MFEMMGIS/ParaviewExportResults.ixx
 files=("$global" "$global_kernels" "$points_kernels" "$base" "$problem"
-  "$solver" "$polycrystal" "$fixed_point" "$newton" "$stiffness" "$threads")
+  "$solver" "$polycrystal" "$fixed_point" "$newton" "$stiffness" "$threads"
+  "$integrator" "$problem_ixx" "$export_ixx")
 mkdir -p "$out/original"
 for f in "${files[@]}"; do
   cp "$f" "$out/original/$(basename "$f")"
@@ -108,7 +121,7 @@ undetected=""
 # executables, then runs the tests selected by the regular expression in
 # each mode of test_settings (common.sh)
 run_tests() {
-  local mode settings summary
+  local mode settings summary exclude=${5:-cuda|hip|gpu|GPU|debug}
   cd "$B/build/mfem-mgis-umpire" || exit 1
   # shellcheck disable=SC2086
   if ! cmake --build . --target $2 $behaviours -j 48 > "$out/build-$1.log" 2>&1; then
@@ -118,7 +131,7 @@ run_tests() {
   fi
   for mode in $4; do
     mapfile -t settings < <(test_settings "$mode")
-    env "${settings[@]}" ctest -R "$3" -E "cuda|hip|gpu|GPU|debug" \
+    env "${settings[@]}" ctest -R "$3" -E "$exclude" \
       --output-on-failure > "$out/ctest-$1-$mode.log" 2>&1
     summary=$(grep -E 'tests passed|tests failed|No tests were found' "$out/ctest-$1-$mode.log")
     log "$1, $mode: ${summary:-no summary}," \
@@ -203,6 +216,16 @@ pattern_tests() {
 threads_tests() {
   run_tests "$1" HostThreadsTest '^HostThreadsTest' host
 }
+# the debug device of MFEM, on the host, has copies on the device and checks
+# the accesses to the copies on the host
+copies_tests() {
+  run_tests "$1" "BatchIntegrationTest MaterialArraysTest" \
+    '^(BatchIntegrationTest|MaterialArraysTest)(-debug)?$' host \
+    "cuda|hip|gpu|GPU"
+}
+export_tests() {
+  run_tests "$1" ParaviewExportResultsTest '^ParaviewExportResultsTest' host
+}
 # usage: mutation name tests file pattern replacement [file pattern
 # replacement...]: applies a mutation, runs its tests, which must fail
 mutation() {
@@ -226,6 +249,10 @@ if selected original; then
   verdict original-pattern passed
   threads_tests original-threads
   verdict original-threads passed
+  copies_tests original-copies
+  verdict original-copies passed
+  export_tests original-export
+  verdict original-export passed
 fi
 # global matrix
 mutation g1-values-kept-by-hypre-not-freed global_tests "$global" \
@@ -325,6 +352,39 @@ mutation g5-positions-of-the-off-diagonal-block-without-offset global_tests "$gl
 mutation g6-entries-of-the-selected-row-not-kept global_tests "$global" \
   '      this->diagonal = keepEntries(this->diagonal_block, p.diag, r);' \
   '      this->diagonal = Row{p.diag.rows[r], p.diag.rows[r + 1]};'
+# copies of the arrays of the materials
+mutation c1-states-copied-to-the-host-after-an-update-on-the-device copies_tests "$integrator" \
+  '    // valid first (see `MaterialArrays`)
+  }  // end of copyStatesOnDevice' \
+  '    // valid first (see `MaterialArrays`)
+    this->synchronizeOnHost();
+  }  // end of copyStatesOnDevice'
+mutation c2-tangent-operator-not-zeroed-by-a-revert-on-the-device copies_tests "$integrator" \
+  '      v.K = relocate(v.K, arrays.writeTangentOperatorBlocks(),
+                     arrays.getTangentOperatorBlocks().Size());
+    }' \
+  '      v.K = {};
+    }'
+mutation c3-all-the-arrays-copied-before-the-post-processings copies_tests "$problem" \
+  'NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
+      Context& ctx, const real t, const real dt) noexcept {
+    CatchTimeSection(ctx, "NLEP::executePostProcessings");' \
+  'NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
+      Context& ctx, const real t, const real dt) noexcept {
+    CatchTimeSection(ctx, "NLEP::executePostProcessings");
+    if (this->mgis_integrator != nullptr) {
+      this->mgis_integrator->synchronizeOnHostForReading();
+    }'
+mutation c4-mean-values-read-without-synchronization copies_tests "$problem_ixx" \
+  '        if (!synchronized_on_host) {
+          if (!internals::synchronizeSelectedMaterialsOnHostForReading(' \
+  '        if (false) {
+          if (!internals::synchronizeSelectedMaterialsOnHostForReading('
+# ParaView exports
+mutation e1-single-precision-ignored export_tests "$export_ixx" \
+  '            ? mfem::VTKFormat::BINARY32' '            ? mfem::VTKFormat::BINARY'
+mutation e2-added-field-not-written export_tests "$export_ixx" \
+  '          this->exporter.RegisterField(n, g);' ''
 restore
 rm -rf "$B"
 if [ -z "$undetected" ]; then
