@@ -7909,3 +7909,173 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
 - Trap met: a script copied into the directory read by a job running the
   scripts it finds there was run while it was still empty; it is now
   copied under another name, then renamed.
+
+### 2026-11-18, polycrystal on the GPUs: arrays of the materials copied by the codes which read them, ParaView exports
+
+- Context: on the GPUs, the state of the materials went through the host
+  at each time step, read by nothing there in the configuration of the FM:
+  per process and per step, 7 arrays copied to the host and 5 back to the
+  GPU (256 MI300A, 20 steps: 25,600 copies to the GPUs and 35,840 to the
+  host, 0.87 s and 2.0 s). Two causes in mfem-mgis:
+  - before the post-processings (and the initial ones), the non linear
+    evolution problems made valid on the host all the arrays of all the
+    materials (states and tangent operator blocks), whatever the
+    post-processings read; the mean stresses computed by kernels
+    (`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels`) read them on the GPU;
+  - the update and the revert of a behaviour integrated on the GPU, made
+    there (patches 0036 and 0043), then synchronized all the states on the
+    host, which invalidated their copies on the GPU, and set the tangent
+    operator blocks to zero on the host after a revert: the first
+    integration of the next step copied the states back.
+- Principle: the arrays of the materials are `mfem::Vector`s, whose valid
+  copies MFEM tracks. Each code accessing them on the host makes valid
+  there what it reads or writes, when it does it (accessors of the
+  materials, `Material::synchronizeOnHost` and `...ForReading`: the rule of
+  `MaterialArrays` since October); what does not leave the GPU is not
+  copied. Without device, the synchronizations do nothing.
+- mfem-mgis, patch 0302: the global synchronization before the
+  post-processings is removed, with its section
+  `NLEP::PP::synchronizeOnHost`. The post-processings of mfem-mgis read
+  through the accessors or synchronize what they read (mean values on the
+  host, resultant force, energies, export at the integration points by
+  result name, von Mises and other mechanical post-processings); the
+  documentation of `addPostProcessing`, of `executePostProcessings`, of the
+  functions given to the export at the integration points and of
+  `StateManager` says that a code reading the states directly synchronizes
+  them. MaterialArraysTest: after all the arrays are written on the
+  device, the post-processings of the test copy one array to the host.
+- mfem-mgis, patch 0303: `BehaviourIntegratorBase::copyStatesOnDevice`
+  leaves the states on the GPU; the tangent operator blocks are set to
+  zero once, on the GPU, by the revert of MGIS (`ops.fill`, already made).
+  The update and the revert on the host and the ones of the point-wise
+  models (whose arrays the other materials read on the host,
+  `EXTERNAL_STORAGE`) are unchanged. BatchIntegrationTest: an update or a
+  revert on the device copies no array to the host, the states being read
+  after a synchronization; the debug device of MFEM, which protects the
+  copies on the host which are not valid, stopped the test at its direct
+  write in a state after an update, which now synchronizes first.
+  UniaxialTensileTest reads the values of the material after a
+  synchronization.
+- Readers and writers on the host checked one by one (table in the report
+  of 18/11): post-processings of mfem-mgis, of mm-opera-hpc (averages per
+  grain, von Mises stress, bubble) and of ex8, `getLinearizedOperators` and
+  the element by element computations, integration on the host
+  (`integrate`, `solve`), point-wise models, accessors and evaluators,
+  `StateManager`, revert after a failed step. There is no saving and
+  restart of the states of the materials (`Restart` is a read mode of the
+  mesh).
+- mfem-mgis, patch 0304: parameter `SinglePrecision` of
+  `ParaviewExportResults` and `ParaviewExportIntegrationPointResultsAtNodes`
+  (`false` by default): coordinates and fields written in `Float32`
+  (format `BINARY32` of MFEM), rounded to the nearest. Section
+  `ParaviewExportResults::Save` for the writing of the files. New test
+  `ParaviewExportResultsTest`.
+- mfem-mgis, patch 0305: `ParaviewExportResults::addField` adds a field
+  written with the unknowns in the same files (one mesh per export). Each
+  field is given by a function called at each export with the time step
+  stage of the unknowns; its grid function is registered for this export
+  only, a field on another mesh is refused. The header of the
+  post-processing is installed.
+- mm-opera-hpc, patches 0054 and 0055: option
+  `--enable-paraview-single-precision` of the polycrystal; with the
+  displacement and the von Mises stress (or the first eigen stress), one
+  collection, `PolycrystalParaviewResults`, written by the export of the
+  displacement with the L2 projections of the stresses as fields
+  (computed by one function, `projectStresses`, used by both exports). One
+  export alone is unchanged. New test
+  `UniaxialPolycrystalTest-ParaviewExports` (`check-paraview-exports.py`):
+  displacement alone, von Mises stress alone, both in single precision.
+- Measurements (Adastra, 1 node, 4 MI300A, 600 grains, 4.9 M unknowns
+  per GPU, configuration of the FM, results in
+  `fm/2026-11-18-synchro`):
+  - copies of the arrays of the materials over 20 steps: 400 to the GPUs
+    and 560 to the host before (142 GB and 426 GB, 0.77 s and 1.94 s),
+    20 to the GPUs (first upload of the initial state) and none to the
+    host after;
+  - three computations of each executable in turn (job 6034603,
+    `perf-ab.slurm`): 121.3 s against 126.2 s (121.1 to 122.3 against
+    125.7 to 126.9), energy 301 kJ against 310 kJ; post-processings 0.92 s
+    against 2.44 s, updates 0.02 s against 2.43 s, predictions (the first
+    integration of each step, which copied the states back) 3.43 s against
+    4.03 s, wall clock time from the end of the first step to the end of
+    the last one 78.1 s against 82.4 s;
+  - 2400 grains on 4 nodes, two computations of each in turn (job
+    6034605): 132.1 and 129.9 s against 145.3 and 136.1 s (the first one
+    late in its first assembly and linear solves), from the end of the
+    first step to the end of the last one 82.1 and 82.2 s against 88.1 and
+    85.1 s; 80 copies to the GPUs and none to the host against 1600 and
+    2240; the same three sections gain the same 4.5 s.
+- Identity bit for bit:
+  - on the cores (600 grains, 96 processes, 3 steps, job 6034601): same
+    `.res`, averages per grain and lines of the iterations;
+  - on the GPUs, two computations of the same executable differ from the
+    first step, even with the ordered assembly
+    (`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`): axial stress at the
+    end within 4e-7 between two computations of the previous executable
+    (job 6034601). With hypre on the host (`--hypre-on-host`), they are
+    the same bit for bit: hypre on the GPUs is not reproducible (100
+    grains, 3 steps: same outputs for A, A and B with hypre on the host,
+    job 6034753; A and A differ with hypre on the GPUs, job 6034754).
+    At 600 grains, hypre on the host is too slow for this check: about
+    40 s per iteration of the conjugate gradient on one core per process
+    (job 6034800), and the setup with 24 processes per GPU (variable
+    `gpu_processes` of `cases/measure-polycrystal-grains.sh`) did not end
+    in 24 min (job 6035023); the identity bit for bit at 600 grains is the
+    one of the cores.
+- ParaView exports, 600 grains, 20 steps, displacement and von Mises
+  stress (job 6034602, `export-ab.slurm`, ordered assembly):
+  | Export | Files | Size | Writing | Post-processings | Computation |
+  |---|---|---|---|---|---|
+  | two collections, before | 202 | 6.49 + 4.68 GB | about 354 s (186 s for the displacement, about 168 s for the stress) | 457 s | 603 s |
+  | one collection | 101 | 7.52 GB | 255 s | 391 s | 531 s |
+  | one collection, single precision | 101 | 4.39 GB | 226 s | 350 s | 492 s |
+
+  The writing is dominated by the evaluation of the fields element by
+  element and by the compression, not by the size. The meshes are the
+  same bit for bit, the fields differ as two GPU computations do (largest
+  relative difference of the von Mises stress 4e-7 at the end); against
+  the export of 18/11 (job 6033696, atomic assembly), 1.6e-5 for the
+  displacement and 1.1e-4 for the von Mises stress, relative to their
+  largest values (other assembly, other iterates of the solvers). The
+  last cycle, read by VTK 9.1 (the reader of ParaView) on the
+  workstation: 19,740,032 points, 4,935,008 cells, fields `u` and
+  `vonMisesStress`, `Float32` with the option. The L2 projections of the
+  stress took 127 s and 116 s in the single collection against 94 s in
+  two collections, without change of their code: not explained.
+- ParaView exports bit for bit, on the cores (reproducible; 100 grains,
+  96 processes, 3 steps, job 6034755): the mesh and the fields of the
+  single collection are the ones of the two collections of the previous
+  executable (3456 arrays, 133 M values, no difference), the reals of the
+  single precision export are the roundings to the nearest of the ones of
+  the double precision export (2016 arrays, no difference), and the
+  `.res` files and the averages per grain of the three computations are
+  the same.
+- Tests (jobs 6034600 and 6034790, `perf-tests.slurm`, 38 executables):
+  203 out of 203 on the host, 184 out of 184 on a MI300A with the kernels
+  forced and with the choices of each test, 26 out of 26 for the tests
+  selecting a device, 15 tests of the polycrystal, the polycrystal of 5
+  grains on 4 GPUs with the axial stress of 16/11; build without
+  `enable-openmp`: 50 out of 50 on the host, not run on a MI300A (quota
+  of files of the group reached, jobs 6034600 and 6035289). 6
+  mutations out of 6 detected (job 6034955): states copied to the host
+  after an update on the device, tangent operator blocks not set to zero
+  by a revert on the device, all the arrays copied before the
+  post-processings, mean values read on the host without synchronization
+  (tests on the debug device of MFEM), parameter `SinglePrecision`
+  ignored, field added to the export not written. CI (run 44368610681): in
+  double 61 tests of MGIS, 274 of mfem-mgis, 23 of the examples and 21 of
+  mm-opera-hpc, in float with `enable-openmp` 61, 276, 22 and 21, builds
+  with CUDA and with HIP.
+- Scripts: `synchro-identity.slurm` (outputs bit for bit, GPU computations
+  with hypre on the host), `export-ab.slurm` and `compare-vtu.py` (exports
+  compared array by array: two collections against one, roundings in
+  single precision, tolerance for the GPUs), variable `gpu_processes` of
+  `cases/measure-polycrystal-grains.sh` (processes per GPU), tests of the
+  other variants on the host (`FM_OTHER_MODES` of `perf-tests.slurm`).
+- Trap met: the quota of files of the group on the scratch reached its
+  hard limit at 19:47 (about 16,000 files written by other users in 30
+  min), then again at 20:03 after four unused build trees of `fix*` were
+  removed (sources kept, archives for three of them): the last tests of
+  6034600 could not write their outputs; the ones of the variant `umpire`
+  ran again in 6034790, not the ones of the variant without the option on
+  a MI300A (6035289).

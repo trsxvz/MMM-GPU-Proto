@@ -1011,7 +1011,10 @@ path, on CPU and on GPU.
 ## L8. Outputs and post-processings
 
 - First: copy to the host before each post-processing (`HostRead`),
-  current behaviour unchanged. With the component by component layout,
+  current behaviour unchanged. Since 18/11/2026 (patch 0302), this copy is
+  no longer made for all the arrays before the post-processings: each
+  post-processing copies the arrays it reads, through the accessors of the
+  materials. With the component by component layout,
   the accesses of the post-processings are to be adapted or the data to
   be transposed into a point by point copy.
 - Then, depending on the measurements: average thermodynamic forces,

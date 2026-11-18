@@ -104,9 +104,11 @@ What is already possible:
   read again on the GPU;
 - solver on the GPU with a matrix assembled on the host: MFEM copies the
   matrix into the memory of hypre;
-- post-processings on the host with a computation on the GPU:
-  synchronization of the materials on the host, already done by the
-  post-processings.
+- post-processings on the host with a computation on the GPU: each
+  post-processing makes valid on the host the arrays of the materials it
+  reads (accessors of the materials), and only them (since 18/11/2026,
+  mfem-mgis patch 0302; before, all the arrays of all the materials were
+  copied to the host before the post-processings).
 
 Real limits, to be refused with a clear message:
 

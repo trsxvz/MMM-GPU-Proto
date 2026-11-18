@@ -324,8 +324,18 @@ profile.
 
 ## Performance
 
-- The data stay on the GPU from one step to the next. No managed memory
-  on the all GPU path.
+- The data stay on the GPU from one step to the next (since 18/11/2026,
+  mfem-mgis patches 0302 and 0303): the arrays of the materials are copied
+  to the host only by the codes which read or write them there
+  (post-processings, accessors of the materials, integration on the
+  host), when they do it, through the accesses of MFEM which keep track of
+  the valid copies. Before, the update of the states and the
+  post-processings copied all the arrays to the host at each time step,
+  and the next step copied them back: on the polycrystal of the FM, 5
+  arrays to the GPU and 7 to the host per process and per step. Now, for
+  600 grains on one node and 20 steps, the arrays are copied 20 times to
+  the GPUs (their first upload) and never to the host, against 400 and 560
+  times. No managed memory on the all GPU path.
 - On 08/10, the `generic-parallel` kernels had not yet been measured
   seriously. First measurements planned: J2 behaviour by batch against
   the hand-written J2 kernel of the preliminary trials, point by point

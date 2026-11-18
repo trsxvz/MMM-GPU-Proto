@@ -1018,6 +1018,43 @@ it):
   10.27 and 9.37 s against 18.28 and 18.24 s, total 146.6 and 140.1 s
   against 152.3 and 149.0 s (job 6000171).
 
+Copies of the arrays of the materials made by the codes which read them on
+the host, ParaView exports in single precision and in one collection
+(18/11/2026, mfem-mgis patches 0302 to 0305, mm-opera-hpc patches 0054
+and 0055, results in `fm/2026-11-18-synchro` on the scratch of Adastra):
+
+- tests of mfem-mgis (jobs 6034600 and 6034790, `perf-tests.slurm`, 38
+  executables): 203 out of 203 on the host, 184 out of 184 on a MI300A
+  with the kernels forced and with the choices of each test, 26 out of 26
+  for the tests selecting a device; build without `enable-openmp`: 50 out
+  of 50 on the host (not run on a MI300A: quota of files of the group
+  reached); 15 tests of the polycrystal;
+- outputs of 600 grains on 96 cores identical bit for bit before and after
+  (3 steps, job 6034601, `synchro-identity.slurm`); on the GPUs, two
+  computations of the same executable differ with hypre on the GPUs, even
+  with the ordered assembly, and are the same bit for bit with hypre on the
+  host: 100 grains, 3 steps, same outputs before, before and after (job
+  6034753); at 600 grains, hypre on the host is too slow for this check;
+- ParaView exports on the cores (100 grains, 96 processes, 3 steps, job
+  6034755, `export-ab.slurm`, `compare-vtu.py`): the mesh and the fields
+  of the single collection are the ones of the two collections of the
+  previous executable, bit for bit, and the reals of the single precision
+  export are the roundings to the nearest of the ones of the double
+  precision export; on the GPUs (600 grains, 20 steps, job 6034602), same
+  meshes, fields within the differences of two GPU computations;
+- 6 mutations out of 6 detected (job 6034955, `c1` to `c4`, `e1`, `e2`);
+- on the CI (run 44368610681), in double 61 tests of MGIS, 274 of
+  mfem-mgis, 23 of the examples, 21 of mm-opera-hpc; in float, with
+  `enable-openmp`, 61, 276, 22 and 21; builds with CUDA and with HIP; all
+  passed;
+- 600 grains on 1 node, 20 steps, three computations of each executable in
+  turn (job 6034603, `perf-ab.slurm`): 20 copies of the arrays of the
+  materials to the GPUs and none to the host against 400 and 560, total
+  121.3 s against 126.2 s (means); 2400 grains on 4 nodes (job 6034605):
+  80 copies to the GPUs and none to the host against 1600 and 2240, from
+  the end of the first step to the end of the last one 82.1 and 82.2 s
+  against 88.1 and 85.1 s.
+
 The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
 in `cases/` (build `build/cases-post`, linked to an installation of
 mfem-mgis and to the builds of the examples and of mm-opera-hpc): each
