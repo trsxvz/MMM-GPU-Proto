@@ -31,7 +31,12 @@ namespace mfem_mgis {
     auto or_raise = ctx.getThrowingFailureHandler();
     checkParameters(throwing, params,
                     {"OutputFileName", "Materials", "Results",
-                     "ExecuteInitialPostProcessing"});
+                     "ExecuteInitialPostProcessing", "SinglePrecision"});
+    // values written in single precision (Float32) instead of double
+    // precision (Float64)
+    if (get_if<bool>(throwing, params, "SinglePrecision", false)) {
+      this->exporter.SetDataFormat(mfem::VTKFormat::BINARY32);
+    }
     // if Materials exists, use it, otherwise, take all materials
     this->materials_identifiers = getMaterialsIdentifiers(throwing, p, params);
     const auto all_mids = p.getAssignedMaterialsIdentifiers();

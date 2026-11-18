@@ -8,19 +8,40 @@
 #ifndef LIB_MFEMMGIS_PARAVIEWEXPORTRESULTS_HXX
 #define LIB_MFEMMGIS_PARAVIEWEXPORTRESULTS_HXX
 
+#include <string>
+#include <utility>
+#include <vector>
+#include <functional>
+#include <string_view>
 #include "mfem/fem/datacollection.hpp"
 #include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/MFEMForward.hxx"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/TimeStepStage.hxx"
 #include "MFEMMGIS/PostProcessing/NonLinearEvolutionProblemPostProcessingBase.hxx"
 
 namespace mfem_mgis {
 
   /*!
-   * \brief a post-processing to export the results to paraview
+   * \brief a post-processing to export the results to paraview: the
+   * unknowns and, optionally, other fields given by the calling code (see
+   * `addField`), in the same files
    */
   template <bool parallel>
   struct ParaviewExportResults final
       : public NonLinearEvolutionProblemPostProcessingBase<parallel> {
+    /*!
+     * \brief function giving a field exported with the unknowns (see
+     * `addField`). It is called at each export, before the files are
+     * written, with the time step stage of the exported unknowns: the
+     * beginning of the time step for the export at the initial time, the
+     * end of the time step otherwise. It returns the field, defined on the
+     * mesh of the export, which must stay alive until the files are
+     * written, or a null pointer on failure, the error being registered in
+     * the execution context.
+     */
+    using FieldFunction =
+        std::function<GridFunction<parallel>*(Context&, const TimeStepStage)>;
     /*!
      * \brief constructor
      * \param[in, out] ctx: execution context
@@ -30,6 +51,13 @@ namespace mfem_mgis {
     ParaviewExportResults(mgis::Context& ctx,
                           NonLinearEvolutionProblemImplementation<parallel>& pb,
                           const Parameters& params);
+    /*!
+     * \brief adds a field exported with the unknowns, in the same files:
+     * the mesh is written once per export for all the fields
+     * \param[in] n: name of the field in the files
+     * \param[in] f: function giving the field at each export
+     */
+    void addField(std::string_view n, FieldFunction f);
     /*!
      * \brief execute the post-processing at the initial time
      * \param[in, out] ctx: execution context
@@ -58,20 +86,28 @@ namespace mfem_mgis {
     ~ParaviewExportResults() override;
 
    private:
+    /*!
+     * \brief writes the files of an export
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] u: exported unknowns (true degrees of freedom), copied in
+     * `result`. A reference to the unknowns (`mfem::GridFunction::MakeTRef`)
+     * would be an alias whose validity flags are the ones of the unknowns
+     * when it is made: with or without prolongation, MFEM would copy stale
+     * values of the host over the unknowns computed on a device.
+     * \param[in] t: time
+     * \param[in] s: time step stage of the unknowns
+     */
+    [[nodiscard]] bool exportResults(Context& ctx,
+                                     const mfem::Vector& u,
+                                     const real t,
+                                     const TimeStepStage s) noexcept;
     //! \brief paraview exporter
     mfem::ParaViewDataCollection exporter;
     //! \brief exported grid function
     mfem_mgis::GridFunction<parallel> result;
-    /*!
-     * \brief exported unknowns (true degrees of freedom), copied in `result`
-     * at each export: the unknowns at the end of the time step, or at the
-     * beginning of the time step for the initial export. A reference to the
-     * unknowns (`mfem::GridFunction::MakeTRef`) would be an alias whose
-     * validity flags are the ones of the unknowns when it is made: with or
-     * without prolongation, MFEM would copy stale values of the host over
-     * the unknowns computed on a device.
-     */
-    const mfem::Vector* unknowns = nullptr;
+    //! \brief other exported fields: names and functions giving them
+    std::vector<std::pair<std::string, FieldFunction>> fields;
     //! \brief number of records
     size_type cycle;
     /*!

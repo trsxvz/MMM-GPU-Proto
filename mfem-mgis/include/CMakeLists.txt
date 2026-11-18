@@ -88,6 +88,8 @@ mfem_mgis_header(MFEMMGIS GridFunctionInterpolator.hxx)
 endif(MFEM_USE_GSLIB AND MGIS_HAVE_TFEL)
 mfem_mgis_header(MFEMMGIS ParaviewExportIntegrationPointResultsAtNodes.hxx)
 mfem_mgis_header(MFEMMGIS ParaviewExportIntegrationPointResultsAtNodes.ixx)
+mfem_mgis_header(MFEMMGIS ParaviewExportResults.hxx)
+mfem_mgis_header(MFEMMGIS ParaviewExportResults.ixx)
 
 mfem_mgis_header(MFEMMGIS/QPEvaluator AbstractQPEvaluator.hxx)
 mfem_mgis_header(MFEMMGIS/QPEvaluator AbstractQPEvaluatorGenerator.hxx)

@@ -1,0 +1,127 @@
+From c4163d21124938ab034934b39a35fc1cc29424e8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 18 Nov 2026 17:45:38 +0100
+Subject: [PATCH] Polycrystal: ParaView files in single precision (option
+ --enable-paraview-single-precision)
+
+The ParaView files of the polycrystal (displacement, von Mises stress,
+first eigen stress) are written in double precision: for 38,400 grains
+written at each of 20 time steps, about 670 GB. With the new option
+--enable-paraview-single-precision (disabled by default), the coordinates
+of the nodes and the fields are written in single precision (Float32,
+parameter SinglePrecision of the export of mfem-mgis, format BINARY32 of
+MFEM for the collection of the stresses), rounded to the nearest: the
+files take about half the room. Without the option, the files are the same.
+For 600 grains on one node, 20 steps, displacement and von Mises stress in
+one collection (next patch): 4.4 GB against 7.5 GB, written in 226 s
+against 255 s.
+
+The writing of the collection of the stresses is timed by the profiling
+section PolycrystalParaviewOutput::Save, as the one of the displacement by
+ParaviewExportResults::Save.
+---
+ polycrystal/README.md               |  1 +
+ polycrystal/UniaxialPolycrystal.cxx | 31 +++++++++++++++++++++--------
+ 2 files changed, 24 insertions(+), 8 deletions(-)
+
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index 3af4e42..d14caad 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -107,6 +107,7 @@ Usage: ./uniaxial-polycrystal --help
+ | `--single-material`, `--material-per-grain` | bool | `false` | One material for all the grains, whose orientations are given point by point, instead of one material per grain: the behaviour is integrated by one batch over all the grains (on a GPU, one kernel per phase instead of one per grain). The averages of the stresses per grain are written in the same file `avgStressPolycrystal`. |
+ | `--enable-export-von-Mises-stress`, `--disable-export-von-Mises-stress` | bool   | `false` | Export or not the von Mises stress.                                                                                               |
+ | `--enable-export-first_eigen_stress`, `--disable-export-first_eigen_stress` | bool   | `false` | Export or not the first eigen stress.                                                                                         |
++| `--enable-paraview-single-precision`, `--disable-paraview-single-precision` | bool | `false` | Write the ParaView files (displacement, von Mises stress, first eigen stress) in single precision (`Float32`) instead of double precision (`Float64`): the coordinates of the nodes and the fields are rounded to the nearest single precision value, and the files take about half the room. |
+ 
+ The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
+ to compute on a GPU, the behaviours built by the case for the GPU being then
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 6636586..578e90b 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -216,6 +216,9 @@ struct PostProcessingParameters {
+   //! \brief boolean stating if first eigen stress of the Cauchy stress is
+   //! exported to VTK
+   bool export_first_eigen_stress = false;
++  //! \brief boolean stating if the ParaView files are written in single
++  //! precision (Float32) instead of double precision (Float64)
++  bool paraview_single_precision = false;
+ };
+ 
+ // main parameters
+@@ -240,7 +243,7 @@ static void addPostProcessings(mfem_mgis::attributes::MayAbort,
+                                mfem_mgis::Context &,
+                                mfem_mgis::PeriodicNonLinearEvolutionProblem &,
+                                const std::string &,
+-                               const bool,
++                               const PostProcessingParameters &,
+                                const Grains &);
+ static void addOptionalPostProcessings(
+     mfem_mgis::attributes::MayAbort,
+@@ -441,8 +444,7 @@ int main(int argc, char *argv[]) {
+   mfem::ParaViewDataCollection *paraview_exporter = nullptr;
+   if (p.post_processings) {
+     addPostProcessings(mfem_mgis::may_abort, ctx, problem,
+-                       "OutputFile-Uniaxial-polycrystal", p.paraview_export,
+-                       grains);
++                       "OutputFile-Uniaxial-polycrystal", p, grains);
+     addOptionalPostProcessings(mfem_mgis::may_abort, ctx, problem, p,
+                                paraview_exporter);
+   }
+@@ -594,6 +596,14 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+                  "export the displacement to ParaView at each step (the "
+                  "averages of the stresses per grain are still computed)",
+                  false);
++  args.AddOption(&p.paraview_single_precision, "",
++                 "--enable-paraview-single-precision", "",
++                 "--disable-paraview-single-precision",
++                 "write the ParaView files (displacement, von Mises stress, "
++                 "first eigen stress) in single precision (Float32) instead "
++                 "of double precision (Float64): the files take about half "
++                 "the room",
++                 false);
+   args.AddOption(&p.single_material, "", "--single-material", "",
+                  "--material-per-grain",
+                  "one material for all the grains, oriented point by point "
+@@ -923,7 +933,9 @@ static void addOptionalPostProcessings(
+   auto or_die = ctx.getFatalFailureHandler();
+   // setup paraview
+   exporter = new mfem::ParaViewDataCollection("PolycrystalParaviewOutput");
+-  exporter->SetDataFormat(mfem::VTKFormat::BINARY);
++  exporter->SetDataFormat(params.paraview_single_precision
++                              ? mfem::VTKFormat::BINARY32
++                              : mfem::VTKFormat::BINARY);
+   exporter->SetMesh(&(p.getFiniteElementDiscretization().getMesh<true>()));
+ 
+   if (params.export_von_Mises_stress || params.export_first_eigen_stress) {
+@@ -996,6 +1008,7 @@ static void addOptionalPostProcessings(
+       }
+ 
+       // save paraview files
++      CatchTimeSection(ctx, "PolycrystalParaviewOutput::Save");
+       exporter->Save();
+     }) | or_die;
+   }
+@@ -1005,12 +1018,14 @@ static void addPostProcessings(mfem_mgis::attributes::MayAbort,
+                                mfem_mgis::Context &ctx,
+                                mfem_mgis::PeriodicNonLinearEvolutionProblem &p,
+                                const std::string &msg,
+-                               const bool paraview_export,
++                               const PostProcessingParameters &params,
+                                const Grains &grains) {
+   auto or_die = ctx.getFatalFailureHandler();
+-  if (paraview_export) {
+-    p.addPostProcessing(ctx, "ParaviewExportResults",
+-                        {{"OutputFileName", msg}}) |
++  if (params.paraview_export) {
++    p.addPostProcessing(
++        ctx, "ParaviewExportResults",
++        {{"OutputFileName", msg},
++         {"SinglePrecision", params.paraview_single_precision}}) |
+         or_die;
+   }
+   if (grains.number != 0) {
+-- 
+2.34.1
+

@@ -1,0 +1,444 @@
+From c8f53189f1e7b09dc443f193f6b5c227ffa2ffc8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 18 Nov 2026 17:44:10 +0100
+Subject: [PATCH] ParaviewExportResults: other fields written with the
+ unknowns, in the same files
+
+A program which exports the unknowns with `ParaviewExportResults` and
+other fields at the nodes, for instance an L2 projection of the stresses,
+writes them in two ParaView collections: each one writes the whole mesh at
+each export. For a polycrystal of 600 grains on one node, written at its 20
+time steps, the collection of the von Mises stress takes 4.4 GB, most of it
+being its mesh.
+
+`ParaviewExportResults::addField` adds a field written with the unknowns,
+in the same files: the mesh is written once per export for all the fields.
+Each field is given by a function called at each export, before the files
+are written, with the time step stage of the exported unknowns (beginning
+of the time step for the export at the initial time, end of the time step
+otherwise). It returns a grid function defined on the mesh of the export,
+which is registered in the collection for this export only, so that the
+function may give another one at the next export; a field defined on
+another mesh is refused. Without field, the files are the same as before.
+The header of the post-processing is installed: a program builds it,
+adds its fields, and gives it to the problem. For a polycrystal of 600
+grains on one node, 20 time steps (mm-opera-hpc), the displacement and the
+von Mises stress take one collection of 7.5 GB (101 files) against two of
+6.5 and 4.7 GB (202 files), written in 255 s against about 354 s.
+
+The export at the initial time and the exports at the end of the time
+steps now share one function, which receives the exported unknowns and
+their stage, instead of swapping the unknowns kept by the post-processing.
+
+ParaviewExportResultsTest: a field added to the export is written in the
+same files as the displacement, with one mesh, at the initial time and at
+the end of a time step, its function being called once per export with the
+stage of the unknowns; a field defined on another mesh is refused.
+---
+ .../general_post_processings.rst              | 23 +++++
+ include/CMakeLists.txt                        |  2 +
+ include/MFEMMGIS/ParaviewExportResults.hxx    | 58 ++++++++++---
+ include/MFEMMGIS/ParaviewExportResults.ixx    | 66 +++++++++++---
+ tests/ParaviewExportResultsTest.cxx           | 86 ++++++++++++++++++-
+ 5 files changed, 210 insertions(+), 25 deletions(-)
+
+diff --git a/docs/source/user_guide/post_processings/general_post_processings.rst b/docs/source/user_guide/post_processings/general_post_processings.rst
+index 27d9cc39a7..a934e25018 100644
+--- a/docs/source/user_guide/post_processings/general_post_processings.rst
++++ b/docs/source/user_guide/post_processings/general_post_processings.rst
+@@ -119,6 +119,29 @@ It is also possible to extract only portions of the mesh by defining either the
+ The time spent writing the files is given by the profiling section
+ ``ParaviewExportResults::Save``.
+ 
++Other fields may be written with the unknowns, in the same files, so that
++the mesh is written once per export: the post-processing is then built by
++the program, which adds the fields with the method :cxx:`addField`, and
++given to the problem. Each field is given by a function called at each
++export, before the files are written, with the time step stage of the
++exported unknowns (the beginning of the time step for the export at the
++initial time, the end of the time step otherwise). It returns a grid
++function defined on the mesh of the export, which stays alive until the
++files are written:
++
++.. code-block:: cpp
++
++  auto& i = problem.getImplementation<true>();
++  auto e = std::make_unique<mfem_mgis::ParaviewExportResults<true>>(
++      ctx, i, mfem_mgis::Parameters{{"OutputFileName", "Results"}});
++  // `stress` is a grid function computed at each export, for instance by
++  // an L2 projection of the stresses at the integration points
++  e->addField("Stress", [&stress](mfem_mgis::Context& ctx,
++                                  const mfem_mgis::TimeStepStage s) {
++    return computeStress(ctx, stress, s) ? stress.get() : nullptr;
++  });
++  i.addPostProcessing(ctx, std::move(e)) | or_die;
++
+ Export Integration Point Results At Nodes
+ ==========================================
+ 
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index 52face33a0..6b80864c3a 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -88,6 +88,8 @@ mfem_mgis_header(MFEMMGIS GridFunctionInterpolator.hxx)
+ endif(MFEM_USE_GSLIB AND MGIS_HAVE_TFEL)
+ mfem_mgis_header(MFEMMGIS ParaviewExportIntegrationPointResultsAtNodes.hxx)
+ mfem_mgis_header(MFEMMGIS ParaviewExportIntegrationPointResultsAtNodes.ixx)
++mfem_mgis_header(MFEMMGIS ParaviewExportResults.hxx)
++mfem_mgis_header(MFEMMGIS ParaviewExportResults.ixx)
+ 
+ mfem_mgis_header(MFEMMGIS/QPEvaluator AbstractQPEvaluator.hxx)
+ mfem_mgis_header(MFEMMGIS/QPEvaluator AbstractQPEvaluatorGenerator.hxx)
+diff --git a/include/MFEMMGIS/ParaviewExportResults.hxx b/include/MFEMMGIS/ParaviewExportResults.hxx
+index c50e596a31..db95b266ed 100644
+--- a/include/MFEMMGIS/ParaviewExportResults.hxx
++++ b/include/MFEMMGIS/ParaviewExportResults.hxx
+@@ -8,19 +8,40 @@
+ #ifndef LIB_MFEMMGIS_PARAVIEWEXPORTRESULTS_HXX
+ #define LIB_MFEMMGIS_PARAVIEWEXPORTRESULTS_HXX
+ 
++#include <string>
++#include <utility>
++#include <vector>
++#include <functional>
++#include <string_view>
+ #include "mfem/fem/datacollection.hpp"
+ #include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MFEMForward.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/TimeStepStage.hxx"
+ #include "MFEMMGIS/PostProcessing/NonLinearEvolutionProblemPostProcessingBase.hxx"
+ 
+ namespace mfem_mgis {
+ 
+   /*!
+-   * \brief a post-processing to export the results to paraview
++   * \brief a post-processing to export the results to paraview: the
++   * unknowns and, optionally, other fields given by the calling code (see
++   * `addField`), in the same files
+    */
+   template <bool parallel>
+   struct ParaviewExportResults final
+       : public NonLinearEvolutionProblemPostProcessingBase<parallel> {
++    /*!
++     * \brief function giving a field exported with the unknowns (see
++     * `addField`). It is called at each export, before the files are
++     * written, with the time step stage of the exported unknowns: the
++     * beginning of the time step for the export at the initial time, the
++     * end of the time step otherwise. It returns the field, defined on the
++     * mesh of the export, which must stay alive until the files are
++     * written, or a null pointer on failure, the error being registered in
++     * the execution context.
++     */
++    using FieldFunction =
++        std::function<GridFunction<parallel>*(Context&, const TimeStepStage)>;
+     /*!
+      * \brief constructor
+      * \param[in, out] ctx: execution context
+@@ -30,6 +51,13 @@ namespace mfem_mgis {
+     ParaviewExportResults(mgis::Context& ctx,
+                           NonLinearEvolutionProblemImplementation<parallel>& pb,
+                           const Parameters& params);
++    /*!
++     * \brief adds a field exported with the unknowns, in the same files:
++     * the mesh is written once per export for all the fields
++     * \param[in] n: name of the field in the files
++     * \param[in] f: function giving the field at each export
++     */
++    void addField(std::string_view n, FieldFunction f);
+     /*!
+      * \brief execute the post-processing at the initial time
+      * \param[in, out] ctx: execution context
+@@ -58,20 +86,28 @@ namespace mfem_mgis {
+     ~ParaviewExportResults() override;
+ 
+    private:
++    /*!
++     * \brief writes the files of an export
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] u: exported unknowns (true degrees of freedom), copied in
++     * `result`. A reference to the unknowns (`mfem::GridFunction::MakeTRef`)
++     * would be an alias whose validity flags are the ones of the unknowns
++     * when it is made: with or without prolongation, MFEM would copy stale
++     * values of the host over the unknowns computed on a device.
++     * \param[in] t: time
++     * \param[in] s: time step stage of the unknowns
++     */
++    [[nodiscard]] bool exportResults(Context& ctx,
++                                     const mfem::Vector& u,
++                                     const real t,
++                                     const TimeStepStage s) noexcept;
+     //! \brief paraview exporter
+     mfem::ParaViewDataCollection exporter;
+     //! \brief exported grid function
+     mfem_mgis::GridFunction<parallel> result;
+-    /*!
+-     * \brief exported unknowns (true degrees of freedom), copied in `result`
+-     * at each export: the unknowns at the end of the time step, or at the
+-     * beginning of the time step for the initial export. A reference to the
+-     * unknowns (`mfem::GridFunction::MakeTRef`) would be an alias whose
+-     * validity flags are the ones of the unknowns when it is made: with or
+-     * without prolongation, MFEM would copy stale values of the host over
+-     * the unknowns computed on a device.
+-     */
+-    const mfem::Vector* unknowns = nullptr;
++    //! \brief other exported fields: names and functions giving them
++    std::vector<std::pair<std::string, FieldFunction>> fields;
+     //! \brief number of records
+     size_type cycle;
+     /*!
+diff --git a/include/MFEMMGIS/ParaviewExportResults.ixx b/include/MFEMMGIS/ParaviewExportResults.ixx
+index d9ea6469b3..914696c309 100644
+--- a/include/MFEMMGIS/ParaviewExportResults.ixx
++++ b/include/MFEMMGIS/ParaviewExportResults.ixx
+@@ -80,7 +80,6 @@ namespace mfem_mgis {
+     auto or_raise = ctx.getThrowingFailureHandler();
+     //
+     this->result.SetSpace(&pb.getFiniteElementSpace());
+-    this->unknowns = &(pb.getUnknowns(ets));
+ 
+     /** Default, the mesh is the entire mesh */
+     Mesh<parallel>& pmesh = pb.getMesh();
+@@ -189,6 +188,16 @@ namespace mfem_mgis {
+     }
+   }  // end of ParaviewExportResults
+ 
++  template <bool parallel>
++  void ParaviewExportResults<parallel>::addField(std::string_view n,
++                                                 FieldFunction f) {
++    if (!f) {
++      raise("ParaviewExportResults::addField: invalid function for field '" +
++            std::string{n} + "'");
++    }
++    this->fields.emplace_back(std::string{n}, std::move(f));
++  }  // end of addField
++
+   template <bool parallel>
+   bool ParaviewExportResults<parallel>::executeInitialPostProcessing(
+       mgis::Context& ctx,
+@@ -197,31 +206,34 @@ namespace mfem_mgis {
+     if (!this->shallExecuteInitialPostProcessing) {
+       return true;
+     }
+-    // the unknowns at the end of the time step are exported (see the
+-    // constructor), and the ones at the beginning of the time step for this
+-    // export
+-    this->unknowns = &(p.getUnknowns(bts));
+-    auto success = this->execute(ctx, p, t, real{});
+-    this->unknowns = &(p.getUnknowns(ets));
+-    return success;
++    return this->exportResults(ctx, p.getUnknowns(bts), t, bts);
+   }  // end of executeInitialPostProcessing
+ 
+   template <bool parallel>
+   bool ParaviewExportResults<parallel>::execute(
+       mgis::Context& ctx,
+-      NonLinearEvolutionProblemImplementation<parallel>&,
++      NonLinearEvolutionProblemImplementation<parallel>& p,
+       const real t,
+       const real dt) noexcept {
++    return this->exportResults(ctx, p.getUnknowns(ets), t + dt, ets);
++  }  // end of execute
++
++  template <bool parallel>
++  bool ParaviewExportResults<parallel>::exportResults(
++      Context& ctx,
++      const mfem::Vector& u,
++      const real t,
++      const TimeStepStage s) noexcept {
+     CatchTimeSection(ctx, "ParaviewExportResults::Execute");
+     this->exporter.SetCycle(this->cycle);
+-    this->exporter.SetTime(t + dt);
++    this->exporter.SetTime(t);
+     // SetFromTrueDofs needed here in MFEM for at least two rationales:
+     //    - it applies prolongation matrix (Non-Conforming mesh, BCs, AMR ...)
+     //      to set the values of some unkwown dofs deduced from known dofs
+     //    - exchange data between processes in order to retrieve information
+     //      needed to perform the previous prolongation step
+     // The exporter writes the values of the host, made valid there.
+-    this->result.SetFromTrueDofs(*(this->unknowns));
++    this->result.SetFromTrueDofs(u);
+     if (submesh.get() != nullptr) {
+       /** Transfer data from global mesh to submesh */
+       this->submesh.get()->Transfer(this->result, this->result_sm.get()[0]);
+@@ -229,13 +241,41 @@ namespace mfem_mgis {
+     } else {
+       static_cast<void>(this->result.HostRead());
+     }
+-    {
++    // the other fields, registered for this export only: the functions may
++    // give other grid functions at the next one
++    const auto registered = [this, &ctx, s]() noexcept -> bool {
++      try {
++        for (const auto& [n, f] : this->fields) {
++          auto* const g = f(ctx, s);
++          if (g == nullptr) {
++            return false;
++          }
++          if (g->FESpace()->GetMesh() != this->exporter.GetMesh()) {
++            return ctx.registerErrorMessage(
++                "ParaviewExportResults: the field '" + n +
++                "' is not defined on the mesh of the export");
++          }
++          static_cast<void>(g->HostRead());
++          this->exporter.RegisterField(n, g);
++        }
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
++      return true;
++    }();
++    if (registered) {
+       CatchTimeSection(ctx, "ParaviewExportResults::Save");
+       this->exporter.Save();
+     }
++    for (const auto& field : this->fields) {
++      this->exporter.DeregisterField(field.first);
++    }
++    if (!registered) {
++      return false;
++    }
+     ++(this->cycle);
+     return true;
+-  }  // end of execute
++  }  // end of exportResults
+ 
+   template <bool parallel>
+   ParaviewExportResults<parallel>::~ParaviewExportResults() = default;
+diff --git a/tests/ParaviewExportResultsTest.cxx b/tests/ParaviewExportResultsTest.cxx
+index 04ec7084f1..e68f2e47b5 100644
+--- a/tests/ParaviewExportResultsTest.cxx
++++ b/tests/ParaviewExportResultsTest.cxx
+@@ -4,20 +4,29 @@
+  * of a non linear evolution problem for ParaView (`ParaviewExportResults`):
+  * the coordinates of the nodes and the fields are written in double
+  * precision by default, in single precision with the parameter
+- * `SinglePrecision`.
++ * `SinglePrecision`; the fields added to the export (`addField`) are written
++ * in the same files as the unknowns, on the same mesh.
+  * \date   18/11/2026
+  */
+ 
++#include <memory>
+ #include <string>
++#include <vector>
+ #include <cstdlib>
+ #include <fstream>
+ #include <sstream>
+ #include <iostream>
+ #include <string_view>
+ #include "mfem/general/optparser.hpp"
++#include "mfem/fem/fe_coll.hpp"
++#include "mfem/fem/fespace.hpp"
++#include "mfem/fem/gridfunc.hpp"
++#include "mfem/mesh/mesh.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
++#include "MFEMMGIS/ParaviewExportResults.hxx"
+ 
+ static int failures = 0;
+ 
+@@ -56,6 +65,59 @@ static std::size_t count(const std::string& s, const std::string_view p) {
+   return n;
+ }  // end of count
+ 
++/*!
++ * \brief adds to a problem an export of the unknowns with another field, on
++ * the space of the unknowns, set to 1 at the initial time and to 2 at the
++ * end of the time steps
++ * \return the time step stages given to the function of the field
++ * \param[in, out] ctx: execution context
++ * \param[in, out] problem: problem
++ * \param[in] d: directory of the export
++ */
++template <bool parallel>
++static std::shared_ptr<std::vector<mfem_mgis::TimeStepStage>> addFieldExport(
++    mfem_mgis::Context& ctx,
++    mfem_mgis::NonLinearEvolutionProblem& problem,
++    const std::string& d) {
++  using namespace mfem_mgis;
++  auto& i = problem.getImplementation<parallel>();
++  auto e = std::make_unique<ParaviewExportResults<parallel>>(
++      ctx, i, Parameters{{"OutputFileName", d}});
++  auto f = std::make_shared<GridFunction<parallel>>(&i.getFiniteElementSpace());
++  auto stages = std::make_shared<std::vector<TimeStepStage>>();
++  e->addField("f", [f, stages](Context&, const TimeStepStage s) {
++    stages->push_back(s);
++    *f = (s == bts) ? real{1} : real{2};
++    return f.get();
++  });
++  i.addPostProcessing(ctx, std::move(e)) | ctx.getFatalFailureHandler();
++  return stages;
++}  // end of addFieldExport
++
++/*!
++ * \brief checks that a field defined on another mesh than the one of the
++ * export is refused (sequential computations only)
++ * \param[in, out] ctx: execution context
++ * \param[in, out] problem: problem
++ * \param[in] d: directory of the export
++ */
++static void checkFieldOnAnotherMesh(
++    mfem_mgis::Context& ctx,
++    mfem_mgis::NonLinearEvolutionProblem& problem,
++    const std::string& d) {
++  using namespace mfem_mgis;
++  auto& i = problem.getImplementation<false>();
++  auto e = ParaviewExportResults<false>(ctx, i, {{"OutputFileName", d}});
++  auto mesh = mfem::Mesh::MakeCartesian3D(1, 1, 1, mfem::Element::HEXAHEDRON);
++  auto collection = mfem::H1_FECollection(1, 3);
++  auto space = mfem::FiniteElementSpace(&mesh, &collection, 3);
++  auto g = mfem::GridFunction(&space);
++  g = real{0};
++  e.addField("g", [&g](Context&, const TimeStepStage) { return &g; });
++  auto c = Context{};
++  check(!e.execute(c, i, 0, 1), "a field on another mesh is not refused");
++}  // end of checkFieldOnAnotherMesh
++
+ int main(int argc, char** argv) {
+   using namespace mfem_mgis;
+   initialize(argc, argv);
+@@ -94,8 +156,21 @@ int main(int argc, char** argv) {
+       ctx, "ParaviewExportResults",
+       {{"OutputFileName", s}, {"SinglePrecision", true}}) |
+       or_die;
++  // the displacement and another field, in the same files
++  const auto field_export = prefix + "-field";
++#ifdef MFEM_USE_MPI
++  const auto stages = parallel
++                          ? addFieldExport<true>(ctx, problem, field_export)
++                          : addFieldExport<false>(ctx, problem, field_export);
++#else  /* MFEM_USE_MPI */
++  const auto stages = addFieldExport<false>(ctx, problem, field_export);
++#endif /* MFEM_USE_MPI */
+   problem.executeInitialPostProcessings(ctx, 0) | or_die;
+   problem.executePostProcessings(ctx, 0, 1) | or_die;
++  check((stages->size() == 2) && (stages->front() == bts) &&
++            (stages->back() == ets),
++        "the function of the field is not called once per export, with the "
++        "stage of the exported unknowns");
+   for (const auto c : {0, 1}) {
+     const auto fd = readExportedFile(d, c);
+     check((count(fd, "type=\"Float64\"") == 2) &&
+@@ -109,6 +184,15 @@ int main(int argc, char** argv) {
+           "cycle " + std::to_string(c) +
+               ": coordinates and displacement not written in single "
+               "precision");
++    const auto ff = readExportedFile(field_export, c);
++    check((count(ff, "<Points>") == 1) && (count(ff, "Name=\"u\"") == 1) &&
++              (count(ff, "Name=\"f\"") == 1),
++          "cycle " + std::to_string(c) +
++              ": the displacement and the other field are not written in "
++              "the same file, on one mesh");
++  }
++  if (!parallel) {
++    checkFieldOnAnotherMesh(ctx, problem, prefix + "-other-mesh");
+   }
+   std::cout << (failures == 0 ? "success" : "failure") << '\n';
+   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+-- 
+2.34.1
+

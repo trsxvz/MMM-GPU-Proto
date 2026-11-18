@@ -202,4 +202,18 @@ add_test(NAME UniaxialPolycrystalTest-Prediction-Invalid
           --prediction Unknown)
 set_tests_properties(UniaxialPolycrystalTest-Prediction-Invalid PROPERTIES
   PASS_REGULAR_EXPRESSION "error: invalid prediction")
+# exports to ParaView, one time step: the displacement alone, the von Mises
+# stress alone, and both in the same files, with one mesh, in single
+# precision (check-paraview-exports.py)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME UniaxialPolycrystalTest-ParaviewExports
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check-paraview-exports.py
+            ${CMAKE_CURRENT_BINARY_DIR}/paraview-exports
+            -- $<TARGET_FILE:uniaxial-polycrystal>
+            --mesh ${CMAKE_CURRENT_BINARY_DIR}/mesh/5crystals.msh
+            --vect ${CMAKE_CURRENT_BINARY_DIR}/mesh/vectors_5crystals.txt
+            --enable-post-processing --nstep 1 --duration 0.2
+            --macroscopic-stress-output-file polycrystal-test-paraview.res)
+endif()
 add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)

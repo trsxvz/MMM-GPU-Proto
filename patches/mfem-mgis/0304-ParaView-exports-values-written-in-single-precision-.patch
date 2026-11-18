@@ -1,0 +1,276 @@
+From 0dde4f576b742e4ee64f4f574d8d5464966ef3e7 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 18 Nov 2026 17:42:08 +0100
+Subject: [PATCH] ParaView exports: values written in single precision
+ (parameter SinglePrecision)
+
+The exports for ParaView (`ParaviewExportResults`,
+`ParaviewExportIntegrationPointResultsAtNodes`) write the coordinates of
+the nodes and the fields in double precision (`Float64`), compressed. For
+a polycrystal of 38,400 grains whose displacement and stresses are written
+at each of its 20 time steps, they would write about 670 GB.
+
+The new optional parameter `SinglePrecision` (`false` by default) of both
+post-processings writes these values in single precision (`Float32`, the
+`BINARY32` format of MFEM), rounded to the nearest: the files take about
+half the room. Without it, the files are the same as before. For a
+polycrystal of 600 grains on one node (mm-opera-hpc), whose displacement
+and von Mises stress are written in one collection at each of its 20 time
+steps, the files take 4.4 GB against 7.5 GB, and are written in 226 s
+against 255 s (the writing is dominated by the evaluation of the fields
+element by element and by the compression, not by the size).
+
+The writing of the files of `ParaviewExportResults` is timed by its own
+profiling section, `ParaviewExportResults::Save`.
+
+ParaviewExportResultsTest (new): the coordinates of the nodes and the
+displacement are written in double precision by default and in single
+precision with the parameter, at the initial time and at the end of a time
+step, on one and two processes.
+---
+ .../general_post_processings.rst              |  12 +-
+ ...ewExportIntegrationPointResultsAtNodes.ixx |   7 +-
+ include/MFEMMGIS/ParaviewExportResults.ixx    |  16 ++-
+ tests/CMakeLists.txt                          |  14 +++
+ tests/ParaviewExportResultsTest.cxx           | 115 ++++++++++++++++++
+ 5 files changed, 159 insertions(+), 5 deletions(-)
+ create mode 100644 tests/ParaviewExportResultsTest.cxx
+
+diff --git a/docs/source/user_guide/post_processings/general_post_processings.rst b/docs/source/user_guide/post_processings/general_post_processings.rst
+index 603cd14503..27d9cc39a7 100644
+--- a/docs/source/user_guide/post_processings/general_post_processings.rst
++++ b/docs/source/user_guide/post_processings/general_post_processings.rst
+@@ -111,6 +111,13 @@ It is also possible to extract only portions of the mesh by defining either the
+ +------------------------------+--------------------------------------------------------------------------------------------+
+ | ExecuteInitialPostProcessing | Export the results at the initial time of the simulation (default: ``true``)               |
+ +------------------------------+--------------------------------------------------------------------------------------------+
++| SinglePrecision              | Write the coordinates of the nodes and the fields in single precision (``Float32``)        |
++|                              | instead of double precision (``Float64``), which halves the size of the files              |
++|                              | (default: ``false``)                                                                       |
+++------------------------------+--------------------------------------------------------------------------------------------+
++
++The time spent writing the files is given by the profiling section
++``ParaviewExportResults::Save``.
+ 
+ Export Integration Point Results At Nodes
+ ==========================================
+@@ -132,7 +139,10 @@ Export Integration Point Results At Nodes
+ 
+ The optional ``ExecuteInitialPostProcessing`` boolean parameter (``true`` by
+ default) states if the results are exported at the initial time of the
+-simulation.
++simulation. The optional ``SinglePrecision`` boolean parameter (``false`` by
++default) writes the coordinates of the nodes and the fields in single
++precision (``Float32``), as the parameter of the same name of
++``ParaviewExportResults``.
+ 
+ The values at the nodes are computed by kernels, on the GPU if a GPU is
+ used, when the post-processings are computed by kernels (environment
+diff --git a/include/MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.ixx b/include/MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.ixx
+index c8e232e466..080b809b59 100644
+--- a/include/MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.ixx
++++ b/include/MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.ixx
+@@ -31,7 +31,12 @@ namespace mfem_mgis {
+     auto or_raise = ctx.getThrowingFailureHandler();
+     checkParameters(throwing, params,
+                     {"OutputFileName", "Materials", "Results",
+-                     "ExecuteInitialPostProcessing"});
++                     "ExecuteInitialPostProcessing", "SinglePrecision"});
++    // values written in single precision (Float32) instead of double
++    // precision (Float64)
++    if (get_if<bool>(throwing, params, "SinglePrecision", false)) {
++      this->exporter.SetDataFormat(mfem::VTKFormat::BINARY32);
++    }
+     // if Materials exists, use it, otherwise, take all materials
+     this->materials_identifiers = getMaterialsIdentifiers(throwing, p, params);
+     const auto all_mids = p.getAssignedMaterialsIdentifiers();
+diff --git a/include/MFEMMGIS/ParaviewExportResults.ixx b/include/MFEMMGIS/ParaviewExportResults.ixx
+index bd0494ee87..d9ea6469b3 100644
+--- a/include/MFEMMGIS/ParaviewExportResults.ixx
++++ b/include/MFEMMGIS/ParaviewExportResults.ixx
+@@ -71,7 +71,11 @@ namespace mfem_mgis {
+              "printed"},
+             {"ExecuteInitialPostProcessing",
+              "boolean stating if the results shall be exported at the "
+-             "initial time of the simulation (optional, true by default)"}});
++             "initial time of the simulation (optional, true by default)"},
++            {"SinglePrecision",
++             "boolean stating if the values (coordinates of the nodes and "
++             "fields) are written in single precision (Float32) instead of "
++             "double precision (Float64) (optional, false by default)"}});
+     //
+     auto or_raise = ctx.getThrowingFailureHandler();
+     //
+@@ -152,7 +156,10 @@ namespace mfem_mgis {
+       }
+     }
+     // setting the exporter
+-    this->exporter.SetDataFormat(mfem::VTKFormat::BINARY);
++    this->exporter.SetDataFormat(
++        get_if<bool>(throwing, params, "SinglePrecision", false)
++            ? mfem::VTKFormat::BINARY32
++            : mfem::VTKFormat::BINARY);
+     if (this->submesh.get() != nullptr) {
+       /** Update exporter */
+       this->exporter.SetMesh(this->submesh.get());
+@@ -222,7 +229,10 @@ namespace mfem_mgis {
+     } else {
+       static_cast<void>(this->result.HostRead());
+     }
+-    this->exporter.Save();
++    {
++      CatchTimeSection(ctx, "ParaviewExportResults::Save");
++      this->exporter.Save();
++    }
+     ++(this->cycle);
+     return true;
+   }  // end of execute
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index ded6aeb9f5..835e5d0723 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1659,6 +1659,20 @@ if(MFEM_MGIS_HAVE_TFEL)
+     endif()
+   endif()
+ 
++  # ParaviewExportResultsTest executable: files written by the export of
++  # the unknowns for ParaView, in double or in single precision
++  add_test_executable(ParaviewExportResultsTest)
++  set(paraview_export_results_test_arguments
++      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh)
++  add_test(NAME ParaviewExportResultsTest
++           COMMAND ParaviewExportResultsTest
++                   ${paraview_export_results_test_arguments} --parallel 0)
++  if(MFEM_USE_MPI)
++    add_test(NAME ParaviewExportResultsTestP
++             COMMAND mpirun -n 2 ./ParaviewExportResultsTest
++                     ${paraview_export_results_test_arguments} --parallel 1)
++  endif()
++
+   # HostThreadsTest executable: loops of the host shared between the
+   # threads of OpenMP (internal header of the library, compiled as the
+   # library compiles it). With the option enable-openmp, a loop is shared
+diff --git a/tests/ParaviewExportResultsTest.cxx b/tests/ParaviewExportResultsTest.cxx
+new file mode 100644
+index 0000000000..04ec7084f1
+--- /dev/null
++++ b/tests/ParaviewExportResultsTest.cxx
+@@ -0,0 +1,115 @@
++/*!
++ * \file   tests/ParaviewExportResultsTest.cxx
++ * \brief  This test checks the files written by the export of the unknowns
++ * of a non linear evolution problem for ParaView (`ParaviewExportResults`):
++ * the coordinates of the nodes and the fields are written in double
++ * precision by default, in single precision with the parameter
++ * `SinglePrecision`.
++ * \date   18/11/2026
++ */
++
++#include <string>
++#include <cstdlib>
++#include <fstream>
++#include <sstream>
++#include <iostream>
++#include <string_view>
++#include "mfem/general/optparser.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    ++failures;
++    std::cerr << "check failed: " << msg << '\n';
++  }
++}  // end of check
++
++/*!
++ * \return the content of the file written by this process for a cycle of
++ * an export, empty if it can't be read
++ * \param[in] d: directory of the export
++ * \param[in] c: cycle
++ */
++static std::string readExportedFile(const std::string& d, const int c) {
++  auto cycle = std::to_string(c);
++  auto rank = std::to_string(mfem_mgis::getMPIRankForDefaultCommunicator());
++  const auto f = d + "/Cycle" + std::string(6 - cycle.size(), '0') + cycle +
++                 "/proc" + std::string(6 - rank.size(), '0') + rank + ".vtu";
++  auto in = std::ifstream(f);
++  auto s = std::ostringstream{};
++  s << in.rdbuf();
++  check(!s.str().empty(), "file '" + f + "' not read");
++  return s.str();
++}  // end of readExportedFile
++
++//! \return the number of occurrences of a pattern in a string
++static std::size_t count(const std::string& s, const std::string_view p) {
++  auto n = std::size_t{};
++  for (auto pos = s.find(p); pos != std::string::npos;
++       pos = s.find(p, pos + p.size())) {
++    ++n;
++  }
++  return n;
++}  // end of count
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* mesh = "cube.mesh";
++  int parallel = 0;
++  auto args = mfem::OptionsParser(argc, argv);
++  args.AddOption(&mesh, "-m", "--mesh", "mesh file");
++  args.AddOption(&parallel, "-p", "--parallel",
++                 "choose between serial (-p 0) and parallel (-p 1)");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  auto ctx = Context{};
++  auto or_die = ctx.getFatalFailureHandler();
++  auto problem = construct<NonLinearEvolutionProblem>(
++                     ctx, Parameters{{"MeshFileName", mesh},
++                                     {"FiniteElementFamily", "H1"},
++                                     {"FiniteElementOrder", 1},
++                                     {"UnknownsSize", 3},
++                                     {"Hypothesis", "Tridimensional"},
++                                     {"Parallel", bool(parallel)}}) |
++                 or_die;
++  const auto prefix = std::string{"ParaviewExportResultsTest-"} +
++                      std::to_string(getMPISizeForDefaultCommunicator());
++  // the coordinates of the nodes and the displacement are written in double
++  // precision by default, in single precision with the parameter
++  // `SinglePrecision`
++  const auto d = prefix + "-double";
++  const auto s = prefix + "-single";
++  problem.addPostProcessing(ctx, "ParaviewExportResults",
++                            {{"OutputFileName", d}}) |
++      or_die;
++  problem.addPostProcessing(
++      ctx, "ParaviewExportResults",
++      {{"OutputFileName", s}, {"SinglePrecision", true}}) |
++      or_die;
++  problem.executeInitialPostProcessings(ctx, 0) | or_die;
++  problem.executePostProcessings(ctx, 0, 1) | or_die;
++  for (const auto c : {0, 1}) {
++    const auto fd = readExportedFile(d, c);
++    check((count(fd, "type=\"Float64\"") == 2) &&
++              (count(fd, "type=\"Float32\"") == 0),
++          "cycle " + std::to_string(c) +
++              ": coordinates and displacement not written in double "
++              "precision");
++    const auto fs = readExportedFile(s, c);
++    check((count(fs, "type=\"Float32\"") == 2) &&
++              (count(fs, "type=\"Float64\"") == 0),
++          "cycle " + std::to_string(c) +
++              ": coordinates and displacement not written in single "
++              "precision");
++  }
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.34.1
+

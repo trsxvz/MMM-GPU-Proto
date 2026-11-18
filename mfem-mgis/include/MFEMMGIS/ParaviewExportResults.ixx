@@ -71,12 +71,15 @@ namespace mfem_mgis {
              "printed"},
             {"ExecuteInitialPostProcessing",
              "boolean stating if the results shall be exported at the "
-             "initial time of the simulation (optional, true by default)"}});
+             "initial time of the simulation (optional, true by default)"},
+            {"SinglePrecision",
+             "boolean stating if the values (coordinates of the nodes and "
+             "fields) are written in single precision (Float32) instead of "
+             "double precision (Float64) (optional, false by default)"}});
     //
     auto or_raise = ctx.getThrowingFailureHandler();
     //
     this->result.SetSpace(&pb.getFiniteElementSpace());
-    this->unknowns = &(pb.getUnknowns(ets));
 
     /** Default, the mesh is the entire mesh */
     Mesh<parallel>& pmesh = pb.getMesh();
@@ -152,7 +155,10 @@ namespace mfem_mgis {
       }
     }
     // setting the exporter
-    this->exporter.SetDataFormat(mfem::VTKFormat::BINARY);
+    this->exporter.SetDataFormat(
+        get_if<bool>(throwing, params, "SinglePrecision", false)
+            ? mfem::VTKFormat::BINARY32
+            : mfem::VTKFormat::BINARY);
     if (this->submesh.get() != nullptr) {
       /** Update exporter */
       this->exporter.SetMesh(this->submesh.get());
@@ -183,6 +189,16 @@ namespace mfem_mgis {
   }  // end of ParaviewExportResults
 
   template <bool parallel>
+  void ParaviewExportResults<parallel>::addField(std::string_view n,
+                                                 FieldFunction f) {
+    if (!f) {
+      raise("ParaviewExportResults::addField: invalid function for field '" +
+            std::string{n} + "'");
+    }
+    this->fields.emplace_back(std::string{n}, std::move(f));
+  }  // end of addField
+
+  template <bool parallel>
   bool ParaviewExportResults<parallel>::executeInitialPostProcessing(
       mgis::Context& ctx,
       NonLinearEvolutionProblemImplementation<parallel>& p,
@@ -190,31 +206,34 @@ namespace mfem_mgis {
     if (!this->shallExecuteInitialPostProcessing) {
       return true;
     }
-    // the unknowns at the end of the time step are exported (see the
-    // constructor), and the ones at the beginning of the time step for this
-    // export
-    this->unknowns = &(p.getUnknowns(bts));
-    auto success = this->execute(ctx, p, t, real{});
-    this->unknowns = &(p.getUnknowns(ets));
-    return success;
+    return this->exportResults(ctx, p.getUnknowns(bts), t, bts);
   }  // end of executeInitialPostProcessing
 
   template <bool parallel>
   bool ParaviewExportResults<parallel>::execute(
       mgis::Context& ctx,
-      NonLinearEvolutionProblemImplementation<parallel>&,
+      NonLinearEvolutionProblemImplementation<parallel>& p,
       const real t,
       const real dt) noexcept {
+    return this->exportResults(ctx, p.getUnknowns(ets), t + dt, ets);
+  }  // end of execute
+
+  template <bool parallel>
+  bool ParaviewExportResults<parallel>::exportResults(
+      Context& ctx,
+      const mfem::Vector& u,
+      const real t,
+      const TimeStepStage s) noexcept {
     CatchTimeSection(ctx, "ParaviewExportResults::Execute");
     this->exporter.SetCycle(this->cycle);
-    this->exporter.SetTime(t + dt);
+    this->exporter.SetTime(t);
     // SetFromTrueDofs needed here in MFEM for at least two rationales:
     //    - it applies prolongation matrix (Non-Conforming mesh, BCs, AMR ...)
     //      to set the values of some unkwown dofs deduced from known dofs
     //    - exchange data between processes in order to retrieve information
     //      needed to perform the previous prolongation step
     // The exporter writes the values of the host, made valid there.
-    this->result.SetFromTrueDofs(*(this->unknowns));
+    this->result.SetFromTrueDofs(u);
     if (submesh.get() != nullptr) {
       /** Transfer data from global mesh to submesh */
       this->submesh.get()->Transfer(this->result, this->result_sm.get()[0]);
@@ -222,10 +241,41 @@ namespace mfem_mgis {
     } else {
       static_cast<void>(this->result.HostRead());
     }
-    this->exporter.Save();
+    // the other fields, registered for this export only: the functions may
+    // give other grid functions at the next one
+    const auto registered = [this, &ctx, s]() noexcept -> bool {
+      try {
+        for (const auto& [n, f] : this->fields) {
+          auto* const g = f(ctx, s);
+          if (g == nullptr) {
+            return false;
+          }
+          if (g->FESpace()->GetMesh() != this->exporter.GetMesh()) {
+            return ctx.registerErrorMessage(
+                "ParaviewExportResults: the field '" + n +
+                "' is not defined on the mesh of the export");
+          }
+          static_cast<void>(g->HostRead());
+          this->exporter.RegisterField(n, g);
+        }
+      } catch (...) {
+        return registerExceptionInErrorBacktrace(ctx);
+      }
+      return true;
+    }();
+    if (registered) {
+      CatchTimeSection(ctx, "ParaviewExportResults::Save");
+      this->exporter.Save();
+    }
+    for (const auto& field : this->fields) {
+      this->exporter.DeregisterField(field.first);
+    }
+    if (!registered) {
+      return false;
+    }
     ++(this->cycle);
     return true;
-  }  // end of execute
+  }  // end of exportResults
 
   template <bool parallel>
   ParaviewExportResults<parallel>::~ParaviewExportResults() = default;

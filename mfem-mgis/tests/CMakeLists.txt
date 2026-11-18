@@ -1659,6 +1659,20 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif()
   endif()
 
+  # ParaviewExportResultsTest executable: files written by the export of
+  # the unknowns for ParaView, in double or in single precision
+  add_test_executable(ParaviewExportResultsTest)
+  set(paraview_export_results_test_arguments
+      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh)
+  add_test(NAME ParaviewExportResultsTest
+           COMMAND ParaviewExportResultsTest
+                   ${paraview_export_results_test_arguments} --parallel 0)
+  if(MFEM_USE_MPI)
+    add_test(NAME ParaviewExportResultsTestP
+             COMMAND mpirun -n 2 ./ParaviewExportResultsTest
+                     ${paraview_export_results_test_arguments} --parallel 1)
+  endif()
+
   # HostThreadsTest executable: loops of the host shared between the
   # threads of OpenMP (internal header of the library, compiled as the
   # library compiles it). With the option enable-openmp, a loop is shared

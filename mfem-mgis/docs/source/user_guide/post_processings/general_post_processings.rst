@@ -111,6 +111,36 @@ It is also possible to extract only portions of the mesh by defining either the 
 +------------------------------+--------------------------------------------------------------------------------------------+
 | ExecuteInitialPostProcessing | Export the results at the initial time of the simulation (default: ``true``)               |
 +------------------------------+--------------------------------------------------------------------------------------------+
+| SinglePrecision              | Write the coordinates of the nodes and the fields in single precision (``Float32``)        |
+|                              | instead of double precision (``Float64``), which halves the size of the files              |
+|                              | (default: ``false``)                                                                       |
++------------------------------+--------------------------------------------------------------------------------------------+
+
+The time spent writing the files is given by the profiling section
+``ParaviewExportResults::Save``.
+
+Other fields may be written with the unknowns, in the same files, so that
+the mesh is written once per export: the post-processing is then built by
+the program, which adds the fields with the method :cxx:`addField`, and
+given to the problem. Each field is given by a function called at each
+export, before the files are written, with the time step stage of the
+exported unknowns (the beginning of the time step for the export at the
+initial time, the end of the time step otherwise). It returns a grid
+function defined on the mesh of the export, which stays alive until the
+files are written:
+
+.. code-block:: cpp
+
+  auto& i = problem.getImplementation<true>();
+  auto e = std::make_unique<mfem_mgis::ParaviewExportResults<true>>(
+      ctx, i, mfem_mgis::Parameters{{"OutputFileName", "Results"}});
+  // `stress` is a grid function computed at each export, for instance by
+  // an L2 projection of the stresses at the integration points
+  e->addField("Stress", [&stress](mfem_mgis::Context& ctx,
+                                  const mfem_mgis::TimeStepStage s) {
+    return computeStress(ctx, stress, s) ? stress.get() : nullptr;
+  });
+  i.addPostProcessing(ctx, std::move(e)) | or_die;
 
 Export Integration Point Results At Nodes
 ==========================================
@@ -132,7 +162,10 @@ Export Integration Point Results At Nodes
 
 The optional ``ExecuteInitialPostProcessing`` boolean parameter (``true`` by
 default) states if the results are exported at the initial time of the
-simulation.
+simulation. The optional ``SinglePrecision`` boolean parameter (``false`` by
+default) writes the coordinates of the nodes and the fields in single
+precision (``Float32``), as the parameter of the same name of
+``ParaviewExportResults``.
 
 The values at the nodes are computed by kernels, on the GPU if a GPU is
 used, when the post-processings are computed by kernels (environment
