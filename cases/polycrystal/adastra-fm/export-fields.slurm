@@ -5,13 +5,16 @@
 # being asked by the variables of the measurement script (paraview_export=yes
 # and the options of the fields in extra_options, for instance
 # --enable-export-von-Mises-stress --enable-paraview-single-precision).
-# The files of a time step of an export (one directory CycleNNNNNN per step)
-# are gathered in one tar archive, CycleNNNNNN.tar, as soon as the step is
-# complete (the next one exists), the last step at the end: the number of
-# files of the group stays small (one or two steps at a time instead of all
-# of them). Each archive is checked (same number of files) before its files
-# are removed. The .pvd files are kept: after `tar xf CycleNNNNNN.tar` in
-# the directory of the export, ParaView reads the export unchanged.
+# Once the computation is over, the files of each time step of each export
+# (one directory CycleNNNNNN per step) are gathered in one tar archive,
+# CycleNNNNNN.tar, by archive-cycles.slurm: one process per step, spread over
+# the nodes of the allocation (archiving the steps one at a time during the
+# computation, with the default records of tar, ran at about 7 MB/s on
+# Lustre, far behind the computation). The number of files of the group thus
+# grows by the files of all the steps during the computation (about 5 per
+# step and per 4 GPUs), then falls to one per step. The .pvd files are kept:
+# after `tar xf CycleNNNNNN.tar` in the directory of the export, ParaView
+# reads the export unchanged.
 # usage, from the submission directory of fm-chain:
 #   sbatch -A genden15 --nodes=<n> --time=<t> --job-name=fm-export-fields \
 #     --export="ALL,FM_RUN=<run>,FM_PROTO=<scripts>,executable=<binary>,\
@@ -30,43 +33,12 @@
 source "$SLURM_SUBMIT_DIR/fm-chain/common.sh"
 computation=$R/series-g${FM_GRAINS:?}-$SLURM_JOB_ID/g${FM_GRAINS}c-rep1-r0-gpu-n$SLURM_JOB_NUM_NODES-best
 
-# archive_cycles <directory of the computation> [final]: archives the
-# complete steps of each export, and also the last ones with `final`
-archive_cycles() {
-  local export_dir cycles cycle name n i
-  for export_dir in "$1"/*/; do
-    mapfile -t cycles < <(find "$export_dir" -maxdepth 1 -type d \
-                               -name 'Cycle*' | sort)
-    n=${#cycles[@]}
-    [ -n "${2:-}" ] || n=$((n - 1))
-    for ((i = 0; i < n; i++)); do
-      cycle=${cycles[i]}
-      name=$(basename "$cycle")
-      if tar cf "$cycle.tar.part" -C "$export_dir" "$name" &&
-         [ "$(tar tf "$cycle.tar.part" | grep -vc '/$')" = \
-           "$(find "$cycle" -type f | wc -l)" ]; then
-        mv "$cycle.tar.part" "$cycle.tar" && rm -rf "$cycle"
-      else
-        rm -f "$cycle.tar.part"
-        log "archive of $cycle failed, its files are kept"
-      fi
-    done
-  done
-}
-
-done_file=$R/.export-fields-$SLURM_JOB_ID-done
-(
-  while [ ! -e "$done_file" ]; do
-    [ -d "$computation" ] && archive_cycles "$computation"
-    sleep 20
-  done
-) &
-archiver=$!
 FM_GPU_REPS=1 FM_CPU_REPS=0 bash "$SLURM_SUBMIT_DIR/fm-chain/series.slurm"
-touch "$done_file"
-wait "$archiver"
-[ -d "$computation" ] && archive_cycles "$computation" final
-rm -f "$done_file"
+mapfile -t exports < <(find "$computation" -mindepth 1 -maxdepth 1 -type d)
+if [ ${#exports[@]} -gt 0 ]; then
+  ARCHIVE_DIRS="${exports[*]}" ARCHIVE_SCRIPTS=$SLURM_SUBMIT_DIR/fm-chain \
+    bash "$SLURM_SUBMIT_DIR/fm-chain/archive-cycles.slurm"
+fi
 log "export of the fields: $(find "$computation" -name 'Cycle*.tar' | wc -l)" \
   "archives, $(find "$computation" -type d -name 'Cycle*' | wc -l) steps" \
   "left unarchived, $(du -sh "$computation" | cut -f1)"
