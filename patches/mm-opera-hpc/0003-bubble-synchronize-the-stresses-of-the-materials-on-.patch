@@ -1,0 +1,45 @@
+From 94753378cb100cd4ad90ccd51de988ec59f83756 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 16:33:19 +0200
+Subject: [PATCH] bubble: synchronize the stresses of the materials on the host
+ before reading them
+
+---
+ bubble/src/Utilities.cxx | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/bubble/src/Utilities.cxx b/bubble/src/Utilities.cxx
+index 8f51cad..b22f439 100644
+--- a/bubble/src/Utilities.cxx
++++ b/bubble/src/Utilities.cxx
+@@ -61,7 +61,8 @@ namespace opera_hpc {
+     }
+     const auto mid = l.material_identifier->id;
+ 
+-    // Pointer to stress values at end of time step
++    // Pointer to stress values at end of time step, read on the host
++    m.synchronizeOnHostForReading();
+     const auto *stress_values = m.s1.thermodynamic_forces.data();
+ 
+     // Initialize with very small value to find maximum
+@@ -180,6 +181,8 @@ namespace opera_hpc {
+           "materials");
+     }
+     const auto mid = l.material_identifier->id;
++    // stress values at the end of the time step, read on the host
++    m.synchronizeOnHostForReading();
+     const auto *stress_values = m.s1.thermodynamic_forces.data();
+ 
+     // Local collection of locations exceeding threshold
+@@ -328,6 +331,8 @@ namespace opera_hpc {
+           "materials");
+     }
+     const auto mid = l.material_identifier->id;
++    // stress values at the end of the time step, read on the host
++    m.synchronizeOnHostForReading();
+     const auto *stress_values = m.s1.thermodynamic_forces.data();
+ 
+     // Collect both stress values and locations
+-- 
+2.43.0
+

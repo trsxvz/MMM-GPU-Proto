@@ -1,4 +1,4 @@
-From b6e121c9bee7f286af1212e9eea72627846d6be6 Mon Sep 17 00:00:00 2001
+From 29b0f6dfaade7f9f303eb24c4b2ccae0d69f1531 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 22:50:22 +0100
 Subject: [PATCH] Tests of the second review of 3.2 adapted to the float
@@ -19,7 +19,7 @@ the other tests.
  6 files changed, 11 insertions(+), 6 deletions(-)
 
 diff --git a/tests/ComputeSpeedOfSoundTest2.cxx b/tests/ComputeSpeedOfSoundTest2.cxx
-index d71e556..6b09567 100644
+index d71e5566..6b095679 100644
 --- a/tests/ComputeSpeedOfSoundTest2.cxx
 +++ b/tests/ComputeSpeedOfSoundTest2.cxx
 @@ -60,7 +60,8 @@ int main(const int argc, const char* const* argv) {
@@ -33,7 +33,7 @@ index d71e556..6b09567 100644
            << "ComputeSpeedOfSoundTest: invalid time step increase factor\n";
        return EXIT_FAILURE;
 diff --git a/tests/EnergiesTest.cxx b/tests/EnergiesTest.cxx
-index 03c6ec0..296c0f1 100644
+index 03c6ec03..296c0f11 100644
 --- a/tests/EnergiesTest.cxx
 +++ b/tests/EnergiesTest.cxx
 @@ -22,6 +22,7 @@
@@ -54,7 +54,7 @@ index 03c6ec0..296c0f1 100644
  
  int main(const int argc, const char* const* argv) {
 diff --git a/tests/FiniteStrainConversionTest.cxx b/tests/FiniteStrainConversionTest.cxx
-index f0f9090..3a0956d 100644
+index f0f9090d..3a0956d6 100644
 --- a/tests/FiniteStrainConversionTest.cxx
 +++ b/tests/FiniteStrainConversionTest.cxx
 @@ -26,6 +26,7 @@
@@ -75,7 +75,7 @@ index f0f9090..3a0956d 100644
  
  int main(const int argc, const char* const* argv) {
 diff --git a/tests/MechanicalEvaluatorsTest.cxx b/tests/MechanicalEvaluatorsTest.cxx
-index eec1f26..3a19816 100644
+index eec1f269..3a198167 100644
 --- a/tests/MechanicalEvaluatorsTest.cxx
 +++ b/tests/MechanicalEvaluatorsTest.cxx
 @@ -151,7 +151,7 @@ struct MechanicalEvaluatorsTest final : public tfel::tests::TestCase {
@@ -88,7 +88,7 @@ index eec1f26..3a19816 100644
      auto space = BasicLinearSpace(1);
      const auto sig_ref =
 diff --git a/tests/RotateFunctionsTest.cxx b/tests/RotateFunctionsTest.cxx
-index d9d8cc8..03df9d2 100644
+index d9d8cc87..03df9d20 100644
 --- a/tests/RotateFunctionsTest.cxx
 +++ b/tests/RotateFunctionsTest.cxx
 @@ -11,13 +11,14 @@
@@ -108,7 +108,7 @@ index d9d8cc8..03df9d2 100644
        success = false;
      }
 diff --git a/tests/TangentOperatorTest.cxx b/tests/TangentOperatorTest.cxx
-index 62778b2..822d897 100644
+index 62778b27..822d897c 100644
 --- a/tests/TangentOperatorTest.cxx
 +++ b/tests/TangentOperatorTest.cxx
 @@ -22,6 +22,7 @@

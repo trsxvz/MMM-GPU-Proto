@@ -1,4 +1,4 @@
-From b5e5770a6dd1a1c39bd0ccf1ac84a59ae6e213e0 Mon Sep 17 00:00:00 2001
+From a2f6086aa5f182340a6997bcfcc30c9b70b545c8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 23:25:46 +0100
 Subject: [PATCH] Documentation: layouts per array and padding of the material
@@ -10,10 +10,10 @@ Subject: [PATCH] Documentation: layouts per array and padding of the material
  2 files changed, 97 insertions(+), 32 deletions(-)
 
 diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
-index 8239ac2..910be78 100644
+index c2e2c9f7..849ea62c 100644
 --- a/docs/web/release-notes-3.2.md
 +++ b/docs/web/release-notes-3.2.md
-@@ -411,10 +411,16 @@ This is described in a dedicated [page](views.html). In short:
+@@ -428,10 +428,16 @@ This is described in a dedicated [page](views.html). In short:
    of points, with a stride between two points and a stride between two
    components. A null point stride describes uniform values;
  - the `layout` member of `MaterialDataManagerInitializer` selects the
@@ -35,7 +35,7 @@ index 8239ac2..910be78 100644
    the calling code. The functions of the material data managers
    (integration, initialize functions, post-processings, end of time step,
 diff --git a/docs/web/views.md b/docs/web/views.md
-index fb5fa3c..18dc24f 100644
+index fb5fa3c3..18dc24f9 100644
 --- a/docs/web/views.md
 +++ b/docs/web/views.md
 @@ -47,7 +47,7 @@ Views are built by:

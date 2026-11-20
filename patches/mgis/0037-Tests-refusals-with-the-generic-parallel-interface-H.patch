@@ -1,4 +1,4 @@
-From 38d492879b798c39a0e2de8fe0e27790c9671380 Mon Sep 17 00:00:00 2001
+From 9859d8d7b8ede78c9b840af8a4a8d8d3a762ebb7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:07:49 +0200
 Subject: [PATCH] Tests: refusals with the generic-parallel interface, HDF5
@@ -16,7 +16,7 @@ Subject: [PATCH] Tests: refusals with the generic-parallel interface, HDF5
  2 files changed, 57 insertions(+), 4 deletions(-)
 
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index ef765b7..43809d0 100644
+index ef765b73..43809d03 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -924,10 +924,13 @@ static void testHDF5(const std::string& library) {
@@ -49,7 +49,7 @@ index ef765b7..43809d0 100644
        const auto nc = getVariableSize(b.esvs[k], h);
        check(same(mgis::makeFieldView(std::span<const real>(esvs[k]), l, n, nc),
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index 17051d5..dd939bd 100644
+index 17051d5f..dd939bd5 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -925,6 +925,52 @@ static void testErrors(const std::string& library,

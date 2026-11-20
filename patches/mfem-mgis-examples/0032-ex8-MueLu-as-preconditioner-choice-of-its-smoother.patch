@@ -1,4 +1,4 @@
-From e465f133008ee0891ee4f23821a290dbfcfcaac2 Mon Sep 17 00:00:00 2001
+From 43226083fab83b9a0f0fa07c3c7d5c84731940c3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 12:27:19 +0200
 Subject: [PATCH] ex8: MueLu as preconditioner, choice of its smoother

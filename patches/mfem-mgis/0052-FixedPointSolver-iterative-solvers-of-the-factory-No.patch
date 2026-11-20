@@ -1,4 +1,4 @@
-From 028e4b13281deab7c36b99823df02b4ccd948047 Mon Sep 17 00:00:00 2001
+From 9759a7add28686a76f0a16ea0c9a91fcbf02da92 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:51:33 +0200
 Subject: [PATCH] FixedPointSolver: iterative solvers of the factory, None for

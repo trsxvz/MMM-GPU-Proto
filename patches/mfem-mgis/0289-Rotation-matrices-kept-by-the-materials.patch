@@ -1,4 +1,4 @@
-From 78e4b51f4c001b25fa537821e626cbbb941fbd3f Mon Sep 17 00:00:00 2001
+From 8714661abbbf85ff2dca6f78c696f284a095aab9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 13 Nov 2026 23:14:32 +0100
 Subject: [PATCH] Rotation matrices kept by the materials
@@ -600,5 +600,5 @@ index 8d7dda486d..db5e79f04d 100644
    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
  }  // end of main
 -- 
-2.34.1
+2.43.0
 

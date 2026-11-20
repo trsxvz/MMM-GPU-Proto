@@ -1,4 +1,4 @@
-From 4bc56089440d2f1036e1ff907cfad767264b6f4c Mon Sep 17 00:00:00 2001
+From 3a74c36b93bb9df792477264a0667b019cacb429 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 13 Nov 2026 03:57:11 +0100
 Subject: [PATCH] Behaviours for the AMD GPUs: kernels bounded to blocks of 64
@@ -36,5 +36,5 @@ index 5f2a7e64dd..a09093c6fe 100644
        string(APPEND _hip_flags " --offload-arch=${_arch}")
      endforeach()
 -- 
-2.34.1
+2.43.0
 

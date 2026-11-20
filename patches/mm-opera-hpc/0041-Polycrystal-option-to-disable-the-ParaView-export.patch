@@ -1,0 +1,100 @@
+From a056290e6822abe9ebf6941f9dc56f6d33076d0b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 13 Nov 2026 14:01:03 +0100
+Subject: [PATCH] Polycrystal: option to disable the ParaView export
+
+Option --disable-paraview-export: with the post-processings, the averages
+of the stresses per grain are computed at each step (file
+avgStressPolycrystal) without exporting the displacement to ParaView,
+whose files are large for the meshes of several hundred million
+unknowns. The option --macroscopic-secant-acceleration is documented in
+the README.
+---
+ polycrystal/README.md               |  4 ++++
+ polycrystal/UniaxialPolycrystal.cxx | 24 +++++++++++++++++++-----
+ 2 files changed, 23 insertions(+), 5 deletions(-)
+
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index 7a1e781..0b1d342 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -90,8 +90,12 @@ Usage: ./uniaxial-polycrystal --help
+ | `--amgx-single-precision`, `--no-amgx-single-precision` | bool   | `false`                      | Computations of AmgX in single precision.                                                                                                     |
+ | `--linear-solver-preconditioner <string>`   | string | `HypreBoomerAMG`             | Preconditioner for the linear solver. Use `none` to disable.                                                                                  |
+ | `--macroscopic-stress-output-file <string>` | string | `uniaxial-polycrystal.res`   | Output file containing the evolution of the diagonal components of the deformation gradient and the diagonal components of the Cauchy stress. |
++| `--macroscopic-secant-acceleration`         | bool   | `false`                      | Update the lateral compliance of the fixed point on `Sxx` and `Syy` by Broyden's secant method instead of using the elastic one at each iteration (fewer resolutions of the mechanical problem once plasticity develops). |
++| `--no-macroscopic-secant-acceleration`      | bool   | —                            | Use the elastic lateral compliance at each iteration (default). |
+ | `--enable-post-processing`                  | bool   | `true`                       | Execute post-processing steps (default).                                                                                                      |
+ | `--disable-post-processing`                 | bool   | —                            | Do not execute post-processing steps.                                                                                                         |
++| `--enable-paraview-export`                  | bool   | `true`                       | With the post-processing steps, export the displacement to ParaView at each step (default); the averages of the stresses per grain (file `avgStressPolycrystal`) are always computed. |
++| `--disable-paraview-export`                 | bool   | —                            | Do not export the displacement to ParaView. |
+ | `--enable-export-von-Mises-stress`          | bool   | `false`                      | Export the von Mises stress.                                                                                                                  |
+ | `--disable-export-von-Mises-stress`         | bool   | —                            | Do not export the von Mises stress (default).                                                                                                 |
+ | `--enable-export-first_eigen_stress`        | bool   | `false`                      | Export the first principal stress.                                                                                                            |
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index ff787a5..902c03f 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -149,6 +149,10 @@ struct TimeDiscretizationParameters {
+ struct PostProcessingParameters {
+   //! \brief boolean state if post-processings shall be executed
+   bool post_processings = true;
++  //! \brief boolean stating if the displacement is exported to ParaView at
++  //! each step (only used if the post-processings are executed; the averages
++  //! of the stresses per grain are always computed)
++  bool paraview_export = true;
+   //! \brief boolean stating if the von Mises stress of the Cauchy stress is
+   //! exported to VTK
+   bool export_von_Mises_stress = false;
+@@ -178,7 +182,8 @@ static mfem_mgis::Parameter getElasticOperatorLinearSolver(
+ static void addPostProcessings(mfem_mgis::attributes::MayAbort,
+                                mfem_mgis::Context &,
+                                mfem_mgis::PeriodicNonLinearEvolutionProblem &,
+-                               const std::string &);
++                               const std::string &,
++                               const bool);
+ static void addOptionalPostProcessings(
+     mfem_mgis::attributes::MayAbort,
+     mfem_mgis::Context &,
+@@ -322,7 +327,7 @@ int main(int argc, char *argv[]) {
+   mfem::ParaViewDataCollection *paraview_exporter = nullptr;
+   if (p.post_processings) {
+     addPostProcessings(mfem_mgis::may_abort, ctx, problem,
+-                       "OutputFile-Uniaxial-polycrystal");
++                       "OutputFile-Uniaxial-polycrystal", p.paraview_export);
+     addOptionalPostProcessings(mfem_mgis::may_abort, ctx, problem, p,
+                                paraview_exporter);
+   }
+@@ -440,6 +445,11 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+   args.AddOption(&p.post_processings, "", "--enable-post-processing", "",
+                  "--disable-post-processing", "run post processing steps",
+                  false);
++  args.AddOption(&p.paraview_export, "", "--enable-paraview-export", "",
++                 "--disable-paraview-export",
++                 "export the displacement to ParaView at each step (the "
++                 "averages of the stresses per grain are still computed)",
++                 false);
+   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
+                  "choose the verbosity level");
+   args.AddOption(&p.duration, "-d", "--duration", "choose the duration");
+@@ -780,10 +790,14 @@ static void addOptionalPostProcessings(
+ static void addPostProcessings(mfem_mgis::attributes::MayAbort,
+                                mfem_mgis::Context &ctx,
+                                mfem_mgis::PeriodicNonLinearEvolutionProblem &p,
+-                               const std::string &msg) {
++                               const std::string &msg,
++                               const bool paraview_export) {
+   auto or_die = ctx.getFatalFailureHandler();
+-  p.addPostProcessing(ctx, "ParaviewExportResults", {{"OutputFileName", msg}}) |
+-      or_die;
++  if (paraview_export) {
++    p.addPostProcessing(ctx, "ParaviewExportResults",
++                        {{"OutputFileName", msg}}) |
++        or_die;
++  }
+   p.addPostProcessing(ctx, "MeanThermodynamicForces",
+                       {{"OutputFileName", "avgStressPolycrystal"}}) |
+       or_die;
+-- 
+2.43.0
+

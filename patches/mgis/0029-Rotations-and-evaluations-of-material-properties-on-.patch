@@ -1,4 +1,4 @@
-From 324f79e908b493d5ac3f1a1d023ebef5e148739e Mon Sep 17 00:00:00 2001
+From 02feeeb3e6369f37d83a597c7af30f66b190ec02 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:42:39 +0200
 Subject: [PATCH] Rotations and evaluations of material properties on views
@@ -30,7 +30,7 @@ Subject: [PATCH] Rotations and evaluations of material properties on views
  8 files changed, 2747 insertions(+), 634 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index 48e3242..a9c596d 100644
+index 48e32426..a9c596d3 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
 @@ -22,6 +22,7 @@
@@ -614,7 +614,7 @@ index 48e3242..a9c596d 100644
     * \brief set the value of a parameter
     * \param[in] b: behaviour description
 diff --git a/include/MGIS/MaterialProperty/MaterialProperty.hxx b/include/MGIS/MaterialProperty/MaterialProperty.hxx
-index 1131abf..0ebb193 100644
+index 1131abfb..0ebb1932 100644
 --- a/include/MGIS/MaterialProperty/MaterialProperty.hxx
 +++ b/include/MGIS/MaterialProperty/MaterialProperty.hxx
 @@ -21,6 +21,7 @@
@@ -695,7 +695,7 @@ index 1131abf..0ebb193 100644
  
  #endif /* LIB_MGIS_MATERIALPROPERTY_MATERIALPROPERTY_HXX */
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 995dbdf..c8c6d31 100644
+index 995dbdfa..c8c6d31b 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -12,12 +12,14 @@
@@ -2647,7 +2647,7 @@ index 995dbdf..c8c6d31 100644
  
    void setParameter(const Behaviour &b, const std::string &n, const double v) {
 diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
-index 0a1ab71..4d28a04 100644
+index 0a1ab71f..4d28a042 100644
 --- a/src/MaterialProperty.cxx
 +++ b/src/MaterialProperty.cxx
 @@ -12,9 +12,12 @@
@@ -3061,7 +3061,7 @@ index 0a1ab71..4d28a04 100644
  
  }  // end of namespace mgis::material_property
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index b5ea5d7..99efa2b 100644
+index b5ea5d71..99efa2b2 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -279,10 +279,13 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -3081,7 +3081,7 @@ index b5ea5d7..99efa2b 100644
      endif(enable-generic-parallel-cuda-tests)
    endif(EXISTS "${TFEL_INCLUDE_PATH}/MFront/GenericParallelBehaviour/BatchData.h")
 diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
-index 28523f9..576c8d3 100644
+index 28523f93..576c8d31 100644
 --- a/tests/FieldOperationsCUDATest.cu
 +++ b/tests/FieldOperationsCUDATest.cu
 @@ -7,7 +7,8 @@
@@ -3352,7 +3352,7 @@ index 28523f9..576c8d3 100644
      std::cerr << e.what() << '\n';
      return EXIT_FAILURE;
 diff --git a/tests/GenericParallelEvaluateTest.cxx b/tests/GenericParallelEvaluateTest.cxx
-index 9334f3d..81fac40 100644
+index 9334f3d7..81fac40d 100644
 --- a/tests/GenericParallelEvaluateTest.cxx
 +++ b/tests/GenericParallelEvaluateTest.cxx
 @@ -14,6 +14,8 @@
@@ -3542,7 +3542,7 @@ index 9334f3d..81fac40 100644
      std::cerr << e.what() << '\n';
      return EXIT_FAILURE;
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index 89d13c4..6eac51b 100644
+index 89d13c4d..6eac51ba 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -14,6 +14,10 @@

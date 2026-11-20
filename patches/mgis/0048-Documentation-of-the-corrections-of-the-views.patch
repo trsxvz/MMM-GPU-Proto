@@ -1,4 +1,4 @@
-From b9fa1259f0dec99c90af391f998218a10734793b Mon Sep 17 00:00:00 2001
+From c5fabf9ed70c7770f9bcb80fda4d0549665ddb97 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:31:31 +0200
 Subject: [PATCH] Documentation of the corrections of the views
@@ -21,7 +21,7 @@ Subject: [PATCH] Documentation of the corrections of the views
  4 files changed, 95 insertions(+), 27 deletions(-)
 
 diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
-index 7ef8066..10b96a5 100644
+index 7ef8066f..10b96a53 100644
 --- a/docs/web/generic-parallel.md
 +++ b/docs/web/generic-parallel.md
 @@ -91,7 +91,10 @@ The data of the material data manager are mapped as follows:
@@ -37,10 +37,10 @@ index 7ef8066..10b96a5 100644
  Contrary to the integration point by point, all the points of the batch
  are integrated, even if the integration fails at some points. The result
 diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
-index 4d862f1..7e49699 100644
+index 01b43a8f..d04283a6 100644
 --- a/docs/web/release-notes-3.2.md
 +++ b/docs/web/release-notes-3.2.md
-@@ -373,8 +373,11 @@ This is described in a dedicated [page](views.html). In short:
+@@ -390,8 +390,11 @@ This is described in a dedicated [page](views.html). In short:
    by component;
  - the layout is exposed by the `C`, `Fortran` and `Python` bindings.
  
@@ -55,7 +55,7 @@ index 4d862f1..7e49699 100644
  # New features of the `MGIS/Behaviour` library
  
 diff --git a/docs/web/views.md b/docs/web/views.md
-index a181dd0..a1898be 100644
+index a181dd0e..a1898be2 100644
 --- a/docs/web/views.md
 +++ b/docs/web/views.md
 @@ -52,6 +52,7 @@ Views are built by:
@@ -196,7 +196,7 @@ index a181dd0..a1898be 100644
    thermodynamic forces, the internal state variables and the energies. The
    material properties and the external state variables of a view belong to
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 7281405..00fdffd 100644
+index 72814059..00fdffdb 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -220,7 +220,8 @@ namespace mgis::behaviour {

@@ -1,4 +1,4 @@
-From afc02f264f1f089c3ac47f8b8c5e17d456c99202 Mon Sep 17 00:00:00 2001
+From 5d5bf24ce2293e5b8f220afc583cf2088d8c1dc4 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:29:42 +0200
 Subject: [PATCH] Bindings: layout of the managers, Fortran tangent operator,
@@ -24,7 +24,7 @@ Subject: [PATCH] Bindings: layout of the managers, Fortran tangent operator,
  6 files changed, 92 insertions(+), 1 deletion(-)
 
 diff --git a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
-index a0f624b..625da3a 100644
+index a0f624b4..625da3aa 100644
 --- a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 +++ b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 @@ -199,7 +199,8 @@ MGIS_C_EXPORT mgis_status
@@ -51,7 +51,7 @@ index a0f624b..625da3a 100644
   * \brief update the material data manager
   * \param[in,out] d: data manager
 diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
-index 1409399..cebb570 100644
+index 14093994..cebb5704 100644
 --- a/bindings/c/src/MaterialDataManager.cxx
 +++ b/bindings/c/src/MaterialDataManager.cxx
 @@ -376,6 +376,19 @@ mgis_status mgis_bv_material_data_manager_get_number_of_tangent_operator_blocks(
@@ -75,7 +75,7 @@ index 1409399..cebb570 100644
      mgis_bv_MaterialDataManager* const d) {
    if (d == nullptr) {
 diff --git a/bindings/c/tests/LayoutTest-c.c b/bindings/c/tests/LayoutTest-c.c
-index 7b2d842..3c99059 100644
+index 7b2d8423..3c99059e 100644
 --- a/bindings/c/tests/LayoutTest-c.c
 +++ b/bindings/c/tests/LayoutTest-c.c
 @@ -103,6 +103,14 @@ int main(const int argc, const char* const* argv) {
@@ -94,7 +94,7 @@ index 7b2d842..3c99059 100644
    check_status(mgis_bv_material_data_manager_get_state_1(&s1, m));
    check_status(mgis_bv_material_state_manager_get_layout(&l, s1));
 diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
-index 6908247..e250e78 100644
+index 69082470..e250e780 100644
 --- a/bindings/fortran/src/mgis_behaviour.f90
 +++ b/bindings/fortran/src/mgis_behaviour.f90
 @@ -4072,6 +4072,28 @@ contains
@@ -139,7 +139,7 @@ index 6908247..e250e78 100644
      if( r%exit_status .ne. MGIS_SUCCESS) then
         return
 diff --git a/bindings/fortran/tests/LayoutTest-f.f90 b/bindings/fortran/tests/LayoutTest-f.f90
-index d4dff59..2d2fbd3 100644
+index d4dff59f..2d2fbd3f 100644
 --- a/bindings/fortran/tests/LayoutTest-f.f90
 +++ b/bindings/fortran/tests/LayoutTest-f.f90
 @@ -20,6 +20,7 @@ subroutine test()
@@ -186,7 +186,7 @@ index d4dff59..2d2fbd3 100644
    call check_status(free_material_data_manager(m))
    call check_status(free_material_data_manager_initializer(i))
 diff --git a/bindings/python/tests/LayoutTest.py b/bindings/python/tests/LayoutTest.py
-index 8a118c1..2503c2c 100644
+index 8a118c12..2503c2c7 100644
 --- a/bindings/python/tests/LayoutTest.py
 +++ b/bindings/python/tests/LayoutTest.py
 @@ -5,6 +5,7 @@

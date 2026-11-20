@@ -1,4 +1,4 @@
-From 94a47fb80bc9e7ec96db043465c2b5b93ae32afb Mon Sep 17 00:00:00 2001
+From 3bd4a14c883772b6ae8105964f59ee3ef68c3b12 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 11:04:53 +0200
 Subject: [PATCH] Kernels: global tangent operator with the pattern and the

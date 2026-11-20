@@ -2,7 +2,7 @@ project(OperaHPCCermetExample)
 
 # Copy
 file(COPY law mesh results DESTINATION ${PROJECT_BINARY_DIR})
-file(COPY mesh/vectors_5grains.txt check_cermet_restults.py plot_cermet_results.py DESTINATION ${PROJECT_BINARY_DIR})
+file(COPY mesh/vectors_5grains.txt check_cermet_results.py plot_cermet_results.py DESTINATION ${PROJECT_BINARY_DIR})
 
 # Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU, chosen
 # at run time by mfem_mgis::getBehavioursLibrary from the option --execution
@@ -28,24 +28,24 @@ add_dependencies(check cermet BehavioursCermet)
 # at 0.4 s.
 set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
 set(_cermet_options --duration 0.4 --nstep 2 --postprocessing 0)
-mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY
+mm_opera_hpc_add_checked_test(NAME CermetTest
   FILE cermet-test.res ${_cermet_checks}
   COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
           --macroscopic-stress-output-file cermet-test.res)
+add_test(NAME CermetTestWithPostProPar COMMAND mpirun -n 2 ./cermet --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)
 # the same with the displacement gradient given to the behaviours
-mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY-DisplacementGradient
+mm_opera_hpc_add_checked_test(NAME CermetTest-DisplacementGradient
   FILE cermet-test-dg.res ${_cermet_checks}
   COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
           --macroscopic-stress-output-file cermet-test-dg.res
           --displacement-gradient)
-add_test(NAME CermetImposeGradXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
 if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursCermet_HAVE_GPU_BEHAVIOURS)
-  mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY-gpu
+  mm_opera_hpc_add_checked_test(NAME CermetTest-gpu
     FILE cermet-test-gpu.res ${_cermet_checks}
     COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
             --macroscopic-stress-output-file cermet-test-gpu.res
             --execution gpu)
-  set_tests_properties(CermetNullStrainXXYY-gpu PROPERTIES RESOURCE_LOCK gpu)
+  set_tests_properties(CermetTest-gpu PROPERTIES RESOURCE_LOCK gpu)
 endif()
 
 ## Install

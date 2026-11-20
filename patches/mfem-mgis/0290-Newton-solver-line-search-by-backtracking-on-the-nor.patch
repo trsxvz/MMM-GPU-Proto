@@ -1,4 +1,4 @@
-From 9bdfd979d323af67669e1c94d1f67f0055b8e881 Mon Sep 17 00:00:00 2001
+From 3b4c05ab99b5335773dbf8e61d728434c47772dd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 14 Nov 2026 02:34:58 +0100
 Subject: [PATCH] Newton solver: line search by backtracking on the norm of the
@@ -2281,5 +2281,5 @@ index 0000000000..9ee8438e4f
 +  }
 +}
 -- 
-2.34.1
+2.43.0
 

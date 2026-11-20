@@ -1,4 +1,4 @@
-From 998a2aa50e80ef418a975069995ddc99fb944566 Mon Sep 17 00:00:00 2001
+From 0a8cb053b5963982d68c6e8173c4e314df38a9f6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 14:16:46 +0200
 Subject: [PATCH] Material properties of the generic-parallel interface
@@ -46,7 +46,7 @@ Subject: [PATCH] Material properties of the generic-parallel interface
  create mode 100644 include/MGIS/MemoryLocation.hxx
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 88fa648..1fe76d0 100644
+index 88fa6483..1fe76d0d 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -234,6 +234,7 @@ if(NOT disable-tfel)
@@ -58,7 +58,7 @@ index 88fa648..1fe76d0 100644
  endif(NOT disable-tfel)
  
 diff --git a/cmake/modules/behaviours.cmake b/cmake/modules/behaviours.cmake
-index 2ee41df..b696b29 100644
+index 2ee41df0..b696b29e 100644
 --- a/cmake/modules/behaviours.cmake
 +++ b/cmake/modules/behaviours.cmake
 @@ -87,77 +87,3 @@ function(mfront_behaviours_check_library name)
@@ -141,7 +141,7 @@ index 2ee41df..b696b29 100644
 -endfunction(mfront_generic_parallel_behaviours_check_library)
 diff --git a/cmake/modules/generic-parallel.cmake b/cmake/modules/generic-parallel.cmake
 new file mode 100644
-index 0000000..ccebbc3
+index 00000000..ccebbc3b
 --- /dev/null
 +++ b/cmake/modules/generic-parallel.cmake
 @@ -0,0 +1,101 @@
@@ -247,7 +247,7 @@ index 0000000..ccebbc3
 +    ${backend} ${ARGN})
 +endfunction(mfront_generic_parallel_material_properties_check_library)
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 448a362..82f554d 100644
+index 448a362c..82f554df 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -1,5 +1,6 @@
@@ -274,7 +274,7 @@ index 448a362..82f554d 100644
  mgis_header(MGIS/MemoryResources HIPManagedMemoryResource.hxx)
  mgis_header(MGIS/MemoryResources SYCLSharedMemoryResource.hxx)
 diff --git a/include/MGIS/Behaviour/BehaviourDescription.hxx b/include/MGIS/Behaviour/BehaviourDescription.hxx
-index 34b8b75..73ae8b5 100644
+index 34b8b750..73ae8b5b 100644
 --- a/include/MGIS/Behaviour/BehaviourDescription.hxx
 +++ b/include/MGIS/Behaviour/BehaviourDescription.hxx
 @@ -20,10 +20,13 @@
@@ -293,7 +293,7 @@ index 34b8b75..73ae8b5 100644
    struct MGIS_EXPORT BehaviourDescription {
      /*!
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index ead5c86..ca12f08 100644
+index ead5c86d..ca12f083 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -27,7 +27,7 @@
@@ -306,7 +306,7 @@ index ead5c86..ca12f08 100644
  namespace mgis::behaviour {
  
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index feabdaf..d049c76 100644
+index feabdaf3..d049c762 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -38,7 +38,7 @@
@@ -320,7 +320,7 @@ index feabdaf..d049c76 100644
  namespace mgis::behaviour {
 diff --git a/include/MGIS/Behaviour/MemoryLocation.hxx b/include/MGIS/Behaviour/MemoryLocation.hxx
 deleted file mode 100644
-index 5376fbf..0000000
+index 5376fbf6..00000000
 --- a/include/MGIS/Behaviour/MemoryLocation.hxx
 +++ /dev/null
 @@ -1,61 +0,0 @@
@@ -386,7 +386,7 @@ index 5376fbf..0000000
 -
 -#endif /* LIB_MGIS_BEHAVIOUR_MEMORYLOCATION_HXX */
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index ad5270c..88aaab0 100644
+index ad5270c8..88aaab0a 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -28,6 +28,7 @@
@@ -414,7 +414,7 @@ index ad5270c..88aaab0 100644
       * \param[in] l: library name
 diff --git a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 new file mode 100644
-index 0000000..b5b3abf
+index 00000000..b5b3abf0
 --- /dev/null
 +++ b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 @@ -0,0 +1,68 @@
@@ -487,7 +487,7 @@ index 0000000..b5b3abf
 +
 +#endif /* LIB_MGIS_MATERIALPROPERTY_BATCHMATERIALPROPERTYFCTPTR_HXX */
 diff --git a/include/MGIS/MaterialProperty/MaterialProperty.hxx b/include/MGIS/MaterialProperty/MaterialProperty.hxx
-index 71c4cbb..73602d7 100644
+index 71c4cbb7..73602d73 100644
 --- a/include/MGIS/MaterialProperty/MaterialProperty.hxx
 +++ b/include/MGIS/MaterialProperty/MaterialProperty.hxx
 @@ -15,13 +15,19 @@
@@ -600,7 +600,7 @@ index 71c4cbb..73602d7 100644
  
 diff --git a/include/MGIS/MemoryLocation.hxx b/include/MGIS/MemoryLocation.hxx
 new file mode 100644
-index 0000000..17a9ad1
+index 00000000..17a9ad18
 --- /dev/null
 +++ b/include/MGIS/MemoryLocation.hxx
 @@ -0,0 +1,101 @@
@@ -706,7 +706,7 @@ index 0000000..17a9ad1
 +
 +#endif /* LIB_MGIS_MEMORYLOCATION_HXX */
 diff --git a/src/BehaviourDescription.cxx b/src/BehaviourDescription.cxx
-index c99458b..2722e84 100644
+index c99458b5..2722e844 100644
 --- a/src/BehaviourDescription.cxx
 +++ b/src/BehaviourDescription.cxx
 @@ -129,14 +129,7 @@ namespace mgis::behaviour {
@@ -736,7 +736,7 @@ index c99458b..2722e84 100644
      }
      d.tfel_version = lm.getTFELVersion(l, b);
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 96f9f02..647aef2 100644
+index 96f9f02a..647aef22 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -466,17 +466,9 @@ namespace mgis::behaviour::internals {
@@ -759,10 +759,10 @@ index 96f9f02..647aef2 100644
                    "behaviour (memory space '" +
                    m.b.memory_space +
 diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
-index 1240229..9bc1a15 100644
+index 8c5f5112..bef0dd85 100644
 --- a/src/LibrariesManager.cxx
 +++ b/src/LibrariesManager.cxx
-@@ -245,6 +245,8 @@ namespace mgis {
+@@ -259,6 +259,8 @@ namespace mgis {
    mgis::material_property::MaterialPropertyFctPtr
    LibrariesManager::getMaterialProperty(const std::string &l,
                                          const std::string &mp) {
@@ -771,7 +771,7 @@ index 1240229..9bc1a15 100644
      const auto p = this->getSymbolAddress(l, mp);
      if (p == nullptr) {
        mgis::raise(
-@@ -255,6 +257,22 @@ namespace mgis {
+@@ -269,6 +271,22 @@ namespace mgis {
      return reinterpret_cast<mgis::material_property::MaterialPropertyFctPtr>(p);
    }  // end of getMaterialProperty
  
@@ -794,7 +794,7 @@ index 1240229..9bc1a15 100644
    std::vector<std::string> LibrariesManager::getMaterialPropertyInputsNames(
        const std::string &l, const std::string &mp) {
      return this->getNames(l, mp, "args");
-@@ -863,8 +881,7 @@ namespace mgis {
+@@ -877,8 +895,7 @@ namespace mgis {
      }
      mgis::raise(std::string{m} + ": entry point '" + n + "' in library '" + l +
                  "' has been generated by the generic-parallel interface: "
@@ -805,7 +805,7 @@ index 1240229..9bc1a15 100644
  
    unsigned short LibrariesManager::getBehaviourType(const std::string &l,
 diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
-index 3740e10..4dd263c 100644
+index 3740e101..4dd263cb 100644
 --- a/src/MaterialProperty.cxx
 +++ b/src/MaterialProperty.cxx
 @@ -12,6 +12,9 @@

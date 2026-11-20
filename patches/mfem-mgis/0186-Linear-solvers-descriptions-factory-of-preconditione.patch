@@ -1,4 +1,4 @@
-From 23ab396a060eca829a1063d185363d5eceaf1b7d Mon Sep 17 00:00:00 2001
+From 8ac5d2e8181eaf0793f27417d518954e378acb05 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:15:26 +0200
 Subject: [PATCH] Linear solvers: descriptions, factory of preconditioners,

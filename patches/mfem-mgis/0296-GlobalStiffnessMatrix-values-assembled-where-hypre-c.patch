@@ -1,4 +1,4 @@
-From 83ce40ecbcd6a2de7947e5b1741533b00fb36849 Mon Sep 17 00:00:00 2001
+From de0dee28104cc54f0558f14544299087321d6d37 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 06:46:53 +0100
 Subject: [PATCH] GlobalStiffnessMatrix: values assembled where hypre computes,
@@ -1481,5 +1481,5 @@ index 0890071a18..fe85f48de2 100644
    {
      auto nc = mfem::Mesh(mesh_file, 1, 1);
 -- 
-2.34.1
+2.43.0
 

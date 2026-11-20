@@ -1,4 +1,4 @@
-From d3246192e5b57180fc4e06c282eb4017db76604d Mon Sep 17 00:00:00 2001
+From 025b584e164282666449415c0c6fc54ab2d7f6a0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 05:33:30 +0200
 Subject: [PATCH] Tests on CUDA in float
@@ -28,7 +28,7 @@ Double: 51/51 (tests on CUDA included); float: 51/51.
  3 files changed, 76 insertions(+), 44 deletions(-)
 
 diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
-index 63c6b3f..3a741cf 100644
+index 63c6b3f0..3a741cfd 100644
 --- a/tests/FieldOperationsCUDATest.cu
 +++ b/tests/FieldOperationsCUDATest.cu
 @@ -25,6 +25,7 @@
@@ -251,7 +251,7 @@ index 63c6b3f..3a741cf 100644
    }
    checkCUDA(cudaStreamDestroy(stream), "cudaStreamDestroy");
 diff --git a/tests/FunctionTest-cuda.cu b/tests/FunctionTest-cuda.cu
-index 5981ddb..bfc1446 100644
+index 5981ddbf..bfc14460 100644
 --- a/tests/FunctionTest-cuda.cu
 +++ b/tests/FunctionTest-cuda.cu
 @@ -24,6 +24,7 @@
@@ -299,7 +299,7 @@ index 5981ddb..bfc1446 100644
      const auto conf =
          CUDAExecutionConfiguration{.number_of_threads_per_block = 32};
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index f87dcec..22a8f2a 100644
+index f87dcec3..22a8f2a4 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -37,6 +37,9 @@

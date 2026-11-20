@@ -1,0 +1,119 @@
+From 913548979ed829d6fac187f6ac0bcf04a018b996 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 19:38:34 +0200
+Subject: [PATCH] Failures of the parsing of the options, preconditioner of the
+ bubble
+
+- The cermet, the bubble and the polycrystal exited with the status 0
+  when an option was refused: a test given an invalid option passed
+  without computation. They now exit with EXIT_FAILURE.
+- The cermet and the polycrystal went on when their output file could
+  not be opened: they now stop with EXIT_FAILURE.
+- The preconditioner of the conjugate gradient solver of the bubble is
+  now BoomerAMG by default: with the diagonal scaling, the default case
+  (mesh single_sphere.msh) does not converge. The README of the bubble
+  and of the cermet describe their new options.
+---
+ bubble/README.md                    | 4 ++++
+ bubble/src/Bubble.cxx               | 7 ++++---
+ cermet/README.md                    | 4 ++++
+ cermet/cermet.cxx                   | 1 +
+ polycrystal/UniaxialPolycrystal.cxx | 1 +
+ 5 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/bubble/README.md b/bubble/README.md
+index 2ac93b0..1a5ba50 100644
+--- a/bubble/README.md
++++ b/bubble/README.md
+@@ -58,6 +58,10 @@ Usage: ./test-bubble [options] ...
+ | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the test case.                      |
+ | `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
+ | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in N/µm².          |
++| `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver (`HypreDiagScale`..., `none` for no preconditioner). |
++
++The options of `mfem-mgis` are also accepted, for instance `--device cuda`
++to compute on a GPU.
+ 
+ The command to execute the test case is
+ 
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index f78b4d1..4a47af3 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -171,7 +171,7 @@ struct TestParameters : PhysicalParameters {
+       "mesh/single_bubble.txt";                  ///< Bubble definitions file
+   const char* testcase_name = "TestCaseBubble";  ///< Name for output files
+   const char* linear_solver_preconditioner =
+-      "HypreDiagScale";     ///< Preconditioner of the linear solver (or none)
++      "HypreBoomerAMG";     ///< Preconditioner of the linear solver (or none)
+   int parallel_mesh = 0;    ///< Flag for parallel mesh format
+   int order = 2;            ///< Finite element order
+   int refinement = 0;       ///< Mesh refinement level
+@@ -211,7 +211,7 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+   args.AddOption(&p.linear_solver_preconditioner, "",
+                  "--linear-solver-preconditioner",
+                  "Preconditioner of the conjugate gradient solver "
+-                 "(HypreDiagScale by default, HypreBoomerAMG...), none for no "
++                 "(HypreBoomerAMG by default, HypreDiagScale...), none for no "
+                  "preconditioner.");
+   args.AddOption(
+       &p.d_min, "-dm", "--dmin",
+@@ -447,7 +447,8 @@ int main(int argc, char** argv) {
+       mfem_mgis::may_throw,
+       mfem_mgis::Parameters{{"Tolerance", 1e-10},
+                             {"MaximumNumberOfIterations", 5000}});
+-  // diagonal scaling preconditioner by default
++  // algebraic multigrid preconditioner by default: with the diagonal
++  // scaling, the solver does not reach its tolerance on the default mesh
+   if (std::string_view{p.linear_solver_preconditioner} != "none") {
+     auto preconditioner =
+         mfem_mgis::Parameters{{"Name", p.linear_solver_preconditioner}};
+diff --git a/cermet/README.md b/cermet/README.md
+index 8b3bed4..66ff649 100644
+--- a/cermet/README.md
++++ b/cermet/README.md
+@@ -106,6 +106,7 @@ Usage: ./cermet [options] ...
+ | ------------------------------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+ | `-h, --help`                                | —      | —                     | Print the help message and exit.                                                                                                                                  |
+ | `-m <string>, --mesh <string>`              | string | `mesh/5grains.msh`    | Mesh file to use.                                                                                                                                                 |
++| `-l <string>, --library <string>`           | string | `src/libBehaviour.so` | Material library containing the behaviours of the grains and of the metallic interface.                                                                          |
+ | `-o <int>, --order <int>`                   | int    | `1`                   | Finite element order (polynomial degree).                                                                                                                         |
+ | `-r <int>, --refinement <int>`              | int    | `0`                   | Refinement level of the mesh.                                                                                                                                     |
+ | `-p <int>, --postprocessing <int>`          | int    | `1`                   | Run the post-processing step.                                                                                                                                     |
+@@ -119,6 +120,9 @@ Usage: ./cermet [options] ...
+ | `-f <string>, --file <string>`              | string | `vectors_5grains.txt` | Vector file to use.                                                                                                                                               |
+ | `--macroscopic-stress-output-file <string>` | string | `cermet.res`          | Main output file containing:<br>• Evolution of the diagonal components of the deformation gradient<br>• Evolution of the diagonal components of the Cauchy stress |
+ 
++The options of `mfem-mgis` are also accepted, for instance `--device cuda`
++to compute on a GPU.
++
+ 
+ ### Run it
+ 
+diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
+index 76f22b4..e16c1a0 100644
+--- a/cermet/cermet.cxx
++++ b/cermet/cermet.cxx
+@@ -396,6 +396,7 @@ int main(int argc, char **argv) {
+   std::ofstream out(p.output_file);
+   if (!out) {
+     std::cerr << "can't open output file '" << p.output_file << "'\n";
++    return EXIT_FAILURE;
+   }
+   out.precision(14);
+   //
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index b26f192..71b17c3 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -295,6 +295,7 @@ int main(int argc, char *argv[]) {
+   std::ofstream out(p.output_file);
+   if (!out) {
+     std::cerr << "can't open output file '" << p.output_file << "'\n";
++    return EXIT_FAILURE;
+   }
+   out.precision(14);
+   // setting the simulation and running it
+-- 
+2.43.0
+

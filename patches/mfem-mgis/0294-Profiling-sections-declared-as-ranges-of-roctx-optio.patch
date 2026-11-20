@@ -1,4 +1,4 @@
-From 5fd2dc59cd04e6639a31bcd7f4862d8186a05b16 Mon Sep 17 00:00:00 2001
+From 70181e8f3e833cecc24cfb37cf49f0343ee0f32e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 14 Nov 2026 11:27:10 +0100
 Subject: [PATCH] Profiling sections declared as ranges of roctx (option
@@ -513,5 +513,5 @@ index 0000000000..a333841678
 +  return EXIT_SUCCESS;
 +}  // end of main
 -- 
-2.34.1
+2.43.0
 

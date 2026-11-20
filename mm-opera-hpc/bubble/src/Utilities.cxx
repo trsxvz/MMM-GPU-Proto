@@ -55,8 +55,10 @@ namespace opera_hpc {
 
     // Material identifier for filtering elements
     const auto l = s.getLocation();
-    if(isInvalid(l.material_identifier)){
-      mfem_mgis::abort("findFirstPrincipalStressValueAndLocationImplementation only works on materials");
+    if (isInvalid(l.material_identifier)) {
+      mfem_mgis::abort(
+          "findFirstPrincipalStressValueAndLocationImplementation only works "
+          "on materials");
     }
     const auto mid = l.material_identifier->id;
 
@@ -177,8 +179,10 @@ namespace opera_hpc {
     const auto &fespace = fed.getFiniteElementSpace<parallel>();
 
     const auto l = s.getLocation();
-    if(isInvalid(l.material_identifier)){
-      mfem_mgis::abort("getPointsAboveStressThresholdImplementation only works on materials");
+    if (isInvalid(l.material_identifier)) {
+      mfem_mgis::abort(
+          "getPointsAboveStressThresholdImplementation only works on "
+          "materials");
     }
     const auto mid = l.material_identifier->id;
     // stress values at the end of the time step, read on the host
@@ -330,8 +334,10 @@ namespace opera_hpc {
     const auto &fespace = fed.getFiniteElementSpace<parallel>();
 
     const auto l = s.getLocation();
-    if(isInvalid(l.material_identifier)){
-      mfem_mgis::abort("getPointsandStressAboveStressThresholdImplementation only works on materials");
+    if (isInvalid(l.material_identifier)) {
+      mfem_mgis::abort(
+          "getPointsandStressAboveStressThresholdImplementation only works on "
+          "materials");
     }
     const auto mid = l.material_identifier->id;
     // stress values at the end of the time step, read on the host

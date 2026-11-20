@@ -1,4 +1,4 @@
-From d378aec14d64cbf4b4efe9fc9452cdf425b1c3e2 Mon Sep 17 00:00:00 2001
+From ce8fa629515e55cfb9e2377f7d1a506fc161553e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 16:00:43 +0200
 Subject: [PATCH] PETSc: fields of the field split preconditioner by component

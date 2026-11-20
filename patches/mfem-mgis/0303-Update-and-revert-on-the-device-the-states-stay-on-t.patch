@@ -1,4 +1,4 @@
-From 3caac9d56d3807359917e9000e365daa6ef95de7 Mon Sep 17 00:00:00 2001
+From 79923f3fe7c874728fc26907ab68b71b01d1bbb2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 18 Nov 2026 17:37:57 +0100
 Subject: [PATCH] Update and revert on the device: the states stay on the
@@ -342,5 +342,5 @@ index f2cdc19e64..737de191b9 100644
    auto P = std::array<double, 9>{};
    const auto gradients = mgis::behaviour::getGradientsView(m.s1);
 -- 
-2.34.1
+2.43.0
 

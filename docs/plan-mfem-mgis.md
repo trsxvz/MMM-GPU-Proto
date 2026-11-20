@@ -7,7 +7,8 @@ Work packages L0 to L10 are done (base master `a011d97d6f`, branch
 rebased on 13/10/2026 onto master `8fac67336e`, on 16/10/2026 onto
 master `20dcdf0a9b` (merge of PR #487), then on 20/10/2026 onto master
 `5bbd5a6981` (merge of PR #500) and `b63d1958ac` (fix of `assign`),
-then on 02/11/2026 onto master `c951043fb7` (merge of PR #504),
+then on 02/11/2026 onto master `c951043fb7` (merge of PR #504), then
+on 20/11/2026 onto master `a00ef65480`,
 repository `mfem-mgis/`;
 status in [overview.md](overview.md#progress)). This plan relies on
 TFEL and MGIS as described in [tfel.md](tfel.md) and

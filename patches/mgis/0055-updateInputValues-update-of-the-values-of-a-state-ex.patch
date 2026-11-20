@@ -1,4 +1,4 @@
-From 184d7a3308e7b4d63d4ff6522fd0d59e35f36de3 Mon Sep 17 00:00:00 2001
+From 15099a2fc1e9220222848153fed8634bb91c2103 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 00:43:03 +0200
 Subject: [PATCH] updateInputValues: update of the values of a state except its
@@ -19,7 +19,7 @@ updateInputValues.
  3 files changed, 180 insertions(+), 94 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 6affecb..57ff257 100644
+index 6affecbc..57ff2573 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -711,6 +711,24 @@ namespace mgis::behaviour {
@@ -48,7 +48,7 @@ index 6affecb..57ff257 100644
     * \brief extract an internal state variable
     *
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index edceb2e..66184b9 100644
+index edceb2e5..66184b9b 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -918,22 +918,19 @@ namespace mgis::behaviour {
@@ -219,7 +219,7 @@ index edceb2e..66184b9 100644
                      const MaterialStateManager& i,
                      FieldOperations& ops) {
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index 3f11315..f0ced43 100644
+index 3f113152..f0ced436 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -688,7 +688,8 @@ static void testInitializeFunctionsAndPostProcessingsForms(

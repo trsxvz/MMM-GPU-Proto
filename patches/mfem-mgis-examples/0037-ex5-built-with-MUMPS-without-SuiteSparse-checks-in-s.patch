@@ -1,4 +1,4 @@
-From 892bbb4bbd87499a101c0baa546bd663fe2082f5 Mon Sep 17 00:00:00 2001
+From 840ea5faf71b23a4ba1c42964a3b72c4e61ec4ef Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 12:28:29 +0200
 Subject: [PATCH] ex5: built with MUMPS without SuiteSparse, checks in single

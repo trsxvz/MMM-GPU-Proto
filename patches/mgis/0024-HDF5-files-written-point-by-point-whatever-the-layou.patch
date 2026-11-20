@@ -1,4 +1,4 @@
-From 85aeb7b4ee158b099f9d90f3f42572336f79f54c Mon Sep 17 00:00:00 2001
+From 4ccafdce62ea82ca6e307e8d099a96bf65ca085d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:07:59 +0200
 Subject: [PATCH] HDF5 files written point by point, whatever the layout
@@ -17,7 +17,7 @@ values of one point.
  2 files changed, 286 insertions(+), 38 deletions(-)
 
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 66de95a..2553976 100644
+index 66de95a6..2553976f 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -1042,27 +1042,149 @@ namespace mgis::behaviour {
@@ -395,7 +395,7 @@ index 66de95a..2553976 100644
                  "restoring external state variable '" + esv.name + "' failed");
            }
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index 517d900..61a03a6 100644
+index 517d9004..61a03a63 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -6,7 +6,7 @@

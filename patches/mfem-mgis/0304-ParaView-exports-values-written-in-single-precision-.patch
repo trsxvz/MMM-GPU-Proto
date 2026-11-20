@@ -1,4 +1,4 @@
-From 0dde4f576b742e4ee64f4f574d8d5464966ef3e7 Mon Sep 17 00:00:00 2001
+From 1985255044a72c9c3b8d35141411b46fefaadbe6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 18 Nov 2026 17:42:08 +0100
 Subject: [PATCH] ParaView exports: values written in single precision
@@ -272,5 +272,5 @@ index 0000000000..04ec7084f1
 +  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 -- 
-2.34.1
+2.43.0
 

@@ -1,4 +1,4 @@
-From af55cc0f78801261fc8c2707a500eca4b792276f Mon Sep 17 00:00:00 2001
+From 9484d9ea0997d68a2c85df3f699e8a09674088c7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 21:44:50 +0100
 Subject: [PATCH] Error handling: MGIS_NOEXCEPT for the functions of the
@@ -25,7 +25,7 @@ their errors terminated the process.
  4 files changed, 30 insertions(+), 26 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
-index 8ea2556..6d23d06 100644
+index 8ea2556e..6d23d06d 100644
 --- a/include/MGIS/Behaviour/MaterialDataView.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataView.hxx
 @@ -135,7 +135,7 @@ namespace mgis::behaviour {
@@ -65,7 +65,7 @@ index 8ea2556..6d23d06 100644
     * \brief update a material data view: copy the arrays of the state at the
     * end of the time step in the arrays of the state at the beginning of the
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 812138d..e7b763f 100644
+index 812138d5..e7b763f9 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -719,7 +719,7 @@ namespace mgis::behaviour {
@@ -88,7 +88,7 @@ index 812138d..e7b763f 100644
     * \brief extract an internal state variable
     *
 diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
-index da4415c..db6f3c0 100644
+index da4415cb..db6f3c04 100644
 --- a/src/MaterialDataView.cxx
 +++ b/src/MaterialDataView.cxx
 @@ -60,7 +60,7 @@ namespace mgis::behaviour {
@@ -137,7 +137,7 @@ index da4415c..db6f3c0 100644
        updateValues(o, i, ops);
      } catch (...) {
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index b0649ac..124a0fe 100644
+index b0649ac0..124a0fe8 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -724,7 +724,7 @@ namespace mgis::behaviour {

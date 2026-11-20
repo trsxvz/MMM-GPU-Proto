@@ -1,4 +1,4 @@
-From a4917f800b88906a1dd1191296a92ef88f1eab50 Mon Sep 17 00:00:00 2001
+From 60e2bd204182bef3be370565f5284d320e1de5d3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:01:16 +0200
 Subject: [PATCH] CMake version of the CUDA tests, profiling page generated,
@@ -15,7 +15,7 @@ Subject: [PATCH] CMake version of the CUDA tests, profiling page generated,
  4 files changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/docs/web/CMakeLists.txt b/docs/web/CMakeLists.txt
-index 561e160..cd6f445 100644
+index 561e1600..cd6f4457 100644
 --- a/docs/web/CMakeLists.txt
 +++ b/docs/web/CMakeLists.txt
 @@ -93,9 +93,9 @@ if(MGIS_HAVE_PANDOC)
@@ -30,7 +30,7 @@ index 561e160..cd6f445 100644
    mgis_pandoc_generate_html_page(FEniCSBindings)
    mgis_pandoc_generate_html_page(mgis_fenics "--toc" "--toc-depth=3")
 diff --git a/docs/web/mgis-template.html b/docs/web/mgis-template.html
-index 13f05c9..e3a318a 100644
+index 13f05c94..e3a318a5 100644
 --- a/docs/web/mgis-template.html
 +++ b/docs/web/mgis-template.html
 @@ -145,6 +145,7 @@
@@ -42,7 +42,7 @@ index 13f05c9..e3a318a 100644
  		<li><a href="profiling.html">Profiling</a></li>
  	      </ul>
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 94b0ac0..18ae26c 100644
+index 94b0ac0a..18ae26ce 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -253,6 +253,11 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -58,7 +58,7 @@ index 94b0ac0..18ae26c 100644
        find_package(CUDAToolkit REQUIRED)
        mfront_generic_parallel_behaviours_check_library(
 diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
-index dadcd76..0babe60 100644
+index dadcd76a..0babe602 100644
 --- a/tests/FieldOperationsCUDATest.cu
 +++ b/tests/FieldOperationsCUDATest.cu
 @@ -788,6 +788,17 @@ static void testFunctionsOnDeviceViews(const std::string& gp_library,

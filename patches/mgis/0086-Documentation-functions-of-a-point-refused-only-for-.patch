@@ -1,4 +1,4 @@
-From d194b1454980d8f7ff53abeb7f83f12142a2fe4e Mon Sep 17 00:00:00 2001
+From 0337920e2fb970123f0bbd330afc92aef04ad653 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 07:17:33 +0200
 Subject: [PATCH] Documentation: functions of a point refused only for a
@@ -25,7 +25,7 @@ the report function required by an asynchronous computation.
  7 files changed, 92 insertions(+), 66 deletions(-)
 
 diff --git a/bindings/c/include/MGIS/Behaviour/Behaviour.h b/bindings/c/include/MGIS/Behaviour/Behaviour.h
-index bfd1ff8..8761f95 100644
+index bfd1ff88..8761f95e 100644
 --- a/bindings/c/include/MGIS/Behaviour/Behaviour.h
 +++ b/bindings/c/include/MGIS/Behaviour/Behaviour.h
 @@ -256,13 +256,6 @@ MGIS_C_EXPORT mgis_status mgis_bv_behaviour_uses_displacement_gradient(
@@ -57,7 +57,7 @@ index bfd1ff8..8761f95 100644
   * \brief rotate gradients from the global frame to the material frame
   * \param[in,out] g: gradients
 diff --git a/bindings/c/include/MGIS/Behaviour/Integrate.h b/bindings/c/include/MGIS/Behaviour/Integrate.h
-index 6c7e2cb..732f49a 100644
+index 6c7e2cb1..732f49a1 100644
 --- a/bindings/c/include/MGIS/Behaviour/Integrate.h
 +++ b/bindings/c/include/MGIS/Behaviour/Integrate.h
 @@ -107,16 +107,17 @@ MGIS_C_EXPORT mgis_status mgis_bv_free_behaviour_integration_options(
@@ -84,7 +84,7 @@ index 6c7e2cb..732f49a 100644
  MGIS_C_EXPORT mgis_status
  mgis_bv_integrate_debug(int* const,
 diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
-index f96ddae..26001e6 100644
+index f96ddaea..26001e68 100644
 --- a/docs/web/generic-parallel.md
 +++ b/docs/web/generic-parallel.md
 @@ -68,8 +68,11 @@ does not depend on `TFEL` at compile time.
@@ -112,10 +112,10 @@ index f96ddae..26001e6 100644
  # Example
  
 diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
-index 84dcc68..ad3a917 100644
+index 84f6f1cd..34132e2e 100644
 --- a/docs/web/release-notes-3.2.md
 +++ b/docs/web/release-notes-3.2.md
-@@ -379,8 +379,16 @@ material properties). In short:
+@@ -396,8 +396,16 @@ material properties). In short:
    batches;
  - `allocatePostProcessingVariables` also takes a memory resource, for the
    outputs of a post-processing computed on a GPU;
@@ -135,7 +135,7 @@ index 84dcc68..ad3a917 100644
  # Layouts and views
  
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 53f786d..0ca0fee 100644
+index 53f786d3..0ca0feef 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -185,9 +185,9 @@ namespace mgis::behaviour {
@@ -346,7 +346,7 @@ index 53f786d..0ca0fee 100644
     */
    MGIS_EXPORT void raiseMissingFunctionOfAPoint(const char* const);
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 834d2fa..173fcd2 100644
+index 834d2fa4..173fcd23 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -43,11 +43,12 @@ namespace mgis {
@@ -368,7 +368,7 @@ index 834d2fa..173fcd2 100644
    struct MGIS_VISIBILITY_EXPORT LibrariesManager {
  #if (defined _WIN32 || defined _WIN64) && (!defined __CYGWIN__)
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 5586dd2..b92bb8b 100644
+index 5586dd2a..b92bb8b9 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -1135,12 +1135,14 @@ namespace mgis::behaviour::internals {

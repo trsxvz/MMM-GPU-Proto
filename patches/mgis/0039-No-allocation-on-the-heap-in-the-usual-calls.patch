@@ -1,4 +1,4 @@
-From b6a7f0c380ae1ccf94fb37e96c3e6b71ceb73458 Mon Sep 17 00:00:00 2001
+From 681398d2e06fbcfd28aecfd316a0ac5beb7891b6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:15:53 +0200
 Subject: [PATCH] No allocation on the heap in the usual calls
@@ -23,7 +23,7 @@ Subject: [PATCH] No allocation on the heap in the usual calls
  create mode 100644 tests/AllocationTest.cxx
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 800e3bd..e7ef9a2 100644
+index 800e3bdb..e7ef9a21 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -124,6 +124,28 @@ namespace mgis::behaviour::internals {
@@ -225,7 +225,7 @@ index 800e3bd..e7ef9a2 100644
  
    /*!
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index a403f8d..495a837 100644
+index a403f8d9..495a837b 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -670,8 +670,11 @@ namespace mgis::behaviour {
@@ -309,7 +309,7 @@ index a403f8d..495a837 100644
    void extractInternalStateVariable(
 diff --git a/tests/AllocationTest.cxx b/tests/AllocationTest.cxx
 new file mode 100644
-index 0000000..215779c
+index 00000000..215779c1
 --- /dev/null
 +++ b/tests/AllocationTest.cxx
 @@ -0,0 +1,194 @@
@@ -508,7 +508,7 @@ index 0000000..215779c
 +  return success ? EXIT_SUCCESS : EXIT_FAILURE;
 +}
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 17e9d07..f0884d6 100644
+index 17e9d070..f0884d6d 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -214,6 +214,21 @@ if(MGIS_HAVE_MFRONT_SUPPORT)

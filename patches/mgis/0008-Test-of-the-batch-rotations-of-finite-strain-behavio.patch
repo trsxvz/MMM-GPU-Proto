@@ -1,4 +1,4 @@
-From c15aabb566a3669aaa9e56c3577418c46cca27a5 Mon Sep 17 00:00:00 2001
+From 244c01a31de2401ddfac4f465dbc282d407ad04d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:21:18 +0200
 Subject: [PATCH] Test of the batch rotations of finite strain behaviours
@@ -16,7 +16,7 @@ interface.
  create mode 100644 tests/OrthotropicFiniteStrainElasticity.mfront
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9df78ed..efd4d14 100644
+index 9df78ed6..efd4d140 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -117,6 +117,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -36,7 +36,7 @@ index 9df78ed..efd4d14 100644
      NortonFailure
      Plasticity
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index b031b94..18ce6c9 100644
+index b031b940..18ce6c9e 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -376,6 +376,54 @@ static void testRotations(const std::string& library,
@@ -104,7 +104,7 @@ index b031b94..18ce6c9 100644
      std::cerr << e.what() << '\n';
 diff --git a/tests/OrthotropicFiniteStrainElasticity.mfront b/tests/OrthotropicFiniteStrainElasticity.mfront
 new file mode 100644
-index 0000000..602fe73
+index 00000000..602fe737
 --- /dev/null
 +++ b/tests/OrthotropicFiniteStrainElasticity.mfront
 @@ -0,0 +1,26 @@

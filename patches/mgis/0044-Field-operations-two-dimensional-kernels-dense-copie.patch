@@ -1,4 +1,4 @@
-From aeec9e2c3bb20ffae28800bca65cee72d44ee49b Mon Sep 17 00:00:00 2001
+From 56ed32f31a797ab22ba045a80f3199d15fbea2bd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:26:55 +0200
 Subject: [PATCH] Field operations: two-dimensional kernels, dense copies, SYCL
@@ -23,7 +23,7 @@ Subject: [PATCH] Field operations: two-dimensional kernels, dense copies, SYCL
  5 files changed, 242 insertions(+), 130 deletions(-)
 
 diff --git a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
-index 3b70b44..db5a65c 100644
+index 3b70b44f..db5a65cc 100644
 --- a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 @@ -15,47 +15,57 @@
@@ -203,7 +203,7 @@ index 3b70b44..db5a65c 100644
      cudaStream_t stream;
    };  // end of CUDAFieldOperations
 diff --git a/include/MGIS/FieldOperations/HIPFieldOperations.hxx b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
-index da261d4..74751c0 100644
+index da261d46..74751c06 100644
 --- a/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 @@ -15,47 +15,57 @@
@@ -379,7 +379,7 @@ index da261d4..74751c0 100644
      hipStream_t stream;
    };  // end of HIPFieldOperations
 diff --git a/include/MGIS/FieldOperations/KokkosFieldOperations.hxx b/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
-index b55632a..2db1400 100644
+index b55632a7..2db14009 100644
 --- a/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
 @@ -20,9 +20,9 @@
@@ -494,7 +494,7 @@ index b55632a..2db1400 100644
      //! \brief instance of the execution space
      ExecutionSpace space;
 diff --git a/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
-index 39e1b1f..19a759a 100644
+index 39e1b1f3..19a759a0 100644
 --- a/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
 @@ -15,6 +15,7 @@
@@ -582,7 +582,7 @@ index 39e1b1f..19a759a 100644
      }  // end of do_fill
      //! \brief device
 diff --git a/include/MGIS/FieldOperations/SYCLFieldOperations.hxx b/include/MGIS/FieldOperations/SYCLFieldOperations.hxx
-index 26d2ffe..2a66f70 100644
+index 26d2ffed..2a66f701 100644
 --- a/include/MGIS/FieldOperations/SYCLFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/SYCLFieldOperations.hxx
 @@ -34,16 +34,16 @@ namespace mgis::field_operations {

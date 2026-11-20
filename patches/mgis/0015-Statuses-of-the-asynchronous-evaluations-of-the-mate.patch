@@ -1,4 +1,4 @@
-From f573fb2070fbd23d3b1013f79fc7dfb821c48615 Mon Sep 17 00:00:00 2001
+From 6ffecebe4c69f292967108eb2ea657f0ceb6dfe1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 15:22:02 +0200
 Subject: [PATCH] Statuses of the asynchronous evaluations of the material
@@ -12,7 +12,7 @@ The copy of the execution options of the material properties follows TFEL, whose
  3 files changed, 13 insertions(+), 2 deletions(-)
 
 diff --git a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
-index 76c8337..20e350a 100644
+index 76c8337f..20e350a8 100644
 --- a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 +++ b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 @@ -42,6 +42,12 @@ typedef struct mgis_mp_ExecutionOptions {
@@ -29,7 +29,7 @@ index 76c8337..20e350a 100644
     * \brief if not null, the stack size of the threads of the device is
     * never modified
 diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
-index 41c7b2f..d96a393 100644
+index 41c7b2f1..d96a393e 100644
 --- a/src/MaterialProperty.cxx
 +++ b/src/MaterialProperty.cxx
 @@ -146,8 +146,11 @@ namespace mgis::material_property {
@@ -47,7 +47,7 @@ index 41c7b2f..d96a393 100644
      mp.batch_fct(&s, values.data(), 1, arguments.data(), strides.data(),
                   inputs.size(), n, p, &options);
 diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
-index 787f5d1..487fea8 100644
+index 787f5d19..487fea83 100644
 --- a/tests/GenericParallelLoadTest.cxx
 +++ b/tests/GenericParallelLoadTest.cxx
 @@ -85,6 +85,8 @@ static_assert(offsetof(mgis_mp_OutputStatus, msg) ==

@@ -1,4 +1,4 @@
-From 573e504be990b7f19574373da135d610269d9a7d Mon Sep 17 00:00:00 2001
+From d06439a45d71e4482de55355294bbac5e5171431 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:19:36 +0200
 Subject: [PATCH] Bindings: displacement gradient option
@@ -21,7 +21,7 @@ The C and Python tests load a Hencky behaviour with both gradients.
  create mode 100644 bindings/python/tests/DisplacementGradientTest.py
 
 diff --git a/bindings/c/include/MGIS/Behaviour/Behaviour.h b/bindings/c/include/MGIS/Behaviour/Behaviour.h
-index 0c42783..3a9382b 100644
+index 0c427830..3a9382bd 100644
 --- a/bindings/c/include/MGIS/Behaviour/Behaviour.h
 +++ b/bindings/c/include/MGIS/Behaviour/Behaviour.h
 @@ -94,6 +94,13 @@ typedef enum {
@@ -84,7 +84,7 @@ index 0c42783..3a9382b 100644
   * The following rotation functions report a failure for a behaviour which
   * provides no rotation function of an integration point: an isotropic
 diff --git a/bindings/c/src/Behaviour.cxx b/bindings/c/src/Behaviour.cxx
-index 4d30568..4c11b39 100644
+index 4d305685..4c11b39d 100644
 --- a/bindings/c/src/Behaviour.cxx
 +++ b/bindings/c/src/Behaviour.cxx
 @@ -123,6 +123,42 @@ mgis_bv_finite_strain_behaviour_options_set_tangent_operator_by_string(
@@ -148,7 +148,7 @@ index 4d30568..4c11b39 100644
                                            const mgis_bv_Behaviour* const b) {
    if (b == nullptr) {
 diff --git a/bindings/c/tests/CMakeLists.txt b/bindings/c/tests/CMakeLists.txt
-index 45740db..6242aaa 100644
+index 45740db0..6242aaa1 100644
 --- a/bindings/c/tests/CMakeLists.txt
 +++ b/bindings/c/tests/CMakeLists.txt
 @@ -154,6 +154,28 @@ if((CMAKE_HOST_WIN32) AND (NOT MSYS))
@@ -182,7 +182,7 @@ index 45740db..6242aaa 100644
   "$<TARGET_FILE:BehaviourTest>" "Gurson")
 diff --git a/bindings/c/tests/DisplacementGradientTest-c.c b/bindings/c/tests/DisplacementGradientTest-c.c
 new file mode 100644
-index 0000000..c0ff828
+index 00000000..c0ff8281
 --- /dev/null
 +++ b/bindings/c/tests/DisplacementGradientTest-c.c
 @@ -0,0 +1,76 @@
@@ -263,7 +263,7 @@ index 0000000..c0ff828
 +  return test_status;
 +}  // end of main
 diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
-index e250e78..d890f85 100644
+index e250e780..d890f85b 100644
 --- a/bindings/fortran/src/mgis_behaviour.f90
 +++ b/bindings/fortran/src/mgis_behaviour.f90
 @@ -74,6 +74,10 @@ module mgis_behaviour
@@ -367,7 +367,7 @@ index e250e78..d890f85 100644
    function behaviour_get_library(l,b) result(s)
      use mgis_fortran_utilities
 diff --git a/bindings/julia/src/Behaviour.cxx b/bindings/julia/src/Behaviour.cxx
-index a841259..3fc8608 100644
+index a8412598..3fc8608b 100644
 --- a/bindings/julia/src/Behaviour.cxx
 +++ b/bindings/julia/src/Behaviour.cxx
 @@ -80,6 +80,17 @@ void declareBehaviour(jlcxx::Module &m) {
@@ -417,7 +417,7 @@ index a841259..3fc8608 100644
    m.method("set_integer_parameter!", setParameter2);
    m.method("set_unsigned_short_parameter!",
 diff --git a/bindings/python/src/Behaviour.cxx b/bindings/python/src/Behaviour.cxx
-index 76cc9a2..66b7eaf 100644
+index 76cc9a22..66b7eafc 100644
 --- a/bindings/python/src/Behaviour.cxx
 +++ b/bindings/python/src/Behaviour.cxx
 @@ -231,6 +231,13 @@ void declareBehaviour(pybind11::module_ &m) {
@@ -457,7 +457,7 @@ index 76cc9a2..66b7eaf 100644
          "hypothesis"_a, "material"_a = std::optional<std::string>{});
    m.def("loadFromDatabase", Behaviour_loadFromDatabase2, "options"_a, "name"_a,
 diff --git a/bindings/python/tests/CMakeLists.txt b/bindings/python/tests/CMakeLists.txt
-index e9d6a14..0bc87c0 100644
+index e9d6a143..0bc87c00 100644
 --- a/bindings/python/tests/CMakeLists.txt
 +++ b/bindings/python/tests/CMakeLists.txt
 @@ -46,4 +46,9 @@ test_python_bindings(ExternalStateVariableTest)
@@ -472,7 +472,7 @@ index e9d6a14..0bc87c0 100644
  
 diff --git a/bindings/python/tests/DisplacementGradientTest.py b/bindings/python/tests/DisplacementGradientTest.py
 new file mode 100644
-index 0000000..ca2aa69
+index 00000000..ca2aa694
 --- /dev/null
 +++ b/bindings/python/tests/DisplacementGradientTest.py
 @@ -0,0 +1,37 @@

@@ -1,4 +1,4 @@
-From 6b5443273e77a1ee3d010644e3633cac19c7fa08 Mon Sep 17 00:00:00 2001
+From 80c36b58ccfd4de2eab33970361d9d6876262bd1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 14:32:18 +0200
 Subject: [PATCH] Tests of the execution policies of the material properties
@@ -11,7 +11,7 @@ Evaluation with an execution policy on the host and on a CUDA stream which is no
  3 files changed, 25 insertions(+)
 
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index ca2d5ad..c7a8c3e 100644
+index ca2d5ad9..c7a8c3e3 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -580,6 +580,15 @@ static void testMaterialProperties(const std::string& library,
@@ -31,7 +31,7 @@ index ca2d5ad..c7a8c3e 100644
    auto T0 = ManagedArray(1);
    T0.span()[0] = 700;
 diff --git a/tests/GenericParallelEvaluateTest.cxx b/tests/GenericParallelEvaluateTest.cxx
-index f84c252..832dd29 100644
+index f84c2523..832dd298 100644
 --- a/tests/GenericParallelEvaluateTest.cxx
 +++ b/tests/GenericParallelEvaluateTest.cxx
 @@ -14,6 +14,7 @@
@@ -61,7 +61,7 @@ index f84c252..832dd29 100644
    const auto T0 = std::array<mgis::real, 1>{700};
    const auto uniform_inputs = std::array{std::span<const mgis::real>(T0)};
 diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
-index 2d01854..787f5d1 100644
+index 2d018541..787f5d19 100644
 --- a/tests/GenericParallelLoadTest.cxx
 +++ b/tests/GenericParallelLoadTest.cxx
 @@ -83,6 +83,10 @@ static_assert(offsetof(mgis_mp_OutputStatus, bounds_status) ==

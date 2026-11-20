@@ -137,7 +137,8 @@ integration of MGIS stays on CPU.
 ## mfem-mgis
 
 The branch `gpu-proto` of mfem-mgis starts from the official master
-`c951043fb7` (29/10/2026, merge of PR #504, settings of the ILU of hypre).
+`a00ef65480` (18/11/2026, documentation of the copy constructor of
+`PartialQuadratureSpace`).
 The order follows the dependencies:
 
 - contributions 1 and 2 need neither the TFEL nor the MGIS of the
@@ -316,8 +317,8 @@ be rebuilt from the final state, by pieces of files.
 
 ## mfem-mgis-examples and mm-opera-hpc
 
-The changes of the examples (40 patches since `f256bd8`) and of
-mm-opera-hpc (57 patches since `f3fc124`) follow the contributions of
+The changes of the examples (39 patches since `9300394`) and of
+mm-opera-hpc (52 patches since `4a4f87c`) follow the contributions of
 mfem-mgis that they use. They will be proposed after them, by topic:
 
 - options of mfem-mgis and of the behaviour in each example and each case

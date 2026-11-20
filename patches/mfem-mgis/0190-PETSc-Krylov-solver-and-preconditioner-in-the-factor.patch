@@ -1,4 +1,4 @@
-From 732f0b3da0f83482fcb910fbf8416c2387381f6a Mon Sep 17 00:00:00 2001
+From 1529055653daea450fe4925a1dd06f731794e38f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:57:11 +0200
 Subject: [PATCH] PETSc: Krylov solver and preconditioner in the factories

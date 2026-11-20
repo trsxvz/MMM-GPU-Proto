@@ -1,4 +1,4 @@
-From 49237f17a9ea6460ce56c01d844317ad17a9347a Mon Sep 17 00:00:00 2001
+From a8641efbae6d1ec925b79aee4f1b7e59fc911d00 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 18:43:48 +0100
 Subject: [PATCH] Non linear solvers: iterations of the linear solver in the
@@ -186,5 +186,5 @@ index dc6f2b1b86..699a892d16 100644
      t += dt;
    }
 -- 
-2.34.1
+2.43.0
 

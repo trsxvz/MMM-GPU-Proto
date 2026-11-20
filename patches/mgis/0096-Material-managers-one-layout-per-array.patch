@@ -1,4 +1,4 @@
-From 13b70494d51c5ff6c31475c3813ba7fa5a727479 Mon Sep 17 00:00:00 2001
+From 4d12cb90d871a4785e65e52d0de99416b85828cd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 23:12:31 +0100
 Subject: [PATCH] Material managers: one layout per array
@@ -53,7 +53,7 @@ differ. Python bindings: both layout structures are exposed.
  17 files changed, 520 insertions(+), 278 deletions(-)
 
 diff --git a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
-index 625da3a..6b43eb9 100644
+index 625da3aa..6b43eb98 100644
 --- a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 +++ b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 @@ -67,7 +67,7 @@ MGIS_C_EXPORT
@@ -85,7 +85,7 @@ index 625da3a..6b43eb9 100644
  MGIS_C_EXPORT mgis_status mgis_bv_material_data_manager_get_layout(
      mgis_bv_FieldLayout* const, mgis_bv_MaterialDataManager* const);
 diff --git a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
-index 444546b..bbb4851 100644
+index 444546b7..bbb48517 100644
 --- a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
 +++ b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
 @@ -145,6 +145,7 @@ MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_gradients(
@@ -97,7 +97,7 @@ index 444546b..bbb4851 100644
  MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_layout(
      mgis_bv_FieldLayout* const, mgis_bv_MaterialStateManager* const);
 diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
-index cebb570..a2ebd57 100644
+index cebb5704..a2ebd579 100644
 --- a/bindings/c/src/MaterialDataManager.cxx
 +++ b/bindings/c/src/MaterialDataManager.cxx
 @@ -383,7 +383,14 @@ mgis_status mgis_bv_material_data_manager_get_layout(
@@ -117,7 +117,7 @@ index cebb570..a2ebd57 100644
             : MGIS_BV_COMPONENT_BY_COMPONENT;
    return mgis_report_success();
 diff --git a/bindings/c/src/MaterialStateManager.cxx b/bindings/c/src/MaterialStateManager.cxx
-index 3d0f0b1..a5ee978 100644
+index 3d0f0b13..a5ee978c 100644
 --- a/bindings/c/src/MaterialStateManager.cxx
 +++ b/bindings/c/src/MaterialStateManager.cxx
 @@ -228,7 +228,14 @@ mgis_status mgis_bv_material_state_manager_get_layout(
@@ -137,7 +137,7 @@ index 3d0f0b1..a5ee978 100644
             : MGIS_BV_COMPONENT_BY_COMPONENT;
    return mgis_report_success();
 diff --git a/bindings/python/src/MaterialDataManager.cxx b/bindings/python/src/MaterialDataManager.cxx
-index 8fad71a..b3c4232 100644
+index 8fad71a0..b3c4232e 100644
 --- a/bindings/python/src/MaterialDataManager.cxx
 +++ b/bindings/python/src/MaterialDataManager.cxx
 @@ -13,6 +13,7 @@
@@ -187,7 +187,7 @@ index 8fad71a..b3c4232 100644
             &MaterialDataManagerInitializer_bindTangentOperator,
             "use the given array to store the tangent operator blocks",
 diff --git a/bindings/python/src/MaterialStateManager.cxx b/bindings/python/src/MaterialStateManager.cxx
-index 1ec0d21..8fd0031 100644
+index 1ec0d21c..8fd0031c 100644
 --- a/bindings/python/src/MaterialStateManager.cxx
 +++ b/bindings/python/src/MaterialStateManager.cxx
 @@ -13,6 +13,7 @@
@@ -228,7 +228,7 @@ index 1ec0d21..8fd0031 100644
    pybind11::class_<MaterialStateManager>(m, "MaterialStateManager")
        .def(pybind11::init<const Behaviour&, const size_type>(),
 diff --git a/include/MGIS/Behaviour/FiniteStrainSupport.hxx b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
-index 828ea8a..7b7f690 100644
+index 828ea8ad..7b7f6904 100644
 --- a/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 +++ b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 @@ -67,7 +67,8 @@ namespace mgis::behaviour {
@@ -253,7 +253,7 @@ index 828ea8a..7b7f690 100644
     * \param[in] t: expected finite strain operator type
     * \pre the behaviour must be loaded with the Cauchy stress as stress
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 468ad1f..cfdc808 100644
+index 468ad1f6..cfdc808a 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -229,7 +229,7 @@ namespace mgis::behaviour {
@@ -370,7 +370,7 @@ index 468ad1f..cfdc808 100644
     * \param[in,out] m: material data manager
     * \param[in] n: name of the post-processing
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 186db36..90d6d05 100644
+index 186db36d..90d6d050 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -35,6 +35,73 @@ namespace mgis::behaviour {
@@ -537,7 +537,7 @@ index 186db36..90d6d05 100644
     * \param[in] v1: name of the first variable
     * \param[in] v2: name of the second variable
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.hxx b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
-index 450aacb..aeed3b6 100644
+index 450aacb2..aeed3b6f 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 @@ -187,9 +187,9 @@ namespace mgis::behaviour {
@@ -741,7 +741,7 @@ index 450aacb..aeed3b6 100644
     * \param[in] m: material function manager
     * \param[in] n: name of the internal state variable
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
-index ccba1e3..bf32c9d 100644
+index ccba1e35..bf32c9d8 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 @@ -163,21 +163,20 @@ namespace mgis::behaviour {
@@ -1135,7 +1135,7 @@ index ccba1e3..bf32c9d 100644
    }  // end of getStridedCoalescedInternalStateVariable
  
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index e7b763f..7f57d68 100644
+index e7b763f9..7f57d68e 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -48,6 +48,56 @@ namespace mgis::behaviour {
@@ -1356,7 +1356,7 @@ index e7b763f..7f57d68 100644
  
    /*!
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index 39a5898..79da881 100644
+index 39a58987..79da881a 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -356,7 +356,8 @@ namespace mgis::behaviour {
@@ -1381,7 +1381,7 @@ index 39a5898..79da881 100644
  
    void convertFiniteStrainTangentOperator(const FieldView<real>& K,
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 99e3dcb..d1a0159 100644
+index 99e3dcbb..d1a01594 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -1586,10 +1586,44 @@ namespace mgis::behaviour {
@@ -1461,7 +1461,7 @@ index 99e3dcb..d1a0159 100644
  
    /*!
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 19833fd..e9a911a 100644
+index 19833fdd..e9a911ab 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -93,8 +93,18 @@ namespace mgis::behaviour {
@@ -1496,7 +1496,7 @@ index 19833fd..e9a911a 100644
  
    FieldView<real> getTangentOperatorBlocksView(MaterialDataManager& m) {
 diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
-index db6f3c0..9d22b86 100644
+index db6f3c04..9d22b863 100644
 --- a/src/MaterialDataView.cxx
 +++ b/src/MaterialDataView.cxx
 @@ -207,7 +207,9 @@ namespace mgis::behaviour {
@@ -1547,7 +1547,7 @@ index db6f3c0..9d22b86 100644
      v.batch_execution_policy = m.batch_execution_policy;
      return v;
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 124a0fe..682eb54 100644
+index 124a0fe8..682eb543 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -119,7 +119,7 @@ namespace mgis::behaviour {

@@ -1,4 +1,4 @@
-From f21a3ec6b0196e60073ac233c5c25fcf9b313d79 Mon Sep 17 00:00:00 2001
+From 66b2d719640b492dcb4c818b020d440352b8ecd5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 23:02:44 +0100
 Subject: [PATCH] StridedSpan: values of a point with a stride, results of the
@@ -42,7 +42,7 @@ results are identical to the bit (StridedSpanTest).
  create mode 100644 tests/StridedSpanTest.cxx
 
 diff --git a/docs/web/functions.md b/docs/web/functions.md
-index 70f83c7..d8815de 100644
+index 70f83c79..d8815de6 100644
 --- a/docs/web/functions.md
 +++ b/docs/web/functions.md
 @@ -354,6 +354,21 @@ objects of `TFEL/Math`) and for scalar values (`real`, `real&` or
@@ -68,7 +68,7 @@ index 70f83c7..d8815de 100644
  
  The `view` function has a template overload taking the a size as
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 74dffaf..a30267f 100644
+index 74dffaf2..a30267fc 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -9,6 +9,7 @@ mgis_header(MGIS MemoryLocation.hxx)
@@ -88,7 +88,7 @@ index 74dffaf..a30267f 100644
      mgis_header(MGIS/Function/TFEL QuantityView.hxx)
      mgis_header(MGIS/Function/TFEL QuantityView.ixx)
 diff --git a/include/MGIS/Function/Algorithms.hxx b/include/MGIS/Function/Algorithms.hxx
-index b327bc4..69b3271 100644
+index b327bc41..69b3271d 100644
 --- a/include/MGIS/Function/Algorithms.hxx
 +++ b/include/MGIS/Function/Algorithms.hxx
 @@ -179,6 +179,27 @@ namespace mgis::function::internals {
@@ -120,7 +120,7 @@ index b327bc4..69b3271 100644
     * \brief concept stating that an evaluator can be assigned to a function
     *
 diff --git a/include/MGIS/Function/Algorithms.ixx b/include/MGIS/Function/Algorithms.ixx
-index a2e0b48..e0c4513 100644
+index a2e0b486..e0c45130 100644
 --- a/include/MGIS/Function/Algorithms.ixx
 +++ b/include/MGIS/Function/Algorithms.ixx
 @@ -195,6 +195,25 @@ namespace mgis::function::internals {
@@ -150,7 +150,7 @@ index a2e0b48..e0c4513 100644
     * \brief assigns to a function the scalar values computed by an evaluator,
     * the evaluation being sequential
 diff --git a/include/MGIS/Function/DataViewConcept.hxx b/include/MGIS/Function/DataViewConcept.hxx
-index 69d155a..ce0299a 100644
+index 69d155a0..ce0299af 100644
 --- a/include/MGIS/Function/DataViewConcept.hxx
 +++ b/include/MGIS/Function/DataViewConcept.hxx
 @@ -12,6 +12,7 @@
@@ -178,7 +178,7 @@ index 69d155a..ce0299a 100644
  
  namespace mgis::function {
 diff --git a/include/MGIS/Function/EvaluatorConcept.hxx b/include/MGIS/Function/EvaluatorConcept.hxx
-index 1b5be11..ca0c222 100644
+index 1b5be11d..ca0c2222 100644
 --- a/include/MGIS/Function/EvaluatorConcept.hxx
 +++ b/include/MGIS/Function/EvaluatorConcept.hxx
 @@ -20,6 +20,7 @@
@@ -223,7 +223,7 @@ index 1b5be11..ca0c222 100644
  
      /*!
 diff --git a/include/MGIS/Function/FunctionConcept.hxx b/include/MGIS/Function/FunctionConcept.hxx
-index f4b3a68..3a5ec4a 100644
+index f4b3a68d..3a5ec4a8 100644
 --- a/include/MGIS/Function/FunctionConcept.hxx
 +++ b/include/MGIS/Function/FunctionConcept.hxx
 @@ -23,6 +23,7 @@
@@ -293,7 +293,7 @@ index f4b3a68..3a5ec4a 100644
      /*!
 diff --git a/include/MGIS/Function/TFEL/MapValues.hxx b/include/MGIS/Function/TFEL/MapValues.hxx
 new file mode 100644
-index 0000000..736100e
+index 00000000..736100ee
 --- /dev/null
 +++ b/include/MGIS/Function/TFEL/MapValues.hxx
 @@ -0,0 +1,63 @@
@@ -361,7 +361,7 @@ index 0000000..736100e
 +
 +#endif /* LIB_MGIS_FUNCTION_TFEL_MAPVALUES_HXX */
 diff --git a/include/MGIS/Function/TFEL/QuantityModifier.hxx b/include/MGIS/Function/TFEL/QuantityModifier.hxx
-index 567dbb7..5d791fd 100644
+index 567dbb76..5d791fd7 100644
 --- a/include/MGIS/Function/TFEL/QuantityModifier.hxx
 +++ b/include/MGIS/Function/TFEL/QuantityModifier.hxx
 @@ -25,6 +25,7 @@
@@ -409,7 +409,7 @@ index 567dbb7..5d791fd 100644
     private:
      //! \brief underlying evaluator
 diff --git a/include/MGIS/Function/TFEL/QuantityModifier.ixx b/include/MGIS/Function/TFEL/QuantityModifier.ixx
-index 9fa4d6a..456b03b 100644
+index 9fa4d6a1..456b03b1 100644
 --- a/include/MGIS/Function/TFEL/QuantityModifier.ixx
 +++ b/include/MGIS/Function/TFEL/QuantityModifier.ixx
 @@ -75,8 +75,9 @@ namespace mgis::function {
@@ -513,7 +513,7 @@ index 9fa4d6a..456b03b 100644
      }
    }
 diff --git a/include/MGIS/Function/TFEL/QuantityView.hxx b/include/MGIS/Function/TFEL/QuantityView.hxx
-index 77f10ac..d8c3d9d 100644
+index 77f10acc..d8c3d9dd 100644
 --- a/include/MGIS/Function/TFEL/QuantityView.hxx
 +++ b/include/MGIS/Function/TFEL/QuantityView.hxx
 @@ -24,6 +24,7 @@
@@ -597,7 +597,7 @@ index 77f10ac..d8c3d9d 100644
     private:
      //! \brief underlying view of the function
 diff --git a/include/MGIS/Function/TFEL/QuantityView.ixx b/include/MGIS/Function/TFEL/QuantityView.ixx
-index a8b17d6..2042c91 100644
+index a8b17d6c..2042c912 100644
 --- a/include/MGIS/Function/TFEL/QuantityView.ixx
 +++ b/include/MGIS/Function/TFEL/QuantityView.ixx
 @@ -71,15 +71,15 @@ namespace mgis::function {
@@ -756,7 +756,7 @@ index a8b17d6..2042c91 100644
    }
  
 diff --git a/include/MGIS/Function/TFEL/TensorModifier.hxx b/include/MGIS/Function/TFEL/TensorModifier.hxx
-index 534a701..72727ff 100644
+index 534a7019..72727ff2 100644
 --- a/include/MGIS/Function/TFEL/TensorModifier.hxx
 +++ b/include/MGIS/Function/TFEL/TensorModifier.hxx
 @@ -23,6 +23,7 @@
@@ -777,7 +777,7 @@ index 534a701..72727ff 100644
             EvaluatorType,
             compile_time_size<TensorType>>()));
 diff --git a/include/MGIS/Function/TFEL/TensorModifier.ixx b/include/MGIS/Function/TFEL/TensorModifier.ixx
-index 22c212f..d2ac9c0 100644
+index 22c212f3..d2ac9c04 100644
 --- a/include/MGIS/Function/TFEL/TensorModifier.ixx
 +++ b/include/MGIS/Function/TFEL/TensorModifier.ixx
 @@ -50,7 +50,8 @@ namespace mgis::function {
@@ -804,7 +804,7 @@ index 22c212f..d2ac9c0 100644
    }  // end of apply
  
 diff --git a/include/MGIS/Function/TFEL/TensorView.hxx b/include/MGIS/Function/TFEL/TensorView.hxx
-index 31e3d1e..953cf83 100644
+index 31e3d1eb..953cf837 100644
 --- a/include/MGIS/Function/TFEL/TensorView.hxx
 +++ b/include/MGIS/Function/TFEL/TensorView.hxx
 @@ -24,6 +24,7 @@
@@ -888,7 +888,7 @@ index 31e3d1e..953cf83 100644
     private:
      //! \brief underlying view of the function
 diff --git a/include/MGIS/Function/TFEL/TensorView.ixx b/include/MGIS/Function/TFEL/TensorView.ixx
-index c947bc9..f9b57fa 100644
+index c947bc9d..f9b57fa0 100644
 --- a/include/MGIS/Function/TFEL/TensorView.ixx
 +++ b/include/MGIS/Function/TFEL/TensorView.ixx
 @@ -71,14 +71,14 @@ namespace mgis::function {
@@ -1052,7 +1052,7 @@ index c947bc9..f9b57fa 100644
  
 diff --git a/include/MGIS/StridedSpan.hxx b/include/MGIS/StridedSpan.hxx
 new file mode 100644
-index 0000000..23bbf5a
+index 00000000..23bbf5af
 --- /dev/null
 +++ b/include/MGIS/StridedSpan.hxx
 @@ -0,0 +1,198 @@
@@ -1255,7 +1255,7 @@ index 0000000..23bbf5a
 +
 +#endif /* LIB_MGIS_STRIDEDSPAN_HXX */
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 67f2195..90d1496 100644
+index 67f21951..90d14962 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -634,6 +634,9 @@ if(MGIS_HAVE_TFEL)
@@ -1270,7 +1270,7 @@ index 67f2195..90d1496 100644
  
 diff --git a/tests/StridedSpanTest.cxx b/tests/StridedSpanTest.cxx
 new file mode 100644
-index 0000000..6c6deb9
+index 00000000..6c6deb98
 --- /dev/null
 +++ b/tests/StridedSpanTest.cxx
 @@ -0,0 +1,226 @@

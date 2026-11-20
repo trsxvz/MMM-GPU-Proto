@@ -1,10 +1,10 @@
 # Random Orthogonal Vector Pair Generator
 
-This project provides a simple Python script to generate a specified number of pairs of orthogonal vectors. In mm-opera-hpc, these vectors are used to describe the principal directions of crystals. The script is used to randomly generate the principal directions of crystals within a polycrystal.
+This project provides a simple Python script to generate pairs of orthogonal vectors. In the polycrystal and cermet test cases, these vectors are used to describe the principal directions of crystals. The script is used to randomly generate the principal directions of crystals within a polycrystal.
 
 ## Prerequisites
 
-To run this script, you need to have Python installed on your system. The script requires the `Numpy` Python package
+To run this script, you need to have Python installed on your system. The script requires the `NumPy` Python package.
 
 ## Usage
 
@@ -18,7 +18,7 @@ It writes 6 vectors (3 orthonormal pairs, the 5 vectors requested being complete
 
 ### Arguments of the function `main`
 
-- nbVec (int): The number of vectors to generate.
+- nbVec (int): The number of vectors to generate (two per grain).
 - algoKey (str): The algorithm to use for generating vectors. It can be either 'default' or 'angles'. 'default' uses a standard method for generating orthonormal vectors, while 'angles' generates orthonormal vectors using specific angles.
 
 ### Algorithms
@@ -29,4 +29,4 @@ The “default” algorithm generates random vectors by generating vector coordi
 
 #### Angles
 
-The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the paper *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).
+The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the PhD thesis *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).

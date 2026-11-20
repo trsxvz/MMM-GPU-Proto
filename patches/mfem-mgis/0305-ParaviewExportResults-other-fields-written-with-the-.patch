@@ -1,4 +1,4 @@
-From c8f53189f1e7b09dc443f193f6b5c227ffa2ffc8 Mon Sep 17 00:00:00 2001
+From acc3ecb7661f5eee86d5daf7546d64dbbdf07d09 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 18 Nov 2026 17:44:10 +0100
 Subject: [PATCH] ParaviewExportResults: other fields written with the
@@ -440,5 +440,5 @@ index 04ec7084f1..e68f2e47b5 100644
    std::cout << (failures == 0 ? "success" : "failure") << '\n';
    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 -- 
-2.34.1
+2.43.0
 

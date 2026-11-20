@@ -1,4 +1,4 @@
-From d8c8d385901744a7f3b958e2a20ee0ab9bcaca3b Mon Sep 17 00:00:00 2001
+From 40158eb90af0abe726e3dfd09f8249b40aac8e74 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 21:52:19 +0200
 Subject: [PATCH] BatchIntegrationTest: computations on two processes

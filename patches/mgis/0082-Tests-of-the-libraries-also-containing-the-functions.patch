@@ -1,4 +1,4 @@
-From 2161e78494505fa844ff4d0b1c79a4999a410244 Mon Sep 17 00:00:00 2001
+From 8f5e70daceb956a5002ee8b1ab7c5f416b1f149b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 03:53:10 +0200
 Subject: [PATCH] Tests of the libraries also containing the functions of the
@@ -20,7 +20,7 @@ on a batch. Documentation of the detection of both kinds of functions.
  create mode 100644 tests/GenericParallelGenericFunctionsTest.cxx
 
 diff --git a/cmake/modules/generic-parallel.cmake b/cmake/modules/generic-parallel.cmake
-index 6329913..bf61b3c 100644
+index 63299133..bf61b3cc 100644
 --- a/cmake/modules/generic-parallel.cmake
 +++ b/cmake/modules/generic-parallel.cmake
 @@ -41,9 +41,16 @@ function(_mfront_generic_parallel_sources output directory kind backend
@@ -84,7 +84,7 @@ index 6329913..bf61b3c 100644
  # interface.
  #
 diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
-index aa50f32..f96ddae 100644
+index aa50f32b..f96ddaea 100644
 --- a/docs/web/generic-parallel.md
 +++ b/docs/web/generic-parallel.md
 @@ -71,6 +71,16 @@ post-processings and the rotations of a point, the `C` bindings) report an
@@ -105,7 +105,7 @@ index aa50f32..f96ddae 100644
  
  ~~~~{.cxx}
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index cebea41..cbe7a66 100644
+index cebea410..cbe7a66f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -345,6 +345,30 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -141,7 +141,7 @@ index cebea41..cbe7a66 100644
      # backend)
 diff --git a/tests/GenericParallelGenericFunctionsTest.cxx b/tests/GenericParallelGenericFunctionsTest.cxx
 new file mode 100644
-index 0000000..d7241c7
+index 00000000..d7241c75
 --- /dev/null
 +++ b/tests/GenericParallelGenericFunctionsTest.cxx
 @@ -0,0 +1,142 @@

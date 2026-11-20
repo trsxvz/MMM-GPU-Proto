@@ -1,4 +1,4 @@
-From 6428205c6eec09d995877af2abe62eff96224128 Mon Sep 17 00:00:00 2001
+From 7e6162185f819a61546f8daf8bb26db753ffa20c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] BatchIntegrationTest: FBar cases with two materials

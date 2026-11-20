@@ -1,4 +1,4 @@
-From 1eed6d180d054d8d1966aef63cc7084d2ef0db63 Mon Sep 17 00:00:00 2001
+From 532449c242540e541dd47b6225c6141547fa3b61 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 06:46:53 +0100
 Subject: [PATCH] Non linear solvers, residual: work vectors kept between the
@@ -445,5 +445,5 @@ index 588dc6fc62..6ea5a15505 100644
      const auto initialized = this->callAndHandleFailures([this, &x, &r] {
        if (!this->processNewUnknownsEstimate(x)) {
 -- 
-2.34.1
+2.43.0
 

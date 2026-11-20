@@ -1,5 +1,5 @@
 /*!
- * \file   Mono_UO2_CosH_Jaco.cxx
+ * \file   UniaxialPolycrystal.cxx
  * \brief
  * This example is modelling ...
  * \author Raphael Prat, Maxence Wangermez
@@ -47,7 +47,7 @@
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MM_OPERA_HPC/Utilities.hxx"
 #include "MM_OPERA_HPC/GrainOrientations.hxx"
-#include "MM_OPERA_HPC/MacroscropicElasticMaterialProperties.hxx"
+#include "MM_OPERA_HPC/MacroscopicElasticMaterialProperties.hxx"
 #include "MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx"
 
 /*!
@@ -254,11 +254,10 @@ static void addOptionalPostProcessings(
     mfem_mgis::PeriodicNonLinearEvolutionProblem &,
     const PostProcessingParameters &,
     mfem::ParaViewDataCollection *&);
-static void setupMaterials(
-    mfem_mgis::attributes::MayAbort,
-    mfem_mgis::Context &,
-    mfem_mgis::PeriodicNonLinearEvolutionProblem &,
-    mm_opera_hpc::MacroscropicElasticMaterialProperties &,
+static void setupMaterials(mfem_mgis::attributes::MayAbort,
+                           mfem_mgis::Context &,
+                           mfem_mgis::PeriodicNonLinearEvolutionProblem &,
+                           mm_opera_hpc::MacroscopicElasticMaterialProperties &,
     const TestParameters &,
     Grains &);
 static Grains mergeGrains(mfem_mgis::FiniteElementDiscretization &);
@@ -286,14 +285,17 @@ int main(int argc, char *argv[]) {
   parseCommandLineArguments(args, p);
 
   // creating the finite element workspace
-  auto fed = mfem_mgis::construct<mfem_mgis::FiniteElementDiscretization>(
-      ctx, mfem_mgis::Parameters{{"MeshFileName", p.mesh_file},
-                                 {"MeshReadMode", p.mesh_mode},
-                                 {"FiniteElementFamily", "H1"},
-                                 {"FiniteElementOrder", p.order},
-                                 {"UnknownsSize", mfem_mgis::size_type{3}},
-                                 {"NumberOfUniformRefinements", p.refinement},
-                                 {"Parallel", true}})|or_die;
+  auto fed =
+      mfem_mgis::construct<mfem_mgis::FiniteElementDiscretization>(
+          ctx,
+          mfem_mgis::Parameters{{"MeshFileName", p.mesh_file},
+                                {"MeshReadMode", p.mesh_mode},
+                                {"FiniteElementFamily", "H1"},
+                                {"FiniteElementOrder", p.order},
+                                {"UnknownsSize", mfem_mgis::size_type{3}},
+                                {"NumberOfUniformRefinements", p.refinement},
+                                {"Parallel", true}}) |
+      or_die;
   // one material for all the grains: the elements are given the attribute 1
   // before the creation of the problem, their grains are kept
   auto grains = Grains{};
@@ -440,7 +442,7 @@ int main(int argc, char *argv[]) {
   }
 
   // set problem
-  mm_opera_hpc::MacroscropicElasticMaterialProperties mp;
+  mm_opera_hpc::MacroscopicElasticMaterialProperties mp;
   setupMaterials(mfem_mgis::may_abort, ctx, problem, mp, p, grains);
   setLinearSolver(mfem_mgis::may_abort, ctx, problem, p);
   // add post processings
@@ -508,7 +510,7 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "components of the Cauchy stress.");
   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
   args.AddOption(&p.mesh_mode, "-mm", "--mesh_mode",
-                 "Read Mesh Mode (FromScratch or Restart = splited file).");
+                 "Read Mesh Mode (FromScratch or Restart = split file).");
   args.AddOption(&p.vect_file, "-f", "--vect", "Vector file to use.");
   args.AddOption(&p.library, "-l", "--library",
                  "Material library. By default, the library built with the "
@@ -624,10 +626,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "one material per grain");
   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
                  "choose the verbosity level");
-  args.AddOption(&p.duration, "-d", "--duration",
-                 "choose the duration");
-  args.AddOption(&p.nstep, "-n", "--nstep",
-                 "choose the number of steps");
+  args.AddOption(&p.duration, "-d", "--duration", "choose the duration");
+  args.AddOption(&p.nstep, "-n", "--nstep", "choose the number of steps");
   args.AddOption(&p.macroscopic_secant_acceleration, "",
                  "--macroscopic-secant-acceleration", "",
                  "--no-macroscopic-secant-acceleration",
@@ -645,10 +645,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
   args.Parse();
 
   if (!args.Good()) {
-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
+      args.PrintUsage(std::cout);
     mfem_mgis::finalize();
-    // the help (-h) is a success, an invalid option a failure, which a
-    // test must see
     exit(args.Help() ? EXIT_SUCCESS : EXIT_FAILURE);
   }
   if (p.mesh_file == nullptr) {
@@ -658,7 +657,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
     }
     mfem_mgis::abort(EXIT_FAILURE);
   }
-  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
+    args.PrintOptions(std::cout);
   // behaviour library: given by --library, or else the library built with
   // the case for the processor of the behaviours (option --execution)
   p.behaviour_library = std::string_view{p.library}.empty()
@@ -671,7 +671,7 @@ static void setupMaterials(
     mfem_mgis::attributes::MayAbort,
     mfem_mgis::Context &ctx,
     mfem_mgis::PeriodicNonLinearEvolutionProblem &problem,
-    mm_opera_hpc::MacroscropicElasticMaterialProperties &mp,
+    mm_opera_hpc::MacroscopicElasticMaterialProperties &mp,
     const TestParameters &p,
     Grains &grains) {
   using namespace mgis::behaviour;
@@ -682,8 +682,7 @@ static void setupMaterials(
 
   // const int nMat = 8;
   const int nMat =
-      getMaterialsAttributes(problem.getFiniteElementDiscretization())
-          .Max();
+      getMaterialsAttributes(problem.getFiniteElementDiscretization()).Max();
   mfem_mgis::Profiler::Utils::Message("Nombre de matériaux : ", nMat);
 
   for (int i = 0; i < nMat; i++) {

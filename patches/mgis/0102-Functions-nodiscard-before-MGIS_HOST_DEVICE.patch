@@ -1,4 +1,4 @@
-From fda2de27026055fae06b3d8c9482a5e9116f69ce Mon Sep 17 00:00:00 2001
+From 62e49f6dc799f839a34e884e63cf5fab817b24c6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 12 Nov 2026 16:16:04 +0100
 Subject: [PATCH] Functions: [[nodiscard]] before MGIS_HOST_DEVICE
@@ -17,7 +17,7 @@ first, as in the other declarations of MGIS.
  3 files changed, 18 insertions(+), 18 deletions(-)
 
 diff --git a/include/MGIS/Function/BinaryOperation.hxx b/include/MGIS/Function/BinaryOperation.hxx
-index ac06d05..6e9124a 100644
+index ac06d050..6e9124a7 100644
 --- a/include/MGIS/Function/BinaryOperation.hxx
 +++ b/include/MGIS/Function/BinaryOperation.hxx
 @@ -59,7 +59,7 @@ namespace mgis::function {
@@ -102,7 +102,7 @@ index ac06d05..6e9124a 100644
          -> tfel::math::BinaryOperationResult<FirstOperandType,
                                               SecondOperandType,
 diff --git a/include/MGIS/Function/TFEL/Mechanics.hxx b/include/MGIS/Function/TFEL/Mechanics.hxx
-index aca1b15..c6159fb 100644
+index aca1b156..c6159fba 100644
 --- a/include/MGIS/Function/TFEL/Mechanics.hxx
 +++ b/include/MGIS/Function/TFEL/Mechanics.hxx
 @@ -41,7 +41,7 @@ namespace mgis::function::internals {
@@ -133,7 +133,7 @@ index aca1b15..c6159fb 100644
          const DeformationGradientType& F) const MGIS_NOEXCEPT
        requires(tfel::math::getSpaceDimension<FirstPiolaKirchhoffStressType>() ==
 diff --git a/include/MGIS/Function/UnaryOperation.hxx b/include/MGIS/Function/UnaryOperation.hxx
-index 5b9caeb..830e85c 100644
+index 5b9caeb0..830e85cc 100644
 --- a/include/MGIS/Function/UnaryOperation.hxx
 +++ b/include/MGIS/Function/UnaryOperation.hxx
 @@ -627,7 +627,7 @@ namespace mgis::function::internals {
@@ -191,5 +191,5 @@ index 5b9caeb..830e85c 100644
          -> tfel::math::BinaryOperationResult<FirstOperandType,
                                               real,
 -- 
-2.34.1
+2.43.0
 

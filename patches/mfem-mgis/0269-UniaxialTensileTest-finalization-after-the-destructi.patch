@@ -1,4 +1,4 @@
-From a0d7b61c7d07c986c3b24c044b3cca7f1d3ef902 Mon Sep 17 00:00:00 2001
+From f15bf7231478d2229ab98790afd0530c242962a8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 03:53:17 +0200
 Subject: [PATCH] UniaxialTensileTest: finalization after the destruction of

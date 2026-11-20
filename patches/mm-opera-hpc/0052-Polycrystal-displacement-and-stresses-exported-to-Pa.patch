@@ -1,0 +1,506 @@
+From 329fd7e3dff7c45615a6f240f4ba5f927e327d3f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 18 Nov 2026 17:47:56 +0100
+Subject: [PATCH] Polycrystal: displacement and stresses exported to ParaView
+ in the same files
+
+With the displacement (--enable-paraview-export) and the von Mises stress
+(--enable-export-von-Mises-stress), the polycrystal wrote two ParaView
+collections, OutputFile-Uniaxial-polycrystal and PolycrystalParaviewOutput,
+each one writing the whole mesh at each step: for 600 grains on one node
+and 20 steps, 6.1 and 4.4 GB, most of the second one being its mesh.
+
+When both are exported, the stresses (von Mises stress, first eigen
+stress) are now written with the displacement, in the same files, by the
+export of the displacement of mfem-mgis (ParaviewExportResults::addField):
+one collection, PolycrystalParaviewResults, with one mesh per step, whose
+cycle k is the end of the step k + 1, as in the two other collections. The
+L2 projections of the stresses are the same: they are computed by one
+function, which gives them for a state of the materials, used by both
+exports.
+
+For 600 grains on one node, 20 steps: one collection of 7.5 GB (101 files)
+against two of 6.5 and 4.7 GB (202 files); the files are written in 255 s
+against about 354 s, and the computation takes 531 s against 603 s.
+
+With one export only, nothing changes: the displacement alone is still
+written in OutputFile-Uniaxial-polycrystal, the stresses alone in
+PolycrystalParaviewOutput. The collection of the stresses is no longer
+created when the stresses are exported with the displacement.
+
+UniaxialPolycrystalTest-ParaviewExports (check-paraview-exports.py): the
+displacement alone, the von Mises stress alone, and both in single
+precision are written in the expected collection only, with the expected
+fields, one mesh per file and the expected precision.
+---
+ polycrystal/CMakeLists.txt            |  14 ++
+ polycrystal/README.md                 |   6 +-
+ polycrystal/UniaxialPolycrystal.cxx   | 254 ++++++++++++++++++--------
+ polycrystal/check-paraview-exports.py |  95 ++++++++++
+ 4 files changed, 287 insertions(+), 82 deletions(-)
+ create mode 100755 polycrystal/check-paraview-exports.py
+
+diff --git a/polycrystal/CMakeLists.txt b/polycrystal/CMakeLists.txt
+index 0b26a0c..3d475b1 100755
+--- a/polycrystal/CMakeLists.txt
++++ b/polycrystal/CMakeLists.txt
+@@ -202,4 +202,18 @@ add_test(NAME UniaxialPolycrystalTest-Prediction-Invalid
+           --prediction Unknown)
+ set_tests_properties(UniaxialPolycrystalTest-Prediction-Invalid PROPERTIES
+   PASS_REGULAR_EXPRESSION "error: invalid prediction")
++# exports to ParaView, one time step: the displacement alone, the von Mises
++# stress alone, and both in the same files, with one mesh, in single
++# precision (check-paraview-exports.py)
++if(Python3_Interpreter_FOUND)
++  add_test(NAME UniaxialPolycrystalTest-ParaviewExports
++    COMMAND ${Python3_EXECUTABLE}
++            ${CMAKE_CURRENT_SOURCE_DIR}/check-paraview-exports.py
++            ${CMAKE_CURRENT_BINARY_DIR}/paraview-exports
++            -- $<TARGET_FILE:uniaxial-polycrystal>
++            --mesh ${CMAKE_CURRENT_BINARY_DIR}/mesh/5crystals.msh
++            --vect ${CMAKE_CURRENT_BINARY_DIR}/mesh/vectors_5crystals.txt
++            --enable-post-processing --nstep 1 --duration 0.2
++            --macroscopic-stress-output-file polycrystal-test-paraview.res)
++endif()
+ add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index 5e3b7ee..4740a7d 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -99,13 +99,13 @@ Usage: ./uniaxial-polycrystal --help
+ | `--no-macroscopic-secant-acceleration`      | bool   | —                            | Use the elastic lateral compliance at each iteration (default). |
+ | `--enable-post-processing`                  | bool   | `true`                       | Execute post-processing steps (default).                                                                                                      |
+ | `--disable-post-processing`                 | bool   | —                            | Do not execute post-processing steps.                                                                                                         |
+-| `--enable-paraview-export`                  | bool   | `true`                       | With the post-processing steps, export the displacement to ParaView at each step (default); the averages of the stresses per grain (file `avgStressPolycrystal`) are always computed. |
++| `--enable-paraview-export`                  | bool   | `true`                       | With the post-processing steps, export the displacement to ParaView at each step (default), in the collection `OutputFile-Uniaxial-polycrystal`, or in the collection `PolycrystalParaviewResults` with the stresses if they are exported (see below); the averages of the stresses per grain (file `avgStressPolycrystal`) are always computed. |
+ | `--disable-paraview-export`                 | bool   | —                            | Do not export the displacement to ParaView. |
+ | `--single-material`                         | bool   | `false`                      | One material for all the grains, whose orientations are given point by point, instead of one material per grain: the behaviour is integrated by one batch over all the grains (on a GPU, one kernel per phase instead of one per grain). The averages of the stresses per grain are written in the same file `avgStressPolycrystal`. |
+ | `--material-per-grain`                      | bool   | —                            | One material per grain (default). |
+-| `--enable-export-von-Mises-stress`          | bool   | `false`                      | Export the von Mises stress.                                                                                                                  |
++| `--enable-export-von-Mises-stress`          | bool   | `false`                      | Export the von Mises stress to ParaView at each step (L2 projection at the nodes). With the displacement (`--enable-paraview-export`), both are written in the same files, the mesh being written once per step, in the collection `PolycrystalParaviewResults`; otherwise, the stresses are written in the collection `PolycrystalParaviewOutput`. In all the collections, the cycle k is the end of the step k + 1. |
+ | `--disable-export-von-Mises-stress`         | bool   | —                            | Do not export the von Mises stress (default).                                                                                                 |
+-| `--enable-export-first_eigen_stress`        | bool   | `false`                      | Export the first principal stress.                                                                                                            |
++| `--enable-export-first_eigen_stress`        | bool   | `false`                      | Export the first principal stress, in the same collection as the von Mises stress. |
+ | `--disable-export-first_eigen_stress`       | bool   | —                            | Do not export the first principal stress (default).                                                                                           |
+ | `--enable-paraview-single-precision`        | bool   | `false`                      | Write the ParaView files (displacement, von Mises stress, first eigen stress) in single precision (`Float32`) instead of double precision (`Float64`): the coordinates of the nodes and the fields are rounded to the nearest single precision value, and the files take about half the room. |
+ | `--disable-paraview-single-precision`       | bool   | —                            | Write the ParaView files in double precision (default). |
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 78756bf..d1be328 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -7,6 +7,8 @@
+  */
+ 
+ #include <memory>
++#include <optional>
++#include <tuple>
+ #include <string>
+ #include <vector>
+ #include <utility>
+@@ -38,6 +40,7 @@
+ #include "MFEMMGIS/Profiler.hxx"
+ #include "MFEMMGIS/MechanicalPostProcessings.hxx"
+ #include "MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.hxx"
++#include "MFEMMGIS/ParaviewExportResults.hxx"
+ #include "MFEMMGIS/PartialQuadratureFunctionsSet.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/L2Projection.hxx"
+@@ -585,18 +588,28 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+   args.AddOption(&p.export_von_Mises_stress, "",
+                  "--enable-export-von-Mises-stress", "",
+                  "--disable-export-von-Mises-stress",
+-                 "export the von Mises stress", false);
++                 "export the von Mises stress to ParaView at each step: with "
++                 "the displacement, in the same files of the collection "
++                 "PolycrystalParaviewResults, if it is exported "
++                 "(--enable-paraview-export), in the collection "
++                 "PolycrystalParaviewOutput otherwise",
++                 false);
+   args.AddOption(&p.export_first_eigen_stress, "",
+                  "--enable-export-first_eigen_stress", "",
+                  "--disable-export-first_eigen_stress",
+-                 "export first eigen stress", false);
++                 "export first eigen stress, in the same collection as the "
++                 "von Mises stress",
++                 false);
+   args.AddOption(&p.post_processings, "", "--enable-post-processing", "",
+                  "--disable-post-processing", "run post processing steps",
+                  false);
+   args.AddOption(&p.paraview_export, "", "--enable-paraview-export", "",
+                  "--disable-paraview-export",
+-                 "export the displacement to ParaView at each step (the "
+-                 "averages of the stresses per grain are still computed)",
++                 "export the displacement to ParaView at each step, in the "
++                 "collection OutputFile-Uniaxial-polycrystal, or in the "
++                 "collection PolycrystalParaviewResults with the stresses "
++                 "if they are exported (the averages of the stresses per "
++                 "grain are still computed)",
+                  false);
+   args.AddOption(&p.paraview_single_precision, "",
+                  "--enable-paraview-single-precision", "",
+@@ -923,6 +936,92 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+   p.setLinearSolver(ctx, params.linear_solver, solverParameters) | or_die;
+ }
+ 
++/*!
++ * \brief L2 projections at the nodes of the stresses exported to ParaView,
++ * empty for the stresses which are not exported
++ */
++struct StressesProjections {
++  //! \brief first eigen stress
++  std::optional<mfem_mgis::L2ProjectionResult<true>> first_eigen_stress;
++  //! \brief von Mises stress
++  std::optional<mfem_mgis::L2ProjectionResult<true>> von_Mises_stress;
++};
++
++/*!
++ * \return the L2 projections at the nodes of the exported stresses (first
++ * eigen stress, von Mises stress) of a state of the materials, computed by
++ * one linear solver
++ * \param[in, out] ctx: execution context
++ * \param[in] p: problem
++ * \param[in] params: parameters of the post-processings
++ * \param[in] s: state of the materials
++ */
++static StressesProjections projectStresses(
++    mfem_mgis::attributes::MayAbort,
++    mfem_mgis::Context &ctx,
++    mfem_mgis::PeriodicNonLinearEvolutionProblem &p,
++    const PostProcessingParameters &params,
++    const mfem_mgis::TimeStepStage s) {
++  auto or_die = ctx.getFatalFailureHandler();
++  const int nMat =
++      getMaterialsAttributes(p.getFiniteElementDiscretization()).Max();
++  // fes = FirstEigenStress
++  // vmes = VonMisesEquivalentStress
++  std::vector<mfem_mgis::ImmutablePartialQuadratureFunctionView> fesView{};
++  std::vector<mfem_mgis::ImmutablePartialQuadratureFunctionView> vmesView{};
++  // the functions must outlive the views used by the projections
++  std::vector<mfem_mgis::PartialQuadratureFunction> fes_pqfs;
++  std::vector<mfem_mgis::PartialQuadratureFunction> vmes_pqfs;
++  fes_pqfs.reserve(nMat);
++  vmes_pqfs.reserve(nMat);
++  // For each material
++  for (int i = 1; i <= nMat; i++) {
++    auto &m = p.getMaterial(ctx, i, 0) | or_die;
++    if (params.export_first_eigen_stress) {
++      auto &fes_pqf = fes_pqfs.emplace_back(m.getPartialQuadratureSpace(), 1);
++      mfem_mgis::computeFirstEigenStress(ctx, fes_pqf, m, s);
++      fesView.push_back(fes_pqf);
++    }
++    if (params.export_von_Mises_stress) {
++      auto &vmes_pqf = vmes_pqfs.emplace_back(m.getPartialQuadratureSpace(), 1);
++      bool success =
++          mfem_mgis::computeVonMisesEquivalentStress(ctx, vmes_pqf, m, s);
++      if (!success) {
++        std::cout << "ERROR: computeVonMisesEquivalentStress returns"
++                  << " false in projectStresses" << std::endl;
++      }
++      vmesView.push_back(vmes_pqf);
++    }
++  }
++
++  // Used by computeL2Projection
++  auto &lsf = mfem_mgis::LinearSolverFactory<true>::getFactory();
++  auto &fespace =
++      p.getFiniteElementDiscretization().getFiniteElementSpace<true>();
++  auto linear_solver = lsf.generate(
++      ctx, "HyprePCG", fespace,
++      mfem_mgis::Parameters{
++          {"Preconditioner", mfem_mgis::Parameters{{"Name", "HypreILU"}}}});
++
++  // project solutions
++  auto r = StressesProjections{};
++  if (params.export_first_eigen_stress) {
++    r.first_eigen_stress =
++        mfem_mgis::computeL2Projection<true>(ctx, linear_solver, fesView);
++  }
++  if (params.export_von_Mises_stress) {
++    r.von_Mises_stress =
++        mfem_mgis::computeL2Projection<true>(ctx, linear_solver, vmesView);
++  }
++  return r;
++}  // end of projectStresses
++
++/*!
++ * \brief exports the stresses (first eigen stress, von Mises stress) to
++ * ParaView, in the collection PolycrystalParaviewOutput, when the
++ * displacement is not exported: otherwise, they are written with it, in the
++ * same files (see `addPostProcessings`)
++ */
+ static void addOptionalPostProcessings(
+     mfem_mgis::attributes::MayAbort,
+     mfem_mgis::Context &ctx,
+@@ -930,6 +1029,9 @@ static void addOptionalPostProcessings(
+     const PostProcessingParameters &params,
+     mfem::ParaViewDataCollection *&exporter) {
+   auto or_die = ctx.getFatalFailureHandler();
++  if (params.paraview_export) {
++    return;
++  }
+   // setup paraview
+   exporter = new mfem::ParaViewDataCollection("PolycrystalParaviewOutput");
+   exporter->SetDataFormat(params.paraview_single_precision
+@@ -938,77 +1040,28 @@ static void addOptionalPostProcessings(
+   exporter->SetMesh(&(p.getFiniteElementDiscretization().getMesh<true>()));
+ 
+   if (params.export_von_Mises_stress || params.export_first_eigen_stress) {
+-    p.getImplementation<true>().addPostProcessing(ctx, [&ctx, &p, &params,
+-                                                        &exporter, or_die](
+-                                                           mfem_mgis::real t,
+-                                                           mfem_mgis::real dt) {
+-      static int count = 0;
+-      exporter->SetCycle(count++);
+-      // the stresses are computed at the end of the time step
+-      exporter->SetTime(t + dt);
+-      const int nMat =
+-          getMaterialsAttributes(p.getFiniteElementDiscretization()).Max();
+-      // fes = FirstEigenStress
+-      // vmes = VonMisesEquivalentStress
+-      std::vector<mfem_mgis::ImmutablePartialQuadratureFunctionView> fesView{};
+-      std::vector<mfem_mgis::ImmutablePartialQuadratureFunctionView> vmesView{};
+-      // the functions must outlive the views used by the projections
+-      std::vector<mfem_mgis::PartialQuadratureFunction> fes_pqfs;
+-      std::vector<mfem_mgis::PartialQuadratureFunction> vmes_pqfs;
+-      fes_pqfs.reserve(nMat);
+-      vmes_pqfs.reserve(nMat);
+-      auto ets = mfem_mgis::Material::END_OF_TIME_STEP;
+-      // For each material
+-      for (int i = 1; i <= nMat; i++) {
+-        auto &m = p.getMaterial(ctx, i, 0) | or_die;
+-        if (params.export_first_eigen_stress) {
+-          auto &fes_pqf =
+-              fes_pqfs.emplace_back(m.getPartialQuadratureSpace(), 1);
+-          mfem_mgis::computeFirstEigenStress(ctx, fes_pqf, m, ets);
+-          fesView.push_back(fes_pqf);
+-        }
+-        if (params.export_von_Mises_stress) {
+-          auto &vmes_pqf =
+-              vmes_pqfs.emplace_back(m.getPartialQuadratureSpace(), 1);
+-          bool success =
+-              mfem_mgis::computeVonMisesEquivalentStress(ctx, vmes_pqf, m, ets);
+-          if (!success) {
+-            std::cout << "ERROR: computeVonMisesEquivalentStress returns"
+-                      << " false in addOptionalPostProcessings" << std::endl;
++    p.getImplementation<true>().addPostProcessing(
++        ctx,
++        [&ctx, &p, &params, &exporter](mfem_mgis::real t, mfem_mgis::real dt) {
++          static int count = 0;
++          exporter->SetCycle(count++);
++          // the fields are the ones of the end of the time step
++          exporter->SetTime(t + dt);
++          const auto r = projectStresses(mfem_mgis::may_abort, ctx, p, params,
++                                         mfem_mgis::Material::END_OF_TIME_STEP);
++          if (r.first_eigen_stress.has_value()) {
++            exporter->RegisterField("FirstEigenStress",
++                                    r.first_eigen_stress->result.get());
+           }
+-          vmesView.push_back(vmes_pqf);
+-        }
+-      }
+-
+-      // Used by computeL2Projection
+-      auto &lsf = mfem_mgis::LinearSolverFactory<true>::getFactory();
+-      auto &fespace =
+-          p.getFiniteElementDiscretization().getFiniteElementSpace<true>();
+-      auto linear_solver = lsf.generate(
+-          ctx, "HyprePCG", fespace,
+-          mfem_mgis::Parameters{
+-              {"Preconditioner", mfem_mgis::Parameters{{"Name", "HypreILU"}}}});
+-
+-      // project solutions
+-      std::optional<mfem_mgis::L2ProjectionResult<true>> fes_projection;
+-      std::optional<mfem_mgis::L2ProjectionResult<true>> vmes_projection;
+-      if (params.export_first_eigen_stress) {
+-        fes_projection =
+-            mfem_mgis::computeL2Projection<true>(ctx, linear_solver, fesView);
+-        exporter->RegisterField("FirstEigenStress",
+-                                fes_projection->result.get());
+-      }
+-      if (params.export_von_Mises_stress) {
+-        vmes_projection =
+-            mfem_mgis::computeL2Projection<true>(ctx, linear_solver, vmesView);
+-        exporter->RegisterField("vonMisesStress",
+-                                vmes_projection->result.get());
+-      }
+-
+-      // save paraview files
+-      CatchTimeSection(ctx, "PolycrystalParaviewOutput::Save");
+-      exporter->Save();
+-    }) | or_die;
++          if (r.von_Mises_stress.has_value()) {
++            exporter->RegisterField("vonMisesStress",
++                                    r.von_Mises_stress->result.get());
++          }
++          // save paraview files
++          CatchTimeSection(ctx, "PolycrystalParaviewOutput::Save");
++          exporter->Save();
++        }) |
++        or_die;
+   }
+ }
+ 
+@@ -1020,11 +1073,54 @@ static void addPostProcessings(mfem_mgis::attributes::MayAbort,
+                                const Grains &grains) {
+   auto or_die = ctx.getFatalFailureHandler();
+   if (params.paraview_export) {
+-    p.addPostProcessing(
+-        ctx, "ParaviewExportResults",
+-        {{"OutputFileName", msg},
+-         {"SinglePrecision", params.paraview_single_precision}}) |
+-        or_die;
++    // the displacement and, if they are exported, the stresses, written in
++    // the same files (the mesh is written once per step), in the collection
++    // PolycrystalParaviewResults; the displacement alone in the collection
++    // given
++    const auto stresses =
++        params.export_first_eigen_stress || params.export_von_Mises_stress;
++    auto &impl = p.getImplementation<true>();
++    auto e = std::make_unique<mfem_mgis::ParaviewExportResults<true>>(
++        ctx, impl,
++        mfem_mgis::Parameters{
++            {"OutputFileName",
++             stresses ? std::string{"PolycrystalParaviewResults"} : msg},
++            {"SinglePrecision", params.paraview_single_precision}});
++    // the projections of the stresses are computed at each export by the
++    // function of the first field, the other one reading them
++    auto projections = std::make_shared<StressesProjections>();
++    auto compute = true;
++    const auto add_field =
++        [&e, &p, &params, &projections, &compute](
++            const char *const n,
++            std::optional<mfem_mgis::L2ProjectionResult<true>>
++                StressesProjections:: *const r) {
++          e->addField(
++              n,
++              [&p, &params, projections, r, compute, n](
++                  mfem_mgis::Context &c, const mfem_mgis::TimeStepStage s)
++                  -> mfem_mgis::GridFunction<true> * {
++                if (compute) {
++                  *projections =
++                      projectStresses(mfem_mgis::may_abort, c, p, params, s);
++                }
++                const auto &o = (*projections).*r;
++                if (!o.has_value()) {
++                  std::ignore = c.registerErrorMessage(
++                      std::string{"projection of the "} + n + " failed");
++                  return nullptr;
++                }
++                return o->result.get();
++              });
++          compute = false;
++        };
++    if (params.export_first_eigen_stress) {
++      add_field("FirstEigenStress", &StressesProjections::first_eigen_stress);
++    }
++    if (params.export_von_Mises_stress) {
++      add_field("vonMisesStress", &StressesProjections::von_Mises_stress);
++    }
++    impl.addPostProcessing(ctx, std::move(e)) | or_die;
+   }
+   if (grains.number != 0) {
+     addGrainsMeanStresses(mfem_mgis::may_abort, ctx, p, grains,
+diff --git a/polycrystal/check-paraview-exports.py b/polycrystal/check-paraview-exports.py
+new file mode 100755
+index 0000000..66243d6
+--- /dev/null
++++ b/polycrystal/check-paraview-exports.py
+@@ -0,0 +1,95 @@
++#!/usr/bin/env python3
++"""Checks the ParaView collections written by the polycrystal.
++
++The command given after `--` (the polycrystal and its options, one time
++step) is run three times, each in a directory of its own:
++
++- displacement alone (--enable-paraview-export): collection
++  OutputFile-Uniaxial-polycrystal, field u;
++- von Mises stress alone (--disable-paraview-export
++  --enable-export-von-Mises-stress): collection PolycrystalParaviewOutput,
++  field vonMisesStress;
++- both, in single precision (--enable-paraview-export
++  --enable-export-von-Mises-stress --enable-paraview-single-precision):
++  collection PolycrystalParaviewResults, fields u and vonMisesStress in the
++  same files, with one mesh, all the reals in Float32.
++
++The cycle 0 of each collection is the end of the time step.
++
++In each case, no other collection is written.
++usage: check-paraview-exports.py <directory> -- <command...>
++"""
++import os
++import re
++import subprocess
++import sys
++
++COLLECTIONS = ("OutputFile-Uniaxial-polycrystal", "PolycrystalParaviewOutput",
++               "PolycrystalParaviewResults")
++
++CASES = (
++    ("displacement", ["--enable-paraview-export"],
++     "OutputFile-Uniaxial-polycrystal", (0,), ("u",), "Float64"),
++    ("von-Mises", ["--disable-paraview-export",
++                   "--enable-export-von-Mises-stress"],
++     "PolycrystalParaviewOutput", (0,), ("vonMisesStress",), "Float64"),
++    ("both-single-precision", ["--enable-paraview-export",
++                               "--enable-export-von-Mises-stress",
++                               "--enable-paraview-single-precision"],
++     "PolycrystalParaviewResults", (0,), ("u", "vonMisesStress"),
++     "Float32"),
++)
++
++
++def check_case(root, command, case):
++    """runs a case and returns the list of the errors found"""
++    name, options, collection, cycles, fields, real = case
++    directory = os.path.join(root, name)
++    os.makedirs(directory, exist_ok=True)
++    run = subprocess.run(command + options, cwd=directory,
++                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
++                         text=True, check=False)
++    if run.returncode != 0:
++        return [f"{name}: the command failed ({run.returncode}):\n"
++                + run.stdout[-2000:]]
++    errors = []
++    for other in COLLECTIONS:
++        if (other != collection) and os.path.exists(
++                os.path.join(directory, other)):
++            errors.append(f"{name}: collection {other} written")
++    for c in cycles:
++        f = os.path.join(directory, collection, f"Cycle{c:06d}",
++                         "proc000000.vtu")
++        if not os.path.exists(f):
++            errors.append(f"{name}: {f} not written")
++            continue
++        with open(f, "rb") as vtu:
++            text = vtu.read().decode("latin-1")
++        names = re.findall(r'<DataArray type="Float(?:32|64)" Name="([^"]+)"',
++                           text)
++        types = set(re.findall(r'type="(Float(?:32|64))"', text))
++        if text.count("<Points>") != 1:
++            errors.append(f"{name}, cycle {c}: {text.count('<Points>')} meshes")
++        if sorted(names) != sorted(fields):
++            errors.append(f"{name}, cycle {c}: fields {names}, "
++                          f"{list(fields)} expected")
++        if types != {real}:
++            errors.append(f"{name}, cycle {c}: reals {sorted(types)}, "
++                          f"{real} expected")
++    return errors
++
++
++def main():
++    if (len(sys.argv) < 4) or (sys.argv[2] != "--"):
++        sys.exit(__doc__)
++    errors = []
++    for case in CASES:
++        errors += check_case(sys.argv[1], sys.argv[3:], case)
++    for e in errors:
++        print(e)
++    print("success" if not errors else "failure")
++    sys.exit(1 if errors else 0)
++
++
++if __name__ == "__main__":
++    main()
+-- 
+2.43.0
+

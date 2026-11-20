@@ -1,4 +1,4 @@
-From 19a89fc56fddc8311771b33ec02989def21745d2 Mon Sep 17 00:00:00 2001
+From d2cf79a67aa60293c48bf646442f31da5c1b523a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 22:46:02 +0100
 Subject: [PATCH] Finite strain conversions: same checks for the material data
@@ -14,7 +14,7 @@ refusing an unsupported tangent operator is also fixed.
  1 file changed, 16 insertions(+), 18 deletions(-)
 
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index fa7bfbb..39a5898 100644
+index fa7bfbbf..39a58987 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -324,6 +324,13 @@ namespace mgis::behaviour {

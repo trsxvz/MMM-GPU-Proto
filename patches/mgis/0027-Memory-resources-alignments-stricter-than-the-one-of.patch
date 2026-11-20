@@ -1,4 +1,4 @@
-From 8167e2fea12cf8f6daad031cb558ec895fe4efa5 Mon Sep 17 00:00:00 2001
+From 0628ecb0e1e5315c1ce8ba956a10414c32e98f28 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:42:39 +0200
 Subject: [PATCH] Memory resources: alignments stricter than the one of the
@@ -21,7 +21,7 @@ address (OverAlignedAllocation.hxx).
  create mode 100644 include/MGIS/MemoryResources/OverAlignedAllocation.hxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 32b771b..c752d73 100644
+index 32b771bf..c752d73d 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -56,6 +56,7 @@ mgis_header(MGIS/MemoryResources CUDAManagedMemoryResource.hxx)
@@ -33,7 +33,7 @@ index 32b771b..c752d73 100644
  mgis_header(MGIS/FieldOperations KokkosFieldOperations.hxx)
  mgis_header(MGIS/FieldOperations SYCLFieldOperations.hxx)
 diff --git a/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
-index 1b780ac..e6a9861 100644
+index 1b780ac9..e6a98612 100644
 --- a/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
 @@ -18,6 +18,7 @@
@@ -83,7 +83,7 @@ index 1b780ac..e6a9861 100644
      bool do_is_equal(
          const std::pmr::memory_resource& r) const noexcept override {
 diff --git a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
-index 58bc56f..58746b3 100644
+index 58bc56fe..58746b35 100644
 --- a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 @@ -18,6 +18,7 @@
@@ -133,7 +133,7 @@ index 58bc56f..58746b3 100644
      bool do_is_equal(
          const std::pmr::memory_resource& r) const noexcept override {
 diff --git a/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx b/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
-index ff3f025..3fcae1e 100644
+index ff3f0257..3fcae1ec 100644
 --- a/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
 @@ -18,6 +18,7 @@
@@ -186,7 +186,7 @@ index ff3f025..3fcae1e 100644
          const std::pmr::memory_resource& r) const noexcept override {
 diff --git a/include/MGIS/MemoryResources/OverAlignedAllocation.hxx b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
 new file mode 100644
-index 0000000..566c4d3
+index 00000000..566c4d3c
 --- /dev/null
 +++ b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
 @@ -0,0 +1,89 @@

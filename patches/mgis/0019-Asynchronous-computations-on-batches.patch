@@ -1,4 +1,4 @@
-From 9df8dc941f5a3e6a6c2773b4f70fb2f941bd9dc4 Mon Sep 17 00:00:00 2001
+From 166f1ceaed18acf284f94f56047738daa314aeed Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 17:46:17 +0200
 Subject: [PATCH] Asynchronous computations on batches
@@ -43,7 +43,7 @@ number of statuses of the generic-parallel interface are loaded.
  create mode 100644 src/BatchExecutionPolicy.cxx
 
 diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
-index 7e76d6b..8c337e6 100644
+index 7e76d6be..8c337e6f 100644
 --- a/docs/web/generic-parallel.md
 +++ b/docs/web/generic-parallel.md
 @@ -35,7 +35,9 @@ through its usual objects (`Behaviour`, `MaterialDataManager`,
@@ -126,10 +126,10 @@ index 7e76d6b..8c337e6 100644
    of each point are not exposed.
  - The `C`, `Fortran` and `Python` bindings do not expose the new
 diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
-index 0e90b08..bbfe56f 100644
+index 87f6a3f5..261d030d 100644
 --- a/docs/web/release-notes-3.2.md
 +++ b/docs/web/release-notes-3.2.md
-@@ -321,6 +321,11 @@ properties). In short:
+@@ -338,6 +338,11 @@ properties). In short:
  - each batch function also takes an execution policy
    (`mgis::BatchExecutionPolicy`), which selects the queue of the
    computations;
@@ -142,7 +142,7 @@ index 0e90b08..bbfe56f 100644
    shared memory) is declared by the calling code and checked against the
    memory space of the library. The functions working on the host refuse
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 648b499..b52fe34 100644
+index 648b4992..b52fe347 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -35,6 +35,7 @@ mgis_header(MGIS/MaterialProperty OutputStatus.hxx)
@@ -162,7 +162,7 @@ index 648b499..b52fe34 100644
  mgis_header(MGIS/MemoryResources HIPManagedMemoryResource.hxx)
  mgis_header(MGIS/MemoryResources SYCLSharedMemoryResource.hxx)
 diff --git a/include/MGIS/BatchExecutionPolicy.hxx b/include/MGIS/BatchExecutionPolicy.hxx
-index 417264f..9ecb994 100644
+index 417264fe..9ecb9949 100644
 --- a/include/MGIS/BatchExecutionPolicy.hxx
 +++ b/include/MGIS/BatchExecutionPolicy.hxx
 @@ -13,6 +13,11 @@
@@ -270,7 +270,7 @@ index 417264f..9ecb994 100644
  
  #endif /* LIB_MGIS_BATCHEXECUTIONPOLICY_HXX */
 diff --git a/include/MGIS/Behaviour/BatchDataView.hxx b/include/MGIS/Behaviour/BatchDataView.hxx
-index 874e44f..a9ef694 100644
+index 874e44f8..a9ef6941 100644
 --- a/include/MGIS/Behaviour/BatchDataView.hxx
 +++ b/include/MGIS/Behaviour/BatchDataView.hxx
 @@ -16,6 +16,8 @@
@@ -369,7 +369,7 @@ index 874e44f..a9ef694 100644
  
  #endif /* __cplusplus */
 diff --git a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
-index 384a054..bf3285f 100644
+index 384a054a..bf3285fe 100644
 --- a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
 +++ b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
 @@ -22,6 +22,8 @@ namespace mgis::behaviour {
@@ -405,7 +405,7 @@ index 384a054..bf3285f 100644
  
  #endif /* LIB_MGIS_BEHAVIOUR_BATCHEXECUTIONPOLICY_HXX */
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index 2488551..fc472ef 100644
+index 24885519..fc472ef2 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
 @@ -28,6 +28,7 @@
@@ -502,7 +502,7 @@ index 2488551..fc472ef 100644
     * \brief set the value of a parameter
     * \param[in] b: behaviour description
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 97ab49c..ac0ef58 100644
+index 97ab49c2..ac0ef580 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -21,6 +21,7 @@
@@ -634,7 +634,7 @@ index 97ab49c..ac0ef58 100644
  
 diff --git a/include/MGIS/Behaviour/PendingBatchComputation.hxx b/include/MGIS/Behaviour/PendingBatchComputation.hxx
 new file mode 100644
-index 0000000..3730d98
+index 00000000..3730d988
 --- /dev/null
 +++ b/include/MGIS/Behaviour/PendingBatchComputation.hxx
 @@ -0,0 +1,95 @@
@@ -734,7 +734,7 @@ index 0000000..3730d98
 +
 +#endif /* LIB_MGIS_BEHAVIOUR_PENDINGBATCHCOMPUTATION_HXX */
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 3897d8b..751d5f4 100644
+index 3897d8b2..751d5f42 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -133,6 +133,14 @@ namespace mgis {
@@ -770,7 +770,7 @@ index 3897d8b..751d5f4 100644
       * \return the name of the output of the given material property
       * \param[in] l: library name
 diff --git a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
-index cada844..b72d350 100644
+index cada8444..b72d350a 100644
 --- a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 +++ b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 @@ -45,8 +45,7 @@ typedef struct mgis_mp_ExecutionOptions {
@@ -823,7 +823,7 @@ index cada844..b72d350 100644
  
  }  // end of namespace mgis::material_property
 diff --git a/include/MGIS/MaterialProperty/MaterialProperty.hxx b/include/MGIS/MaterialProperty/MaterialProperty.hxx
-index 5692d30..52e5095 100644
+index 5692d304..52e5095e 100644
 --- a/include/MGIS/MaterialProperty/MaterialProperty.hxx
 +++ b/include/MGIS/MaterialProperty/MaterialProperty.hxx
 @@ -24,6 +24,7 @@
@@ -906,7 +906,7 @@ index 5692d30..52e5095 100644
  
 diff --git a/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx b/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx
 new file mode 100644
-index 0000000..f335a5d
+index 00000000..f335a5d2
 --- /dev/null
 +++ b/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx
 @@ -0,0 +1,83 @@
@@ -995,7 +995,7 @@ index 0000000..f335a5d
 +#endif /* LIB_MGIS_MATERIALPROPERTY_PENDINGBATCHEVALUATION_HXX */
 diff --git a/src/BatchExecutionPolicy.cxx b/src/BatchExecutionPolicy.cxx
 new file mode 100644
-index 0000000..12391fb
+index 00000000..12391fb8
 --- /dev/null
 +++ b/src/BatchExecutionPolicy.cxx
 @@ -0,0 +1,43 @@
@@ -1043,7 +1043,7 @@ index 0000000..12391fb
 +
 +}  // end of namespace mgis
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 133a3df..dd2e625 100644
+index 133a3dfd..dd2e625d 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -14,6 +14,8 @@
@@ -1484,7 +1484,7 @@ index 133a3df..dd2e625 100644
      auto &lm = mgis::LibrariesManager::get();
      lm.setParameter(b.library, b.behaviour, b.hypothesis, n, v);
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index c7889e6..af6b8a1 100644
+index c7889e6c..af6b8a17 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -10,6 +10,7 @@ list(APPEND MFrontGenericInterface_SOURCES
@@ -1496,7 +1496,7 @@ index c7889e6..af6b8a1 100644
    Markdown.cxx
    MaterialProperty.cxx
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 647aef2..15d5aaf 100644
+index 647aef22..15d5aaff 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -20,6 +20,7 @@
@@ -2075,10 +2075,10 @@ index 647aef2..15d5aaf 100644
  
    BehaviourIntegrationResult executePostProcessing(std::span<real> outputs,
 diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
-index 9bc1a15..38de77f 100644
+index bef0dd85..7e030763 100644
 --- a/src/LibrariesManager.cxx
 +++ b/src/LibrariesManager.cxx
-@@ -273,6 +273,23 @@ namespace mgis {
+@@ -287,6 +287,23 @@ namespace mgis {
          mgis::material_property::BatchMaterialPropertyFctPtr>(p);
    }  // end of getBatchMaterialProperty
  
@@ -2102,7 +2102,7 @@ index 9bc1a15..38de77f 100644
    std::vector<std::string> LibrariesManager::getMaterialPropertyInputsNames(
        const std::string &l, const std::string &mp) {
      return this->getNames(l, mp, "args");
-@@ -865,6 +882,12 @@ namespace mgis {
+@@ -879,6 +896,12 @@ namespace mgis {
          this->extract<const char *>(l, n + "_generic_parallel_memory_space"));
    }  // end of getGenericParallelMemorySpace
  
@@ -2116,7 +2116,7 @@ index 9bc1a15..38de77f 100644
                                               const std::string &l,
                                               const std::string &n,
 diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
-index bcfed07..d61f80f 100644
+index bcfed070..d61f80fd 100644
 --- a/src/MaterialProperty.cxx
 +++ b/src/MaterialProperty.cxx
 @@ -14,6 +14,8 @@
@@ -2319,7 +2319,7 @@ index bcfed07..d61f80f 100644
 +
  }  // end of namespace mgis::material_property
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index 7f55722..baab626 100644
+index 7f55722c..baab6264 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -626,6 +626,123 @@ static void testMaterialProperties(const std::string& library,
@@ -2455,7 +2455,7 @@ index 7f55722..baab626 100644
      std::cerr << e.what() << '\n';
      return EXIT_FAILURE;
 diff --git a/tests/GenericParallelEvaluateTest.cxx b/tests/GenericParallelEvaluateTest.cxx
-index 832dd29..877c967 100644
+index 832dd298..877c9670 100644
 --- a/tests/GenericParallelEvaluateTest.cxx
 +++ b/tests/GenericParallelEvaluateTest.cxx
 @@ -206,6 +206,63 @@ static void testInvalidArguments(const std::string& library,
@@ -2531,7 +2531,7 @@ index 832dd29..877c967 100644
      std::cerr << e.what() << '\n';
      return EXIT_FAILURE;
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index 28d95bc..5f61380 100644
+index 28d95bcc..5f61380e 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -976,6 +976,164 @@ static void testFailure(const std::string& library,

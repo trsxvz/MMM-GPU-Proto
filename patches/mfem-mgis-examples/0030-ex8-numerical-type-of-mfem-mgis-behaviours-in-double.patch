@@ -1,4 +1,4 @@
-From f9084eaa7f63923a7534cf488ce0b83ff3c0bb12 Mon Sep 17 00:00:00 2001
+From 849adc3f80cf739383051d27f66156bbd67fc6f8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:08:29 +0200
 Subject: [PATCH] ex8: numerical type of mfem-mgis, behaviours in double for

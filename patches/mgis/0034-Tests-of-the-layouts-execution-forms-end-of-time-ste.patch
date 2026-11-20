@@ -1,4 +1,4 @@
-From 97600267f740e9316a61f4001d18dc46fc5ec2c6 Mon Sep 17 00:00:00 2001
+From 5ce6bc4616c6b564810a911e38e4e04c462b96bb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:04:25 +0200
 Subject: [PATCH] Tests of the layouts: execution forms, end of time step,
@@ -22,7 +22,7 @@ Subject: [PATCH] Tests of the layouts: execution forms, end of time step,
  1 file changed, 495 insertions(+)
 
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index 61a03a6..ef765b7 100644
+index 61a03a63..ef765b73 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -20,6 +20,8 @@

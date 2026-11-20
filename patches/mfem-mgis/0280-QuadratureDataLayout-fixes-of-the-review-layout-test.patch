@@ -1,4 +1,4 @@
-From 7b571006ba3b606fd4a1c00b4fdc6e5294feab99 Mon Sep 17 00:00:00 2001
+From bf1384b57e43c409db3b7371335592ef653b9d1c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 3 Nov 2026 03:05:41 +0100
 Subject: [PATCH] QuadratureDataLayout: fixes of the review, layout tests of

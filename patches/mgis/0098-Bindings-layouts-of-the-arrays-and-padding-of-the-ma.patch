@@ -1,4 +1,4 @@
-From 45463daf349e91e4441837ecc4fb55caf8f4fc17 Mon Sep 17 00:00:00 2001
+From b5520ecb3d0f8c984f0c6964a430032400f3dd10 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 23:25:46 +0100
 Subject: [PATCH] Bindings: layouts of the arrays and padding of the material
@@ -20,7 +20,7 @@ padding of the array they return.
  5 files changed, 595 insertions(+), 26 deletions(-)
 
 diff --git a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
-index 6b43eb9..de63f28 100644
+index 6b43eb98..de63f28d 100644
 --- a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 +++ b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 @@ -67,13 +67,56 @@ MGIS_C_EXPORT
@@ -116,7 +116,7 @@ index 6b43eb9..de63f28 100644
   * \brief update the material data manager
   * \param[in,out] d: data manager
 diff --git a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
-index bbb4851..ebbb516 100644
+index bbb48517..ebbb516b 100644
 --- a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
 +++ b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
 @@ -53,8 +53,11 @@ typedef enum {
@@ -206,7 +206,7 @@ index bbb4851..ebbb516 100644
  MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_gradients_stride(
      mgis_size_type* const, mgis_bv_MaterialStateManager* const);
 diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
-index 97a028d..005ae9e 100644
+index 97a028df..005ae9e5 100644
 --- a/bindings/c/src/MaterialDataManager.cxx
 +++ b/bindings/c/src/MaterialDataManager.cxx
 @@ -15,6 +15,40 @@
@@ -369,7 +369,7 @@ index 97a028d..005ae9e 100644
      mgis_bv_MaterialDataManager* const d) {
    if (d == nullptr) {
 diff --git a/bindings/c/src/MaterialStateManager.cxx b/bindings/c/src/MaterialStateManager.cxx
-index a5ee978..6aca8b6 100644
+index a5ee978c..6aca8b66 100644
 --- a/bindings/c/src/MaterialStateManager.cxx
 +++ b/bindings/c/src/MaterialStateManager.cxx
 @@ -14,6 +14,39 @@
@@ -456,7 +456,7 @@ index a5ee978..6aca8b6 100644
      mgis_size_type* const gs, mgis_bv_MaterialStateManager* const s) {
    if (s == nullptr) {
 diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
-index ae753bd..680bf29 100644
+index ae753bde..680bf298 100644
 --- a/bindings/fortran/src/mgis_behaviour.f90
 +++ b/bindings/fortran/src/mgis_behaviour.f90
 @@ -49,6 +49,15 @@ module mgis_behaviour

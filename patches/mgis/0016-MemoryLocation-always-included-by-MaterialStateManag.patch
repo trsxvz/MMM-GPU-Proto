@@ -1,4 +1,4 @@
-From 43fa127f11f6dd3341d6bf88b29d73872437e1a7 Mon Sep 17 00:00:00 2001
+From 2d939b58fa71a3fca3ece870f06759dbce3ec679 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 15:43:17 +0200
 Subject: [PATCH] MemoryLocation always included by MaterialStateManager.hxx,
@@ -12,7 +12,7 @@ MaterialStateManager.hxx only included MGIS/MemoryLocation.hxx when the MGIS/Fun
  3 files changed, 96 insertions(+), 89 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index d049c76..5ba9d21 100644
+index d049c762..5ba9d212 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -36,9 +36,9 @@
@@ -27,7 +27,7 @@ index d049c76..5ba9d21 100644
  
  namespace mgis::behaviour {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index f6d7d2c..a2c68f7 100644
+index f6d7d2cf..a2c68f72 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -138,104 +138,107 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -227,7 +227,7 @@ index f6d7d2c..a2c68f7 100644
    # Tests that depend on behaviour libraries
    add_library_test_with_tfel_version(LoadMaterialPropertyTest LoadMaterialPropertyTest.cxx MaterialPropertyTest)
 diff --git a/tests/InitializeFunctionTest.mfront b/tests/InitializeFunctionTest.mfront
-index a93d109..664fffe 100644
+index a93d109b..664fffed 100644
 --- a/tests/InitializeFunctionTest.mfront
 +++ b/tests/InitializeFunctionTest.mfront
 @@ -29,5 +29,9 @@

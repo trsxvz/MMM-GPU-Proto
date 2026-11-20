@@ -1,4 +1,4 @@
-From 72a6e3665fd43196c93ab34877ed159c909a2c90 Mon Sep 17 00:00:00 2001
+From fd8c0750928b4b9c0ab0bb301a2da7a90bbb8c84 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 13 Nov 2026 22:10:45 +0100
 Subject: [PATCH] Mean thermodynamic forces: weights of the integration points
@@ -641,5 +641,5 @@ index 0000000000..da91e986e1
 +  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 -- 
-2.34.1
+2.43.0
 

@@ -1,4 +1,4 @@
-From 960f7486feba4990e59ea1eff1534d8c2f308d78 Mon Sep 17 00:00:00 2001
+From e7165161b4c94c2a2382210cc87099de71d46cc8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:06:29 +0200
 Subject: [PATCH] Initialize functions and post-processings of batches
@@ -23,7 +23,7 @@ post-processing with the ones of the generic interface.
  2 files changed, 258 insertions(+), 58 deletions(-)
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 61b5632..0b083ab 100644
+index 61b56322..0b083ab6 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -453,51 +453,41 @@ namespace mgis::behaviour::internals {
@@ -352,7 +352,7 @@ index 61b5632..0b083ab 100644
      const auto ostride = getArraySize(post.outputs, m.b.hypothesis);
      if (outputs.size() != m.n * ostride) {
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index 7ca7333..afd3329 100644
+index 7ca7333f..afd3329b 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -220,6 +220,88 @@ static void testElasticity(const std::string& library,

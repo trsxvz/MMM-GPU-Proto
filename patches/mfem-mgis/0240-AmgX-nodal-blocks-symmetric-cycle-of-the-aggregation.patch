@@ -1,4 +1,4 @@
-From 5b05a497c0680b3da7e0c78320b2df4a39f6dfee Mon Sep 17 00:00:00 2001
+From 10aedfe1013c614958943907166aae92e9ffb811 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 02:12:10 +0200
 Subject: [PATCH] AmgX: nodal blocks, symmetric cycle of the aggregation

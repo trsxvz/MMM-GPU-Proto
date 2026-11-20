@@ -1,4 +1,4 @@
-From 81314603629188089dc6a784b6ec391da26b50da Mon Sep 17 00:00:00 2001
+From 4dfc8c140419bac5c37c529e576f68c3c61fcbae Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:32:23 +0200
 Subject: [PATCH] State views: behaviour checked before use
@@ -11,7 +11,7 @@ check that the behaviour is not null before using it.
  2 files changed, 39 insertions(+), 8 deletions(-)
 
 diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
-index 92b99cf..5157a82 100644
+index 92b99cf3..5157a829 100644
 --- a/src/MaterialDataView.cxx
 +++ b/src/MaterialDataView.cxx
 @@ -92,6 +92,9 @@ namespace mgis::behaviour {
@@ -90,7 +90,7 @@ index 92b99cf..5157a82 100644
        mgis::raise(
            "updateValues: the states are not associated with the same "
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index 3168206..da867fa 100644
+index 3168206a..da867fae 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -1031,12 +1031,21 @@ static void testErrors(const std::string& library,

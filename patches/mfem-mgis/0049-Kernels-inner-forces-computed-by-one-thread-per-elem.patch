@@ -1,4 +1,4 @@
-From eea0af9220950c1c9f88b47948675c076b925129 Mon Sep 17 00:00:00 2001
+From 403709bd10c01c7c4bed45d8a0c2f5c5af2805d2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:21:13 +0200
 Subject: [PATCH] Kernels: inner forces computed by one thread per element

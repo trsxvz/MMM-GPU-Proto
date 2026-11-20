@@ -1,4 +1,4 @@
-From 8cd22075a40666f148270702cc6a19f32cfb89d9 Mon Sep 17 00:00:00 2001
+From e818b4f274e20a2265cc5218a989ab9ef9d4e4c3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 21:01:04 +0200
 Subject: [PATCH] Docs: the aggregation multigrid of AmgX does not converge on

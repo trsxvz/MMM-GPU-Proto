@@ -1,4 +1,4 @@
-From 4460645bae3836fe47fc7a6e2e6bb5e6606af221 Mon Sep 17 00:00:00 2001
+From 20403f258282f1ba884a7ceed4981a6a96a32dac Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 13:55:03 +0200
 Subject: [PATCH] Batches: memory spaces, execution policies and memory
@@ -54,17 +54,17 @@ Subject: [PATCH] Batches: memory spaces, execution policies and memory
  src/Behaviour.cxx                             | 214 ++++++----
  src/BehaviourDescription.cxx                  |  16 +
  src/Integrate.cxx                             | 373 ++++++++++++------
- src/LibrariesManager.cxx                      | 208 ++++++----
+ src/LibrariesManager.cxx                      | 202 +++++++---
  src/MaterialDataManager.cxx                   |  82 ++--
  src/MaterialStateManager.cxx                  |  75 +++-
- 24 files changed, 1320 insertions(+), 377 deletions(-)
+ 24 files changed, 1319 insertions(+), 372 deletions(-)
  create mode 100644 include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
  create mode 100644 include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
  create mode 100644 include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
  create mode 100644 include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
 
 diff --git a/bindings/c/src/Integrate.cxx b/bindings/c/src/Integrate.cxx
-index 4637a49..b0e0e5e 100644
+index 4637a495..b0e0e5e0 100644
 --- a/bindings/c/src/Integrate.cxx
 +++ b/bindings/c/src/Integrate.cxx
 @@ -177,7 +177,11 @@ mgis_status mgis_bv_integrate(int* const r,
@@ -81,7 +81,7 @@ index 4637a49..b0e0e5e 100644
      return mgis_report_failure("behaviour integration failed");
    }
 diff --git a/cmake/modules/behaviours.cmake b/cmake/modules/behaviours.cmake
-index c954604..2ee41df 100644
+index c9546042..2ee41df0 100644
 --- a/cmake/modules/behaviours.cmake
 +++ b/cmake/modules/behaviours.cmake
 @@ -125,7 +125,8 @@ function(mfront_generic_parallel_behaviours_check_library name backend)
@@ -123,7 +123,7 @@ index c954604..2ee41df 100644
    endif(backend STREQUAL "stlpar")
  endfunction(mfront_generic_parallel_behaviours_check_library)
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 49a93b3..448a362 100644
+index 49a93b36..448a362c 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -44,6 +44,10 @@ mgis_header(MGIS/Behaviour BatchDataView.hxx)
@@ -138,7 +138,7 @@ index 49a93b3..448a362 100644
  mgis_header(MGIS/Behaviour Behaviour.hxx)
  mgis_header(MGIS/Behaviour StateView.hxx)
 diff --git a/include/MGIS/Behaviour/BatchBehaviourFctPtr.hxx b/include/MGIS/Behaviour/BatchBehaviourFctPtr.hxx
-index 81b41cd..0bdee17 100644
+index 81b41cda..0bdee174 100644
 --- a/include/MGIS/Behaviour/BatchBehaviourFctPtr.hxx
 +++ b/include/MGIS/Behaviour/BatchBehaviourFctPtr.hxx
 @@ -2,7 +2,7 @@
@@ -151,7 +151,7 @@ index 81b41cd..0bdee17 100644
   * to one of the following licences:
   * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
 diff --git a/include/MGIS/Behaviour/BatchDataView.hxx b/include/MGIS/Behaviour/BatchDataView.hxx
-index 083f98b..ef11aff 100644
+index 083f98bc..ef11aff3 100644
 --- a/include/MGIS/Behaviour/BatchDataView.hxx
 +++ b/include/MGIS/Behaviour/BatchDataView.hxx
 @@ -3,7 +3,7 @@
@@ -218,7 +218,7 @@ index 083f98b..ef11aff 100644
  }  // end of extern "C"
  #endif /* __cplusplus */
 diff --git a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
-index d34c460..c419ab1 100644
+index d34c4605..c419ab14 100644
 --- a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
 +++ b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
 @@ -1,7 +1,7 @@
@@ -259,7 +259,7 @@ index d34c460..c419ab1 100644
  
  #endif /* LIB_MGIS_BEHAVIOUR_BATCHEXECUTIONPOLICY_HXX */
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index 7c545a2..ada9d02 100644
+index 7c545a20..ada9d024 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
 @@ -27,6 +27,7 @@
@@ -385,7 +385,7 @@ index 7c545a2..ada9d02 100644
     * \brief set the value of a parameter
     * \param[in] b: behaviour description
 diff --git a/include/MGIS/Behaviour/BehaviourDescription.hxx b/include/MGIS/Behaviour/BehaviourDescription.hxx
-index f96a2c9..34b8b75 100644
+index f96a2c9d..34b8b750 100644
 --- a/include/MGIS/Behaviour/BehaviourDescription.hxx
 +++ b/include/MGIS/Behaviour/BehaviourDescription.hxx
 @@ -20,6 +20,7 @@
@@ -427,7 +427,7 @@ index f96a2c9..34b8b75 100644
    /*!
     * \return the size of an array able to contain all the values of the
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 358f0a7..3c643dc 100644
+index 358f0a70..3c643dc8 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -109,6 +109,10 @@ namespace mgis::behaviour {
@@ -571,7 +571,7 @@ index 358f0a7..3c643dc 100644
  
  #endif /* LIB_MGIS_BEHAVIOUR_INTEGRATE_HXX */
 diff --git a/include/MGIS/Behaviour/Integrate.ixx b/include/MGIS/Behaviour/Integrate.ixx
-index e613a3e..6f6a2d3 100644
+index e613a3e7..6f6a2d32 100644
 --- a/include/MGIS/Behaviour/Integrate.ixx
 +++ b/include/MGIS/Behaviour/Integrate.ixx
 @@ -20,6 +20,9 @@
@@ -585,7 +585,7 @@ index e613a3e..6f6a2d3 100644
      return b.b(&d);
    }  // end of integrate
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index f694646..ead5c86 100644
+index f6946468..ead5c86d 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -19,6 +19,7 @@
@@ -641,7 +641,7 @@ index f694646..ead5c86 100644
      std::map<std::thread::id, std::unique_ptr<BehaviourIntegrationWorkSpace>>
          iwks;
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 2233654..feabdaf 100644
+index 22336547..feabdaf3 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -27,6 +27,7 @@
@@ -723,7 +723,7 @@ index 2233654..feabdaf 100644
     * \param[in] p: update policy
     * \param[in] h: clean-up hook, called once when the given values are no
 diff --git a/include/MGIS/Behaviour/MemoryLocation.hxx b/include/MGIS/Behaviour/MemoryLocation.hxx
-index 27401d5..5376fbf 100644
+index 27401d53..5376fbf6 100644
 --- a/include/MGIS/Behaviour/MemoryLocation.hxx
 +++ b/include/MGIS/Behaviour/MemoryLocation.hxx
 @@ -1,7 +1,7 @@
@@ -772,7 +772,7 @@ index 27401d5..5376fbf 100644
  
  #endif /* LIB_MGIS_BEHAVIOUR_MEMORYLOCATION_HXX */
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index a103f11..ad5270c 100644
+index a103f117..ad5270c8 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -109,6 +109,15 @@ namespace mgis {
@@ -895,7 +895,7 @@ index a103f11..ad5270c 100644
      /*!
 diff --git a/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
 new file mode 100644
-index 0000000..50c3b01
+index 00000000..50c3b010
 --- /dev/null
 +++ b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
 @@ -0,0 +1,53 @@
@@ -954,7 +954,7 @@ index 0000000..50c3b01
 +#endif /* LIB_MGIS_MEMORYRESOURCES_CUDAMANAGEDMEMORYRESOURCE_HXX */
 diff --git a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 new file mode 100644
-index 0000000..5183784
+index 00000000..5183784b
 --- /dev/null
 +++ b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 @@ -0,0 +1,53 @@
@@ -1013,7 +1013,7 @@ index 0000000..5183784
 +#endif /* LIB_MGIS_MEMORYRESOURCES_HIPMANAGEDMEMORYRESOURCE_HXX */
 diff --git a/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx b/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
 new file mode 100644
-index 0000000..2b43044
+index 00000000..2b430443
 --- /dev/null
 +++ b/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
 @@ -0,0 +1,56 @@
@@ -1075,7 +1075,7 @@ index 0000000..2b43044
 +#endif /* LIB_MGIS_MEMORYRESOURCES_KOKKOSSHAREDSPACEMEMORYRESOURCE_HXX */
 diff --git a/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
 new file mode 100644
-index 0000000..bfa7115
+index 00000000..bfa71153
 --- /dev/null
 +++ b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
 @@ -0,0 +1,66 @@
@@ -1146,7 +1146,7 @@ index 0000000..bfa7115
 +
 +#endif /* LIB_MGIS_MEMORYRESOURCES_SYCLSHAREDMEMORYRESOURCE_HXX */
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 3b79b4e..133a3df 100644
+index 3b79b4ef..133a3dfd 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -109,30 +109,6 @@ namespace mgis::behaviour {
@@ -1532,7 +1532,7 @@ index 3b79b4e..133a3df 100644
      auto &lm = mgis::LibrariesManager::get();
      lm.setParameter(b.library, b.behaviour, b.hypothesis, n, v);
 diff --git a/src/BehaviourDescription.cxx b/src/BehaviourDescription.cxx
-index e2f695f..c99458b 100644
+index e2f695f1..c99458b5 100644
 --- a/src/BehaviourDescription.cxx
 +++ b/src/BehaviourDescription.cxx
 @@ -127,6 +127,18 @@ namespace mgis::behaviour {
@@ -1566,7 +1566,7 @@ index e2f695f..c99458b 100644
      d.tfel_version = lm.getTFELVersion(l, b);
      d.unit_system = lm.getUnitSystem(l, b);
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 9640199..96f9f02 100644
+index 96401994..96f9f02a 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -30,6 +30,14 @@
@@ -2216,10 +2216,10 @@ index 9640199..96f9f02 100644
      // get number of threads
      const auto nth = p.getNumberOfThreads();
 diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
-index 501a9aa..1240229 100644
+index 7601b49a..8c5f5112 100644
 --- a/src/LibrariesManager.cxx
 +++ b/src/LibrariesManager.cxx
-@@ -60,15 +60,57 @@ namespace mgis {
+@@ -60,6 +60,52 @@ namespace mgis {
  #endif /* (defined _WIN32 || defined _WIN64) && (!defined __CYGWIN__) */
    }    // end of getErrorMessage
  
@@ -2270,19 +2270,9 @@ index 501a9aa..1240229 100644
 +  }  // end of getRotationFunctionSuffix
 +
    static LibrariesManager::libhandler load_library(const std::string &l) {
- #if (defined _WIN32 || defined _WIN64) && (!defined __CYGWIN__)
-     return ::LoadLibrary(TEXT(l.c_str()));
- #else
--    // the libraries are never unloaded: a library may use threads which are
--    // still alive when the libraries are closed at the end of the process,
--    // for instance the threads of TBB, used by the parallel algorithms of
--    // the C++ standard library (generic-parallel interface)
--    return ::dlopen(l.c_str(), RTLD_NOW | RTLD_NODELETE);
-+    return ::dlopen(l.c_str(), RTLD_NOW);
- #endif /* (defined _WIN32 || defined _WIN64) && (!defined __CYGWIN__) */
-   }    // end of load_library
- 
-@@ -345,25 +387,75 @@ namespace mgis {
+     // never unloaded, nor their dependencies: unloading them at the exit of
+     // the program may unload a runtime whose threads are still running (for
+@@ -355,25 +401,75 @@ namespace mgis {
    }  // end of getBatchBehaviourPostProcessing
  
    mgis::behaviour::BatchRotationFctPtr
@@ -2366,7 +2356,7 @@ index 501a9aa..1240229 100644
    std::vector<std::string> LibrariesManager::getBehaviourPostProcessings(
        const std::string &l, const std::string &b, const Hypothesis h) {
      return this->getNames(l, b, h, "PostProcessings");
-@@ -438,6 +530,9 @@ namespace mgis {
+@@ -448,6 +544,9 @@ namespace mgis {
    mgis::behaviour::RotateArrayOfBehaviourGradientsFctPtr
    LibrariesManager::getRotateArrayOfBehaviourGradientsFunction(
        const std::string &l, const std::string &b, const Hypothesis h) {
@@ -2376,7 +2366,7 @@ index 501a9aa..1240229 100644
      const auto hn = toString(h);
  
      const auto f = b + "_" + hn + "_rotateArrayOfGradients";
-@@ -478,6 +573,10 @@ namespace mgis {
+@@ -488,6 +587,10 @@ namespace mgis {
    mgis::behaviour::RotateArrayOfBehaviourThermodynamicForcesFctPtr
    LibrariesManager::getRotateArrayOfBehaviourThermodynamicForcesFunction(
        const std::string &l, const std::string &b, const Hypothesis h) {
@@ -2387,7 +2377,7 @@ index 501a9aa..1240229 100644
      const auto hn = toString(h);
      const auto f = b + "_" + hn + "_rotateArrayOfThermodynamicForces";
      const auto p = this->getSymbolAddress(l, f);
-@@ -503,18 +602,8 @@ namespace mgis {
+@@ -513,18 +616,8 @@ namespace mgis {
          "LibrariesManager::getRotateBehaviourThermodynamicForcesFunction", l, b,
          false);
      const auto hn = toString(h);
@@ -2408,7 +2398,7 @@ index 501a9aa..1240229 100644
      const auto f = b + "_" + hn + "_rotateThermodynamicForces_" + suffix;
      const auto p = this->getSymbolAddress(l, f);
      if (p == nullptr) {
-@@ -534,19 +623,15 @@ namespace mgis {
+@@ -544,19 +637,15 @@ namespace mgis {
        const std::string &b,
        const Hypothesis h,
        const mgis::behaviour::FiniteStrainBehaviourOptions::StressMeasure s) {
@@ -2436,7 +2426,7 @@ index 501a9aa..1240229 100644
      const auto f = b + "_" + hn + "_rotateArrayOfThermodynamicForces_" + suffix;
      const auto p = this->getSymbolAddress(l, f);
      if (p == nullptr) {
-@@ -584,6 +669,10 @@ namespace mgis {
+@@ -594,6 +683,10 @@ namespace mgis {
    mgis::behaviour::RotateArrayOfBehaviourTangentOperatorBlocksFctPtr
    LibrariesManager::getRotateArrayOfBehaviourTangentOperatorBlocksFunction(
        const std::string &l, const std::string &b, const Hypothesis h) {
@@ -2447,7 +2437,7 @@ index 501a9aa..1240229 100644
      const auto hn = toString(h);
      const auto f = b + "_" + hn + "_rotateArrayOfTangentOperatorBlocks";
      const auto p = this->getSymbolAddress(l, f);
-@@ -609,20 +698,8 @@ namespace mgis {
+@@ -619,20 +712,8 @@ namespace mgis {
          "LibrariesManager::getRotateBehaviourTangentOperatorBlocksFunction", l,
          b, false);
      const auto hn = toString(h);
@@ -2470,7 +2460,7 @@ index 501a9aa..1240229 100644
      const auto f = b + "_" + hn + "_rotateTangentOperatorBlocks_" + suffix;
      const auto p = this->getSymbolAddress(l, f);
      if (p == nullptr) {
-@@ -642,22 +719,15 @@ namespace mgis {
+@@ -652,22 +733,15 @@ namespace mgis {
        const std::string &b,
        const Hypothesis h,
        const mgis::behaviour::FiniteStrainBehaviourOptions::TangentOperator t) {
@@ -2501,7 +2491,7 @@ index 501a9aa..1240229 100644
      const auto f =
          b + "_" + hn + "_rotateArrayOfTangentOperatorBlocks_" + suffix;
      const auto p = this->getSymbolAddress(l, f);
-@@ -771,6 +841,12 @@ namespace mgis {
+@@ -781,6 +855,12 @@ namespace mgis {
          this->extract<unsigned short>(l, n + "_generic_parallel_api_version"));
    }  // end of getGenericParallelAPIVersion
  
@@ -2515,7 +2505,7 @@ index 501a9aa..1240229 100644
                                               const std::string &l,
                                               const std::string &n,
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 699b164..3a53cc8 100644
+index 699b1647..3a53cc84 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -54,36 +54,16 @@ namespace mgis::behaviour {
@@ -2667,7 +2657,7 @@ index 699b164..3a53cc8 100644
      auto og_s0 = openGroup(ctx, g, "s0");
      if (isInvalid(og_s0)) {
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 0e46615..b03b6e7 100644
+index 0e46615d..b03b6e73 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -49,7 +49,8 @@ namespace mgis::behaviour {

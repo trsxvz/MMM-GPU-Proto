@@ -1,4 +1,4 @@
-From f32db26ef86921b598d05bb1e89d21e3893618b1 Mon Sep 17 00:00:00 2001
+From 05ba347415742416cf11362e1d490800823e7eec Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 23:25:46 +0100
 Subject: [PATCH] Tests of the layouts per array and of the padding
@@ -21,7 +21,7 @@ of its checks.
  4 files changed, 344 insertions(+), 4 deletions(-)
 
 diff --git a/bindings/c/tests/LayoutTest-c.c b/bindings/c/tests/LayoutTest-c.c
-index 3c99059..2e89803 100644
+index 3c99059e..2e898030 100644
 --- a/bindings/c/tests/LayoutTest-c.c
 +++ b/bindings/c/tests/LayoutTest-c.c
 @@ -25,12 +25,15 @@ mgis_bv_Behaviour* b = NULL;
@@ -126,7 +126,7 @@ index 3c99059..2e89803 100644
 +  return test_status;
  }
 diff --git a/bindings/fortran/tests/LayoutTest-f.f90 b/bindings/fortran/tests/LayoutTest-f.f90
-index aeedc42..cef1cdd 100644
+index aeedc422..cef1cdd4 100644
 --- a/bindings/fortran/tests/LayoutTest-f.f90
 +++ b/bindings/fortran/tests/LayoutTest-f.f90
 @@ -26,6 +26,7 @@ subroutine test()
@@ -187,7 +187,7 @@ index aeedc42..cef1cdd 100644
    call check_status(free_material_data_manager_initializer(i))
    call check_status(free_behaviour(b))
 diff --git a/bindings/python/tests/LayoutTest.py b/bindings/python/tests/LayoutTest.py
-index 2503c2c..b2c1b61 100644
+index 2503c2c7..b2c1b613 100644
 --- a/bindings/python/tests/LayoutTest.py
 +++ b/bindings/python/tests/LayoutTest.py
 @@ -54,6 +54,36 @@ class LayoutTest(unittest.TestCase):
@@ -228,7 +228,7 @@ index 2503c2c..b2c1b61 100644
          bt = mgis_bv.load(lib, 'TensorialExternalStateVariableTest', h)
          d = mgis_bv.BehaviourData(bt)
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index 7711339..589fd4e 100644
+index 77113394..589fd4ed 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -108,11 +108,11 @@ static void copy(const FieldView<real>& dst, const FieldView<const real>& src) {

@@ -1,4 +1,4 @@
-From b81bde5273f65d35cd3540393ada21842ffae66f Mon Sep 17 00:00:00 2001
+From 9302e917ab807f61bd96509f8a8654f00b9ffbc9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 07:11:01 +0200
 Subject: [PATCH] ex7: choice of the linear solver, direct solvers of mfem-mgis

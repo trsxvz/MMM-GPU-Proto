@@ -1,4 +1,4 @@
-From 85221434cc5c08b5b949eca9688f95595c0c6033 Mon Sep 17 00:00:00 2001
+From 970a6763004d91886e179163a860539c9c227c87 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 10 Nov 2026 02:12:37 +0100
 Subject: [PATCH] PartialQuadratureFunction: stride between the components

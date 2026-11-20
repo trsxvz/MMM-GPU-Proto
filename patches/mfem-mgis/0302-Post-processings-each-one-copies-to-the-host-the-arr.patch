@@ -1,4 +1,4 @@
-From f90bdda2ba8e444eb3eb1b39b6e0170e63fbdde9 Mon Sep 17 00:00:00 2001
+From 3b6cfd1d0ed350b207896b1bacb7a2a56b686ac0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 18 Nov 2026 17:36:50 +0100
 Subject: [PATCH] Post-processings: each one copies to the host the arrays it
@@ -271,5 +271,5 @@ index baa57274e6..9889abe862 100644
    writeAllOnTheDevice(a, 12);
    check(!isInvalid(computeMeanThermodynamicForcesValues<false>(
 -- 
-2.34.1
+2.43.0
 

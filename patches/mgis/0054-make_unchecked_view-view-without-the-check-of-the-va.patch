@@ -1,4 +1,4 @@
-From a08f0063be3649d128efd6b2ef7ca66757ee4b79 Mon Sep 17 00:00:00 2001
+From e9737c5a1723bc9fa3738148d09e584f49d739c6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 21:59:36 +0200
 Subject: [PATCH] make_unchecked_view: view without the check of the values
@@ -18,7 +18,7 @@ of a material held by the calling code).
  3 files changed, 82 insertions(+), 15 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
-index bae9d58..a9502ec 100644
+index bae9d581..a9502ec7 100644
 --- a/include/MGIS/Behaviour/MaterialDataView.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataView.hxx
 @@ -264,6 +264,24 @@ namespace mgis::behaviour {
@@ -47,7 +47,7 @@ index bae9d58..a9502ec 100644
    /*!
     * \return a view on the values of a gradient of a state, extracted from the
 diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
-index 5157a82..aa0a182 100644
+index 5157a829..aa0a1821 100644
 --- a/src/MaterialDataView.cxx
 +++ b/src/MaterialDataView.cxx
 @@ -189,11 +189,14 @@ namespace mgis::behaviour {
@@ -191,7 +191,7 @@ index 5157a82..aa0a182 100644
     * \return a view on the values of a variable of a state, extracted from
     * the view of its group of variables
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index bbcf40c..f87dcec 100644
+index bbcf40c4..f87dcec3 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -27,6 +27,7 @@

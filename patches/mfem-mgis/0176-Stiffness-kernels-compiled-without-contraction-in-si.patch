@@ -1,4 +1,4 @@
-From c6e73f1ab98160d6d0043e4e846934b2d03fcfa4 Mon Sep 17 00:00:00 2001
+From f2a6f223cf9bc5a61a323cd380f940449fee9a97 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 07:58:36 +0200
 Subject: [PATCH] Stiffness kernels compiled without contraction in single

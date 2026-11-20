@@ -1,4 +1,4 @@
-From b5201ca18e96fa8488a6e774d5a55463f85c7544 Mon Sep 17 00:00:00 2001
+From 94fb38e1915f777f09b22cef363389875aa67fad Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 13:51:56 +0200
 Subject: [PATCH] AmgX: parameters of AmgX completing the default configuration

@@ -1,4 +1,4 @@
-From 1b7c6e45538b697f90af76bcad26bcdc53f6d382 Mon Sep 17 00:00:00 2001
+From 71751ff291dab951eb68ac3e9af71e3b3e33a5fe Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 18:45:06 +0200
 Subject: [PATCH] Rigid body modes given to the preconditioners of PETSc

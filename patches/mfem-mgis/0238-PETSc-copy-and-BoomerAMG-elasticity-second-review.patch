@@ -1,4 +1,4 @@
-From 84f480041a30fa4906bd5f355d452f8c196df17e Mon Sep 17 00:00:00 2001
+From 85cc1339976f2b60b99d19d4eaf95b9867bd0f0c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 20:55:35 +0200
 Subject: [PATCH] PETSc copy and BoomerAMG elasticity: second review

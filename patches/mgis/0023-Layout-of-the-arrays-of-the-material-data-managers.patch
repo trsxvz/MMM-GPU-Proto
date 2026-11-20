@@ -1,4 +1,4 @@
-From 952675a806110c1d548c90e52390d5605dd08805 Mon Sep 17 00:00:00 2001
+From b6b8e9329818b207d7a9a7904c41203d3e0dd2cb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:07:51 +0200
 Subject: [PATCH] Layout of the arrays of the material data managers
@@ -43,7 +43,7 @@ of the views of mgis::function to field views.
  create mode 100644 tests/MaterialDataManagerLayoutTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index fcca86e..2045662 100644
+index fcca86e3..2045662d 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -96,6 +96,7 @@ if(enable-mgis-function)
@@ -55,7 +55,7 @@ index fcca86e..2045662 100644
    mgis_header(MGIS/Function Evaluator.hxx)
    mgis_header(MGIS/Function Evaluator.ixx)
 diff --git a/include/MGIS/Behaviour/FiniteStrainSupport.hxx b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
-index a30e839..70a8a7d 100644
+index a30e839f..70a8a7db 100644
 --- a/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 +++ b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 @@ -17,12 +17,15 @@
@@ -121,7 +121,7 @@ index a30e839..70a8a7d 100644
  }  // end of namespace mgis::behaviour
  
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 42d9abc..b259f67 100644
+index 42d9abc4..b259f67d 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -142,6 +142,15 @@ namespace mgis::behaviour {
@@ -184,7 +184,7 @@ index 42d9abc..b259f67 100644
  
  #endif /* LIB_MGIS_BEHAVIOUR_MATERIALDATAMANAGER_HXX */
 diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
-index 308f78b..e2365bd 100644
+index 308f78b5..e2365bdf 100644
 --- a/include/MGIS/Behaviour/MaterialDataView.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataView.hxx
 @@ -3,7 +3,7 @@
@@ -197,7 +197,7 @@ index 308f78b..e2365bd 100644
   * to one of the following licences:
   * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.hxx b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
-index 4ef4cd6..688915c 100644
+index 4ef4cd6e..688915cb 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 @@ -16,6 +16,7 @@
@@ -374,7 +374,7 @@ index 4ef4cd6..688915c 100644
  
  #include "MGIS/Behaviour/MaterialFunctionManager.ixx"
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
-index d2a9e44..a2aab9c 100644
+index d2a9e44b..a2aab9c5 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 @@ -73,6 +73,63 @@ namespace mgis::behaviour {
@@ -718,7 +718,7 @@ index d2a9e44..a2aab9c 100644
  
  #endif /* LIB_MGIS_BEHAVIOUR_MATERIALFUNCTIONMANAGER_IXX */
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 6900161..0475e52 100644
+index 69001619..0475e52f 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -37,6 +37,7 @@
@@ -852,7 +852,7 @@ index 6900161..0475e52 100644
  #ifdef MGIS_HAVE_HDF5
  
 diff --git a/include/MGIS/FieldView.hxx b/include/MGIS/FieldView.hxx
-index 8a0152e..b3b7a5c 100644
+index 8a0152e2..b3b7a5cf 100644
 --- a/include/MGIS/FieldView.hxx
 +++ b/include/MGIS/FieldView.hxx
 @@ -2,7 +2,7 @@
@@ -865,7 +865,7 @@ index 8a0152e..b3b7a5c 100644
   * to one of the following licences:
   * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
 diff --git a/include/MGIS/FieldView.ixx b/include/MGIS/FieldView.ixx
-index 2abe2a6..192e34c 100644
+index 2abe2a6a..192e34c8 100644
 --- a/include/MGIS/FieldView.ixx
 +++ b/include/MGIS/FieldView.ixx
 @@ -1,7 +1,7 @@
@@ -879,7 +879,7 @@ index 2abe2a6..192e34c 100644
   * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
 diff --git a/include/MGIS/Function/FieldViewSupport.hxx b/include/MGIS/Function/FieldViewSupport.hxx
 new file mode 100644
-index 0000000..716cc6f
+index 00000000..716cc6f8
 --- /dev/null
 +++ b/include/MGIS/Function/FieldViewSupport.hxx
 @@ -0,0 +1,77 @@
@@ -961,7 +961,7 @@ index 0000000..716cc6f
 +
 +#endif /* LIB_MGIS_FUNCTION_FIELDVIEWSUPPORT_HXX */
 diff --git a/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.hxx b/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.hxx
-index 6497367..33c30f0 100644
+index 64973675..33c30f0d 100644
 --- a/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.hxx
 +++ b/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.hxx
 @@ -117,6 +117,15 @@ namespace mgis::function {
@@ -981,7 +981,7 @@ index 6497367..33c30f0 100644
     protected:
      /*!
 diff --git a/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.ixx b/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.ixx
-index da3a2ad..f9811d0 100644
+index da3a2ad6..f9811d0d 100644
 --- a/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.ixx
 +++ b/include/MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.ixx
 @@ -118,6 +118,27 @@ namespace mgis::function {
@@ -1013,7 +1013,7 @@ index da3a2ad..f9811d0 100644
    requires(N > 0)                    //
        constexpr std::array<real, N>  //
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index eabd3f6..4f79d30 100644
+index eabd3f69..4f79d307 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -19,7 +19,9 @@
@@ -1485,7 +1485,7 @@ index eabd3f6..4f79d30 100644
  
    static void convertFiniteStrainTangentOperator_PK1_2D(
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 45e9aa2..800e3bd 100644
+index 45e9aa2e..800e3bdb 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -1410,7 +1410,7 @@ namespace mgis::behaviour {
@@ -1507,7 +1507,7 @@ index 45e9aa2..800e3bd 100644
  
    /*!
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index e7ddf16..16812e2 100644
+index e7ddf163..16812e2a 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -87,10 +87,11 @@ namespace mgis::behaviour {
@@ -1587,7 +1587,7 @@ index e7ddf16..16812e2 100644
 +
  }  // end of namespace mgis::behaviour
 diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
-index 02dee6e..86068ca 100644
+index 02dee6e5..86068ca9 100644
 --- a/src/MaterialDataView.cxx
 +++ b/src/MaterialDataView.cxx
 @@ -2,7 +2,7 @@
@@ -1627,7 +1627,7 @@ index 02dee6e..86068ca 100644
      makeStateView(v.s0, m, m.s0);
      makeStateView(v.s1, m, m.s1);
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index b03b6e7..66de95a 100644
+index b03b6e73..66de95a6 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -38,6 +38,23 @@ namespace mgis::behaviour {
@@ -1891,7 +1891,7 @@ index b03b6e7..66de95a 100644
  
    [[nodiscard]] static bool save(
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 96907df..22a8624 100644
+index 96907df3..22a86242 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -197,6 +197,19 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -1916,7 +1916,7 @@ index 96907df..22a8624 100644
      # evaluated on the host by the C++ parallel algorithms
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
 new file mode 100644
-index 0000000..517d900
+index 00000000..517d9004
 --- /dev/null
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -0,0 +1,425 @@
@@ -2346,7 +2346,7 @@ index 0000000..517d900
 +  return success ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index 5a493e3..632f15a 100644
+index 5a493e30..632f15ac 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -6,7 +6,7 @@

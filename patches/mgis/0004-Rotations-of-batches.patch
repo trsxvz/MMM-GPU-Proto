@@ -1,4 +1,4 @@
-From c35f8866f391a7703bc214615e70a4d962853271 Mon Sep 17 00:00:00 2001
+From 2874388146c93f728b0e39cce22c581ac8562252 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:08:47 +0200
 Subject: [PATCH] Rotations of batches
@@ -20,7 +20,7 @@ given point by point, 3D material axes).
  2 files changed, 259 insertions(+)
 
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index 606720d..3b79b4e 100644
+index 606720d3..3b79b4ef 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -12,7 +12,9 @@
@@ -286,7 +286,7 @@ index 606720d..3b79b4e 100644
      const auto Ksize = getTangentOperatorArraySize(b);
      const auto nipts =
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index afd3329..b031b94 100644
+index afd3329b..b031b940 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -13,6 +13,7 @@

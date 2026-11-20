@@ -1,4 +1,4 @@
-From 27b5530bd52129f1e62b017564c414534f009d3f Mon Sep 17 00:00:00 2001
+From ffc876f1dbbfa028348cc8ab3d159e5cb1412cb4 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:29:50 +0200
 Subject: [PATCH] updateInputValues checks the layouts, error messages fixed
@@ -23,7 +23,7 @@ Subject: [PATCH] updateInputValues checks the layouts, error messages fixed
  7 files changed, 32 insertions(+), 14 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 24c9520..812138d 100644
+index 24c9520a..812138d5 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -727,8 +727,8 @@ namespace mgis::behaviour {
@@ -38,7 +38,7 @@ index 24c9520..812138d 100644
     * \param[in, out] ctx: execution context
     * \param[out] o: output state
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index f2d907b..ffc48d8 100644
+index f2d907bb..ffc48d8c 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -700,7 +700,7 @@ namespace mgis::behaviour {
@@ -51,7 +51,7 @@ index f2d907b..ffc48d8 100644
      }
      if (r.getNumberOfComponents() != 9) {
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index 959d092..cc689e9 100644
+index 959d0927..cc689e96 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -263,7 +263,7 @@ namespace mgis::behaviour {
@@ -89,7 +89,7 @@ index 959d092..cc689e9 100644
      convertFiniteStrainTangentOperator(makeFieldView(K, m.layout, m.n, ts * ts),
                                         m, t);
 diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
-index aa0a182..da4415c 100644
+index aa0a1821..da4415cb 100644
 --- a/src/MaterialDataView.cxx
 +++ b/src/MaterialDataView.cxx
 @@ -203,8 +203,9 @@ namespace mgis::behaviour {
@@ -127,7 +127,7 @@ index aa0a182..da4415c 100644
        return makeFieldView(values, FieldLayout::POINT_BY_POINT, m.n, 1);
      };
 diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
-index a597b0a..d73d744 100644
+index a597b0aa..d73d744f 100644
 --- a/src/MaterialProperty.cxx
 +++ b/src/MaterialProperty.cxx
 @@ -211,7 +211,7 @@ namespace mgis::material_property {
@@ -140,7 +140,7 @@ index a597b0a..d73d744 100644
        }
      }
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 7309f3b..af7093b 100644
+index 7309f3bd..af7093b2 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -1110,6 +1110,14 @@ namespace mgis::behaviour {
@@ -159,7 +159,7 @@ index 7309f3b..af7093b 100644
        return false;
      }
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index f0ced43..404df00 100644
+index f0ced436..404df00c 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -379,6 +379,10 @@ static void testExternalStateVariables(const std::string& library) {

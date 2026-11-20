@@ -1,4 +1,4 @@
-From aae6888a400ece8feb86989acd6480c6b064c744 Mon Sep 17 00:00:00 2001
+From 3720cb0068cc4f98ca70f85b1ac359f30b646f2c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 18:06:25 +0200
 Subject: [PATCH] Trilinos: fast incomplete factorizations of ShyLU and block

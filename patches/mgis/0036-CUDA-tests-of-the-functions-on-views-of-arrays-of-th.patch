@@ -1,4 +1,4 @@
-From f179f03a9d472cd00c3ebc62f3a2bbce54cd2cf9 Mon Sep 17 00:00:00 2001
+From d0c5e71ab625517612052f730289683627a6c889 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:07:08 +0200
 Subject: [PATCH] CUDA tests of the functions on views of arrays of the device
@@ -14,7 +14,7 @@ device. Compared to the computations point by point on the host.
  1 file changed, 264 insertions(+)
 
 diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
-index 576c8d3..a7d09c4 100644
+index 576c8d31..a7d09c49 100644
 --- a/tests/FieldOperationsCUDATest.cu
 +++ b/tests/FieldOperationsCUDATest.cu
 @@ -19,6 +19,7 @@

@@ -1,4 +1,4 @@
-From 48272555b5b7b5f3594df6f07ef998e10bcd21c7 Mon Sep 17 00:00:00 2001
+From bc333df79a6655702b275b169243655ec7c0fa45 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:01:32 +0200
 Subject: [PATCH] Finite strain behaviours: option to give the displacement
@@ -46,7 +46,7 @@ supports the option.
  create mode 100644 tests/SaintVenantKirchhoffElasticity.mfront
 
 diff --git a/docs/web/bindings-cxx.md b/docs/web/bindings-cxx.md
-index de7c069..40c2a45 100644
+index de7c069b..40c2a45b 100644
 --- a/docs/web/bindings-cxx.md
 +++ b/docs/web/bindings-cxx.md
 @@ -166,6 +166,33 @@ o.tangent_operator = FiniteStrainBehaviourOptions::DPK1_DF;
@@ -84,7 +84,7 @@ index de7c069..40c2a45 100644
  
  The `Behaviour` object contains all the metadata required to interact
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index bf41474..4d8d8f9 100644
+index bf41474b..4d8d8f9d 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
 @@ -198,6 +198,12 @@ namespace mgis::behaviour {
@@ -116,7 +116,7 @@ index bf41474..4d8d8f9 100644
     * \brief options passed to the `loadFromDatabase` function
     */
 diff --git a/include/MGIS/Behaviour/BehaviourDataView.hxx b/include/MGIS/Behaviour/BehaviourDataView.hxx
-index 6167e42..98986a4 100644
+index 6167e42f..98986a4c 100644
 --- a/include/MGIS/Behaviour/BehaviourDataView.hxx
 +++ b/include/MGIS/Behaviour/BehaviourDataView.hxx
 @@ -88,6 +88,9 @@ struct mgis_bv_BehaviourDataView {
@@ -130,7 +130,7 @@ index 6167e42..98986a4 100644
     * consistent tangent operator returned by the behaviour:
     * - if K[2]<0.5, the derivative of the Cauchy stress with respect
 diff --git a/include/MGIS/Behaviour/FiniteStrainBehaviourOptions.hxx b/include/MGIS/Behaviour/FiniteStrainBehaviourOptions.hxx
-index bbbb222..2389bc6 100644
+index bbbb2225..2389bc6f 100644
 --- a/include/MGIS/Behaviour/FiniteStrainBehaviourOptions.hxx
 +++ b/include/MGIS/Behaviour/FiniteStrainBehaviourOptions.hxx
 @@ -56,6 +56,24 @@ namespace mgis::behaviour {
@@ -159,7 +159,7 @@ index bbbb222..2389bc6 100644
  
  }  // end of namespace mgis::behaviour
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 0a1dff5..d1a407f 100644
+index 0a1dff50..d1a407fd 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -715,6 +715,15 @@ namespace mgis {
@@ -179,7 +179,7 @@ index 0a1dff5..d1a407f 100644
       * \return if the temperature has been removed for the external state
       * variables. This is the default behaviour of `MFront`
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index ffc48d8..8a009c9 100644
+index ffc48d8c..8a009c9d 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -198,6 +198,28 @@ namespace mgis::behaviour {
@@ -225,7 +225,7 @@ index ffc48d8..8a009c9 100644
                                  const std::string& l,
                                  const std::string& f,
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index cc689e9..fa7bfbb 100644
+index cc689e96..fa7bfbbf 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -14,6 +14,7 @@
@@ -472,10 +472,10 @@ index cc689e9..fa7bfbb 100644
        mgis::raise(
            "convertFiniteStrainTangentOperator: "
 diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
-index d02f412..6eb34e3 100644
+index 49e4daa4..6a77ae55 100644
 --- a/src/LibrariesManager.cxx
 +++ b/src/LibrariesManager.cxx
-@@ -1119,6 +1119,16 @@ namespace mgis {
+@@ -1133,6 +1133,16 @@ namespace mgis {
      return types;
    }  // end of getInternalStateVariablesTypes
  
@@ -493,7 +493,7 @@ index d02f412..6eb34e3 100644
        const std::string &l, const std::string &b) {
      const auto s = b + "_TemperatureRemovedFromExternalStateVariables";
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index af7093b..f6cab1e 100644
+index af7093b2..f6cab1e5 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -42,12 +42,13 @@ namespace mgis::behaviour {
@@ -513,7 +513,7 @@ index af7093b..f6cab1e 100644
      }
      const auto F = getGradientsView(s);
 diff --git a/src/State.cxx b/src/State.cxx
-index f6081be..5814f55 100644
+index f6081be5..5814f552 100644
 --- a/src/State.cxx
 +++ b/src/State.cxx
 @@ -67,8 +67,11 @@ namespace mgis::behaviour {
@@ -530,7 +530,7 @@ index f6081be..5814f55 100644
      }
      init(this->thermodynamic_forces, this->b.thermodynamic_forces);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 06992e1..6ea981c 100644
+index 06992e19..6ea981cb 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -136,7 +136,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -591,7 +591,7 @@ index 06992e1..6ea981c 100644
  
 diff --git a/tests/DisplacementGradientTest.cxx b/tests/DisplacementGradientTest.cxx
 new file mode 100644
-index 0000000..7a9103c
+index 00000000..7a9103ca
 --- /dev/null
 +++ b/tests/DisplacementGradientTest.cxx
 @@ -0,0 +1,561 @@
@@ -1158,7 +1158,7 @@ index 0000000..7a9103c
 +}  // end of main
 diff --git a/tests/GreenLagrangeElasticity.mfront b/tests/GreenLagrangeElasticity.mfront
 new file mode 100644
-index 0000000..107be31
+index 00000000..107be31a
 --- /dev/null
 +++ b/tests/GreenLagrangeElasticity.mfront
 @@ -0,0 +1,67 @@
@@ -1231,7 +1231,7 @@ index 0000000..107be31
 +}
 diff --git a/tests/HenckyElasticity.mfront b/tests/HenckyElasticity.mfront
 new file mode 100644
-index 0000000..af582c4
+index 00000000..af582c4a
 --- /dev/null
 +++ b/tests/HenckyElasticity.mfront
 @@ -0,0 +1,67 @@
@@ -1304,7 +1304,7 @@ index 0000000..af582c4
 +}
 diff --git a/tests/SaintVenantKirchhoffElasticity.mfront b/tests/SaintVenantKirchhoffElasticity.mfront
 new file mode 100644
-index 0000000..829759d
+index 00000000..829759d5
 --- /dev/null
 +++ b/tests/SaintVenantKirchhoffElasticity.mfront
 @@ -0,0 +1,38 @@

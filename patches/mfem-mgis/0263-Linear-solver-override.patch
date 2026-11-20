@@ -1,4 +1,4 @@
-From 73c3c013ca4da04aaa2ce59d6e38be2c8e699a73 Mon Sep 17 00:00:00 2001
+From 24874fc8d28222c9e4a84b16165c64d747cbe4ce Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 18:49:16 +0200
 Subject: [PATCH] Linear solver override

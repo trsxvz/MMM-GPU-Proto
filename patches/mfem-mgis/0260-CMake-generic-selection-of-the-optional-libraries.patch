@@ -1,4 +1,4 @@
-From 38f8aa5e7852d7acf8d718ed5fa766c8869521bb Mon Sep 17 00:00:00 2001
+From 236e1e9148a1d03ed15f29e547de158571f9b7b0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 17:09:28 +0200
 Subject: [PATCH] CMake: generic selection of the optional libraries

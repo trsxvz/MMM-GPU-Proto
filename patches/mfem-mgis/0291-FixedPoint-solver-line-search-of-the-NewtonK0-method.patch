@@ -1,4 +1,4 @@
-From eca4ad22d6a6cdc9836db96e2c9d1db5131290d3 Mon Sep 17 00:00:00 2001
+From 88c7e1ee5beb6dee65769aaca24161f87057277f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 14 Nov 2026 02:40:22 +0100
 Subject: [PATCH] FixedPoint solver: line search of the NewtonK0 method
@@ -916,5 +916,5 @@ index 089edf5dfa..dc6f2b1b86 100644
                 "an invalid update of the elastic operator");
    checkRefusal(mesh, {{"ElasticOperatorLinearSolver", "Unknown"}},
 -- 
-2.34.1
+2.43.0
 

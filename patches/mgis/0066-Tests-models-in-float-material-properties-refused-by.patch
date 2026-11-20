@@ -1,4 +1,4 @@
-From a6990baec236695d40f65c69215bfb63b35fb07b Mon Sep 17 00:00:00 2001
+From 6f9a72647b1a49b1c1737ca62f815f3074e81033 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:40:30 +0200
 Subject: [PATCH] Tests: models in float, material properties refused by
@@ -23,7 +23,7 @@ Double: 51/51, float: 49/49.
  7 files changed, 69 insertions(+), 64 deletions(-)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 49f5cf7..06992e1 100644
+index 49f5cf75..06992e19 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -138,20 +138,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -162,7 +162,7 @@ index 49f5cf7..06992e1 100644
    add_library_test(RotateFunctionsTest RotateFunctionsTest.cxx BehaviourTest)
    add_library_test(RotationMatrixCopyTest RotationMatrixCopyTest.cxx BehaviourTest)
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index 7703ebb..f87dcec 100644
+index 7703ebb4..f87dcec3 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -890,14 +890,12 @@ static void testAsynchronousComputations(const std::string& library,
@@ -194,7 +194,7 @@ index 7703ebb..f87dcec 100644
      testPartialFailures(argv[1]);
      testAsynchronousComputations(argv[2], argv[1], argv[4], argv[3]);
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index 8456415..cbf67dd 100644
+index 8456415e..cbf67dd9 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -1624,12 +1624,10 @@ static void testRotationsOnViews(const std::string& library,
@@ -224,7 +224,7 @@ index 8456415..cbf67dd 100644
      testAsynchronousComputations(argv[2], argv[1]);
    } catch (std::exception& e) {
 diff --git a/tests/IntegrateTest4.cxx b/tests/IntegrateTest4.cxx
-index d3a501f..fa62395 100644
+index d3a501f1..fa623959 100644
 --- a/tests/IntegrateTest4.cxx
 +++ b/tests/IntegrateTest4.cxx
 @@ -22,6 +22,7 @@
@@ -255,7 +255,7 @@ index d3a501f..fa62395 100644
        if (std::abs(xvi[i] - x_ref) > eps) {
          std::cerr << "IntegrateTest: invalid value for x "
 diff --git a/tests/IntegrateTest5.cxx b/tests/IntegrateTest5.cxx
-index 83670ff..b02109f 100644
+index 83670ff0..b02109fd 100644
 --- a/tests/IntegrateTest5.cxx
 +++ b/tests/IntegrateTest5.cxx
 @@ -21,6 +21,7 @@
@@ -286,7 +286,7 @@ index 83670ff..b02109f 100644
        if (std::abs(xvalues[i] - x_ref) > eps) {
          std::cerr << "IntegrateTest: invalid value for x "
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index 40d5b6a..5fe2bff 100644
+index 40d5b6a0..5fe2bffe 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -1661,12 +1661,10 @@ static void testFailingOperations(const std::string& library) {
@@ -318,7 +318,7 @@ index 40d5b6a..5fe2bff 100644
      testFailingOperations(argv[2]);
      testErrors(argv[2], argv[1]);
 diff --git a/tests/RealTypeTest.cxx b/tests/RealTypeTest.cxx
-index 53a171b..ed3f87d 100644
+index 53a171ba..ed3f87d0 100644
 --- a/tests/RealTypeTest.cxx
 +++ b/tests/RealTypeTest.cxx
 @@ -1,8 +1,9 @@

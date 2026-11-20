@@ -1,4 +1,4 @@
-From bbc0f83179d46684afae7478832d643f746dbffd Mon Sep 17 00:00:00 2001
+From 6204678c831bbf0348531aa2bd961834268924db Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:18:35 +0200
 Subject: [PATCH] Thread pools: checks once, all tasks completed before an
@@ -20,7 +20,7 @@ Subject: [PATCH] Thread pools: checks once, all tasks completed before an
  3 files changed, 194 insertions(+), 54 deletions(-)
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index e7ef9a2..776466f 100644
+index e7ef9a21..776466fe 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -124,6 +124,19 @@ namespace mgis::behaviour::internals {
@@ -442,7 +442,7 @@ index e7ef9a2..776466f 100644
          });
    }  // end of executePostProcessing
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index 43809d0..154c1d7 100644
+index 43809d03..154c1d7f 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -486,6 +486,19 @@ static void testExecutionForms(const std::string& library) {
@@ -466,7 +466,7 @@ index 43809d0..154c1d7 100644
    for (auto* const m : {mr.get(), mc.get()}) {
      copyStates(*m, *mi);
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index dd939bd..78ca037 100644
+index dd939bd5..78ca037d 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -960,6 +960,19 @@ static void testErrors(const std::string& library,

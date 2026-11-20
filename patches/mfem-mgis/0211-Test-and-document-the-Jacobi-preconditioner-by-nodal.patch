@@ -1,4 +1,4 @@
-From 26698bf381b176226be6b5e352e3f03106029402 Mon Sep 17 00:00:00 2001
+From c6ab9ab79a7ca1e37463c06eec6ad15001cc6110 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:11:44 +0200
 Subject: [PATCH] Test and document the Jacobi preconditioner by nodal blocks

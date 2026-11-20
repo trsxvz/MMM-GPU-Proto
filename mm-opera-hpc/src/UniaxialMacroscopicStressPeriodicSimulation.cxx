@@ -62,7 +62,7 @@ namespace mm_opera_hpc {
       pk1_integral[2] += pk1_integrals[m][2];
     }
     assert(volume > 0.0);
-    // -- sum volumes of all processess
+    // -- sum volumes of all processes
     MPI_Allreduce(MPI_IN_PLACE, &volume, 1,
                   mfem_mgis::mpi_type<mfem_mgis::real>, MPI_SUM,
                   MPI_COMM_WORLD);
@@ -90,7 +90,7 @@ namespace mm_opera_hpc {
    */
   [[nodiscard]] static std::array<mfem_mgis::real, 4u>
   getElasticLateralJacobian(
-      const MacroscropicElasticMaterialProperties &mp) noexcept {
+      const MacroscopicElasticMaterialProperties &mp) noexcept {
     const auto a = (mp.nueff * mp.nueff - 1) / mp.Eeff;
     const auto b = (mp.nueff * (mp.nueff + 1)) / mp.Eeff;
     const auto det = a * a - b * b;
@@ -110,7 +110,7 @@ namespace mm_opera_hpc {
    */
   static void updateLateralJacobian(
       std::array<mfem_mgis::real, 4u> &J,
-      const MacroscropicElasticMaterialProperties &mp,
+      const MacroscopicElasticMaterialProperties &mp,
       const std::array<mfem_mgis::real, 4u> &p,
       const std::array<mfem_mgis::real, 3u> &H,
       const std::array<mfem_mgis::real, 3u> &S) noexcept {
@@ -151,7 +151,7 @@ namespace mm_opera_hpc {
    * the behaviours
    */
   [[nodiscard]] static mfem_mgis::real computeLateralStressResolution(
-      const MacroscropicElasticMaterialProperties &mp,
+      const MacroscopicElasticMaterialProperties &mp,
       const std::array<mfem_mgis::real, 3u> &g) noexcept {
     constexpr auto infinity = std::numeric_limits<mfem_mgis::real>::infinity();
     // smallest spacing of the floating point numbers around x, which differs

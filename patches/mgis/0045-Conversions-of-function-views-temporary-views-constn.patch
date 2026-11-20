@@ -1,4 +1,4 @@
-From aa639813252428a7616f82637ab65a86bf94f36a Mon Sep 17 00:00:00 2001
+From 8ed7edc75f50754340fe44c4ff49f1c12d292d98 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:27:38 +0200
 Subject: [PATCH] Conversions of function views: temporary views, constness
@@ -10,7 +10,7 @@ Subject: [PATCH] Conversions of function views: temporary views, constness
  2 files changed, 29 insertions(+)
 
 diff --git a/include/MGIS/Function/FieldViewSupport.hxx b/include/MGIS/Function/FieldViewSupport.hxx
-index 716cc6f..8867c67 100644
+index 716cc6f8..8867c67f 100644
 --- a/include/MGIS/Function/FieldViewSupport.hxx
 +++ b/include/MGIS/Function/FieldViewSupport.hxx
 @@ -26,6 +26,13 @@ namespace mgis::function {
@@ -48,7 +48,7 @@ index 716cc6f..8867c67 100644
     * \return a constant view on the values of a function stored point by
     * point
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index 5c535fd..e945d98 100644
+index 5c535fd7..e945d98c 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -20,6 +20,8 @@

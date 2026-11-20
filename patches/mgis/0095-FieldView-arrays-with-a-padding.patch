@@ -1,4 +1,4 @@
-From dcc26a4009a8c12be4e6acf5e90280bb08364bd4 Mon Sep 17 00:00:00 2001
+From eb6875acb6d41fda5d0389d487a1f0fd8084bd40 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 23:02:39 +0100
 Subject: [PATCH] FieldView: arrays with a padding
@@ -19,7 +19,7 @@ padding of the arrays of the material managers.
  2 files changed, 46 insertions(+), 9 deletions(-)
 
 diff --git a/include/MGIS/FieldView.hxx b/include/MGIS/FieldView.hxx
-index 48d562b..5a41c3b 100644
+index 48d562bf..5a41c3bb 100644
 --- a/include/MGIS/FieldView.hxx
 +++ b/include/MGIS/FieldView.hxx
 @@ -23,7 +23,9 @@ namespace mgis {
@@ -75,7 +75,7 @@ index 48d562b..5a41c3b 100644
     * \return a view on values stored point by point, the components of a
     * point being contiguous
 diff --git a/include/MGIS/FieldView.ixx b/include/MGIS/FieldView.ixx
-index a5bf0c1..47355af 100644
+index a5bf0c13..47355af3 100644
 --- a/include/MGIS/FieldView.ixx
 +++ b/include/MGIS/FieldView.ixx
 @@ -188,21 +188,36 @@ namespace mgis {

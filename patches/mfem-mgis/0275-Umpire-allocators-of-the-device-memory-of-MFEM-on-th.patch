@@ -1,4 +1,4 @@
-From 27faa359cfad03c2bd69e991265e11e5d8d1e796 Mon Sep 17 00:00:00 2001
+From 6db8a2328413b44680789c607777930c1b8369ff Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 25 Oct 2026 20:28:04 +0100
 Subject: [PATCH] Umpire: allocators of the device memory of MFEM on the GPU of

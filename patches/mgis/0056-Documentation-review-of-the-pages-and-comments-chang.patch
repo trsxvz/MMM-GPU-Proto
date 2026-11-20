@@ -1,4 +1,4 @@
-From 347ce0767265d77a783a8d53799daa3e69f9acda Mon Sep 17 00:00:00 2001
+From dbc8ab59ed48ef659fbdfe30b070f975efdbf177 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 16:46:22 +0200
 Subject: [PATCH] Documentation: review of the pages and comments changed by
@@ -83,7 +83,7 @@ No code is changed: the sources without their comments are identical.
  54 files changed, 1162 insertions(+), 480 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 1fe76d0..8bbccf0 100644
+index 1fe76d0d..8bbccf0e 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -29,10 +29,12 @@ endif()
@@ -103,7 +103,7 @@ index 1fe76d0..8bbccf0 100644
  # portable-build
  option(enable-portable-build "produce binary that can be shared between various machine (same architecture, same gcc version, different processors" OFF)
 diff --git a/INSTALL-cmake.md b/INSTALL-cmake.md
-index 913a283..42805eb 100644
+index 913a283f..42805eb4 100644
 --- a/INSTALL-cmake.md
 +++ b/INSTALL-cmake.md
 @@ -17,12 +17,12 @@ The simplest way to compile this package is:
@@ -171,7 +171,7 @@ index 913a283..42805eb 100644
  - `CMAKE_BUILD_TYPE`           : two values are supported `Release` and `Debug`
  - `CMAKE_TOOLCHAIN_FILE`       : specify a tool chain file
 diff --git a/README.md b/README.md
-index d575fe0..2eadda2 100644
+index d575fe06..2eadda21 100644
 --- a/README.md
 +++ b/README.md
 @@ -57,6 +57,11 @@ integration points, on CPUs or on GPUs. The functions acting on a
@@ -187,7 +187,7 @@ index d575fe0..2eadda2 100644
  
  ### Existing
 diff --git a/docs/web/behaviour-integration-failure-analysis.md b/docs/web/behaviour-integration-failure-analysis.md
-index 7d322ad..5ab7aed 100644
+index 7d322ad3..5ab7aedf 100644
 --- a/docs/web/behaviour-integration-failure-analysis.md
 +++ b/docs/web/behaviour-integration-failure-analysis.md
 @@ -65,6 +65,11 @@ The same `MFront` file, compiled with the `generic` interface, gives the
@@ -203,7 +203,7 @@ index 7d322ad..5ab7aed 100644
  ## Description of the default analyser {#sec:mgis:integration_failure:default_analyser}
  
 diff --git a/docs/web/bindings-cxx.md b/docs/web/bindings-cxx.md
-index 53fa94b..de7c069 100644
+index 53fa94b5..de7c069b 100644
 --- a/docs/web/bindings-cxx.md
 +++ b/docs/web/bindings-cxx.md
 @@ -409,7 +409,7 @@ const auto o = getVariableOffset(b.isvs, "EquivalentViscoplasticStrain",
@@ -307,7 +307,7 @@ index 53fa94b..de7c069 100644
  
  The `allocatePostProcessingVariables` functions return an array able to
 diff --git a/docs/web/bindings-python-small_strain.md b/docs/web/bindings-python-small_strain.md
-index 788f416..8d7d23f 100644
+index 788f416d..8d7d23f5 100644
 --- a/docs/web/bindings-python-small_strain.md
 +++ b/docs/web/bindings-python-small_strain.md
 @@ -404,6 +404,25 @@ Internal state variables:
@@ -337,7 +337,7 @@ index 788f416..8d7d23f 100644
  
  In order to perform the behaviour integration, we need to declare the
 diff --git a/docs/web/error_handling.md b/docs/web/error_handling.md
-index e9c1cbd..38548fa 100644
+index e9c1cbd0..38548fa3 100644
 --- a/docs/web/error_handling.md
 +++ b/docs/web/error_handling.md
 @@ -26,7 +26,11 @@ This section describes the error handling strategy introduced in
@@ -354,7 +354,7 @@ index e9c1cbd..38548fa 100644
  Some other standard strategies provided by the standard have also been
  discarded, although their design have inspired the proposed solution.
 diff --git a/docs/web/functions.md b/docs/web/functions.md
-index 8660ac3..70f83c7 100644
+index 8660ac3a..70f83c79 100644
 --- a/docs/web/functions.md
 +++ b/docs/web/functions.md
 @@ -261,8 +261,11 @@ In a element-major pattern, values usually are stored as follows:
@@ -397,7 +397,7 @@ index 8660ac3..70f83c7 100644
  The `FunctionView` class has two template parameters:
  
 diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
-index 10b96a5..80220df 100644
+index 10b96a53..80220df6 100644
 --- a/docs/web/generic-parallel.md
 +++ b/docs/web/generic-parallel.md
 @@ -119,9 +119,13 @@ rotation matrices can be uniform or given point by point. The
@@ -563,7 +563,7 @@ index 10b96a5..80220df 100644
  auto resource = mgis::memory_resources::CUDAManagedMemoryResource{};
  const auto b =
 diff --git a/docs/web/index.md b/docs/web/index.md
-index 56090da..19f52d3 100644
+index 56090da6..19f52d38 100644
 --- a/docs/web/index.md
 +++ b/docs/web/index.md
 @@ -50,7 +50,7 @@ library independent of `TFEL`.
@@ -612,7 +612,7 @@ index 56090da..19f52d3 100644
    project.
  - the `rliv-1.0` follows the evolution of the 3.2.x series of the `TFEL`
 diff --git a/docs/web/install.md b/docs/web/install.md
-index 762daf5..c91240b 100644
+index 68b4f794..0b8b92ca 100644
 --- a/docs/web/install.md
 +++ b/docs/web/install.md
 @@ -35,12 +35,12 @@ The simplest way to compile this package is:
@@ -647,7 +647,7 @@ index 762daf5..c91240b 100644
  - `enable-c-bindings`: compiles the `C` bindings (default=OFF)
  - `enable-fortran-bindings`: compiles bindings for the `Fortran2003`
    language (default=OFF)
-@@ -81,32 +91,35 @@ The simplest way to compile this package is:
+@@ -81,29 +91,32 @@ The simplest way to compile this package is:
    `FEniCS`, usage of the `Python` bindings are encouraged.
  - `enable-julia-bindings`: compiles the `Julia` bindings. This requires
    the `CxxWrap` library to be available.
@@ -687,13 +687,18 @@ index 762daf5..c91240b 100644
 +detection of the `TFEL` libraries: it must point to the `cmake` files
  generated by the `TFEL` project.
  
+ ## Sanitizers and hardening options
+@@ -199,7 +212,7 @@ the sanitizers, with two restrictions:
+   of the standard algorithms in this mode, which the unit types of
+   `TFEL` require.
+ 
 -## `cmake` usefull variables
 +## `cmake` useful variables
  
  - `CMAKE_BUILD_TYPE`           : two values are supported `Release` and `Debug`
  - `CMAKE_TOOLCHAIN_FILE`       : specify a tool chain file
 diff --git a/docs/web/orthotropic-behaviours.md b/docs/web/orthotropic-behaviours.md
-index 8afb22d..4bff342 100644
+index 8afb22d3..4bff342d 100644
 --- a/docs/web/orthotropic-behaviours.md
 +++ b/docs/web/orthotropic-behaviours.md
 @@ -222,13 +222,15 @@ The following helper functions are thus provided:
@@ -744,7 +749,7 @@ index 8afb22d..4bff342 100644
  For convenience, those functions are also available as members of the
  `Behaviour` class.
 diff --git a/docs/web/profiling.md b/docs/web/profiling.md
-index eb94501..44932b8 100644
+index eb945013..44932b8d 100644
 --- a/docs/web/profiling.md
 +++ b/docs/web/profiling.md
 @@ -84,8 +84,9 @@ mgis::setProfilingSynchronization(&synchronizeDevice);
@@ -760,10 +765,10 @@ index eb94501..44932b8 100644
  # Aggregation and Loops
  
 diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
-index 3126f0d..e926679 100644
+index 4d122893..25abaada 100644
 --- a/docs/web/release-notes-3.2.md
 +++ b/docs/web/release-notes-3.2.md
-@@ -189,7 +189,7 @@ use the new comparator or `auto`.
+@@ -195,7 +195,7 @@ use the new comparator or `auto`.
  
  ### Support for `CUDA` in `MGIS/Function`
  
@@ -772,7 +777,7 @@ index 3126f0d..e926679 100644
  `enable-cuda-algorithms`.
  
  ### Tests of the `generic-parallel` interface with `CUDA`
-@@ -197,19 +197,20 @@ Support for `CUDA` in `MGIS/Function` is enable by
+@@ -203,19 +203,20 @@ Support for `CUDA` in `MGIS/Function` is enable by
  The `enable-generic-parallel-cuda-tests` option enables the tests of the
  behaviours, models and material properties generated by the
  `generic-parallel` interface of `MFront` with the `cuda` backend. Those
@@ -794,9 +799,9 @@ index 3126f0d..e926679 100644
 -  support `HDF5` even if enable-hdf5-support` is not set.
 +  support `HDF5` even if `enable-hdf5-support` is not set.
  
- ## `Doxygen` documentation
+ ### Sanitizers
  
-@@ -338,6 +339,11 @@ properties). In short:
+@@ -355,6 +356,11 @@ properties). In short:
    points, as a batch for a `generic-parallel` material property, point by
    point otherwise. Its result gives the status and the index of the first
    point where the evaluation failed, for both interfaces;
@@ -808,7 +813,7 @@ index 3126f0d..e926679 100644
  - the functions acting on a single point report an error for a
    `generic-parallel` library instead of calling a null pointer.
  
-@@ -360,14 +366,24 @@ This is described in a dedicated [page](views.html). In short:
+@@ -377,14 +383,24 @@ This is described in a dedicated [page](views.html). In short:
    (integration, initialize functions, post-processings, end of time step,
    extraction of internal state variables, conversions of the finite strain
    stresses and tangent operators) also act on a material data view.
@@ -836,7 +841,7 @@ index 3126f0d..e926679 100644
  - `MaterialFunctionManager` takes an initializer, and gives strided
    coalesced views of `mgis::function` for the managers stored component
    by component;
-@@ -375,11 +391,21 @@ This is described in a dedicated [page](views.html). In short:
+@@ -392,11 +408,21 @@ This is described in a dedicated [page](views.html). In short:
  
  Once the arrays are allocated, the synchronous functions processing
  points without thread pool (integration, initialize functions,
@@ -864,7 +869,7 @@ index 3126f0d..e926679 100644
  # New features of the `MGIS/Behaviour` library
  
 diff --git a/docs/web/views.md b/docs/web/views.md
-index ac435f7..7338217 100644
+index ac435f7d..73382174 100644
 --- a/docs/web/views.md
 +++ b/docs/web/views.md
 @@ -62,24 +62,27 @@ The `mgis::FieldLayout` enumeration has two values:
@@ -964,7 +969,7 @@ index ac435f7..7338217 100644
  # Example
  
 diff --git a/include/MGIS/BatchExecutionPolicy.hxx b/include/MGIS/BatchExecutionPolicy.hxx
-index 09de65a..8d257c7 100644
+index 09de65a0..8d257c70 100644
 --- a/include/MGIS/BatchExecutionPolicy.hxx
 +++ b/include/MGIS/BatchExecutionPolicy.hxx
 @@ -66,6 +66,11 @@ namespace mgis {
@@ -995,7 +1000,7 @@ index 09de65a..8d257c7 100644
    };
  
 diff --git a/include/MGIS/Behaviour/BatchDataView.hxx b/include/MGIS/Behaviour/BatchDataView.hxx
-index a9ef694..95643cb 100644
+index a9ef6941..95643cb8 100644
 --- a/include/MGIS/Behaviour/BatchDataView.hxx
 +++ b/include/MGIS/Behaviour/BatchDataView.hxx
 @@ -40,9 +40,11 @@ extern "C" {
@@ -1065,7 +1070,7 @@ index a9ef694..95643cb 100644
     */
    inline BatchOutputStatus getBatchOutputStatus(
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index a9c596d..bf41474 100644
+index a9c596d3..bf41474b 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
 @@ -50,9 +50,9 @@ namespace mgis::behaviour {
@@ -1625,7 +1630,7 @@ index a9c596d..bf41474 100644
    MGIS_EXPORT size_type getInitializeFunctionVariablesArraySize(
        const Behaviour &, const std::string_view);
 diff --git a/include/MGIS/Behaviour/BehaviourDescription.hxx b/include/MGIS/Behaviour/BehaviourDescription.hxx
-index 428a5b6..769cca4 100644
+index 428a5b66..769cca4f 100644
 --- a/include/MGIS/Behaviour/BehaviourDescription.hxx
 +++ b/include/MGIS/Behaviour/BehaviourDescription.hxx
 @@ -74,11 +74,11 @@ namespace mgis::behaviour {
@@ -1678,7 +1683,7 @@ index 428a5b6..769cca4 100644
    MGIS_EXPORT bool isStandardFiniteStrainBehaviour(const std::string &,
                                                     const std::string &);
 diff --git a/include/MGIS/Behaviour/BehaviourIntegrationWorkSpace.hxx b/include/MGIS/Behaviour/BehaviourIntegrationWorkSpace.hxx
-index eb01247..59b5218 100644
+index eb012475..59b52184 100644
 --- a/include/MGIS/Behaviour/BehaviourIntegrationWorkSpace.hxx
 +++ b/include/MGIS/Behaviour/BehaviourIntegrationWorkSpace.hxx
 @@ -47,11 +47,11 @@ namespace mgis::behaviour {
@@ -1715,7 +1720,7 @@ index eb01247..59b5218 100644
      /*!
       * \brief behaviour for which the workspace has been built. The functions
 diff --git a/include/MGIS/Behaviour/FiniteStrainSupport.hxx b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
-index 9a9195a..828ea8a 100644
+index 9a9195ab..828ea8ad 100644
 --- a/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 +++ b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 @@ -91,21 +91,31 @@ namespace mgis::behaviour {
@@ -1788,7 +1793,7 @@ index 9a9195a..828ea8a 100644
    MGIS_EXPORT void convertFiniteStrainTangentOperator(
        const FieldView<real>&,
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index f0e2493..88f1de2 100644
+index f0e24930..88f1de28 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -92,9 +92,9 @@ namespace mgis::behaviour {
@@ -2057,7 +2062,7 @@ index f0e2493..88f1de2 100644
     */
    MGIS_EXPORT void raiseMissingFunctionOfAPoint(const char* const);
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 76c35d9..1f2086b 100644
+index 76c35d9d..1f2086b4 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -44,7 +44,10 @@ namespace mgis::behaviour {
@@ -2194,7 +2199,7 @@ index 76c35d9..1f2086b 100644
    MGIS_EXPORT FieldView<real> getTangentOperatorBlockView(
        MaterialDataManager&, const std::string_view, const std::string_view);
 diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
-index a9502ec..995b014 100644
+index a9502ec7..995b014d 100644
 --- a/include/MGIS/Behaviour/MaterialDataView.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataView.hxx
 @@ -73,9 +73,9 @@ namespace mgis::behaviour {
@@ -2367,7 +2372,7 @@ index a9502ec..995b014 100644
    MGIS_EXPORT void revert(const MaterialDataView&, FieldOperations&);
  
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.hxx b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
-index 688915c..450aacb 100644
+index 688915cb..450aacb2 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
 @@ -30,7 +30,7 @@ namespace mgis::behaviour {
@@ -2610,7 +2615,7 @@ index 688915c..450aacb 100644
    template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
    std::optional<StridedCoalescedFunctionView<N, SpaceType, true>>
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
-index 9da7474..ccba1e3 100644
+index 9da7474d..ccba1e35 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 @@ -246,8 +246,8 @@ namespace mgis::behaviour {
@@ -2634,7 +2639,7 @@ index 9da7474..ccba1e3 100644
    }  // end of namespace internals
  
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 57ff257..24c9520 100644
+index 57ff2573..24c9520a 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -218,7 +218,8 @@ namespace mgis::behaviour {
@@ -2859,7 +2864,7 @@ index 57ff257..24c9520 100644
     * \param[in] ctx: execution context
     * \param[in] g: group
 diff --git a/include/MGIS/Behaviour/PendingBatchComputation.hxx b/include/MGIS/Behaviour/PendingBatchComputation.hxx
-index e6f1c20..aa06559 100644
+index e6f1c205..aa06559b 100644
 --- a/include/MGIS/Behaviour/PendingBatchComputation.hxx
 +++ b/include/MGIS/Behaviour/PendingBatchComputation.hxx
 @@ -62,7 +62,7 @@ namespace mgis::behaviour {
@@ -2884,7 +2889,7 @@ index e6f1c20..aa06559 100644
       * completed, i.e. once the calling code has synchronized the queue.
       */
 diff --git a/include/MGIS/Behaviour/RotationMatrix.hxx b/include/MGIS/Behaviour/RotationMatrix.hxx
-index 0423c73..fcc6568 100644
+index 0423c731..fcc65684 100644
 --- a/include/MGIS/Behaviour/RotationMatrix.hxx
 +++ b/include/MGIS/Behaviour/RotationMatrix.hxx
 @@ -30,7 +30,12 @@ namespace mgis::behaviour {
@@ -2946,7 +2951,7 @@ index 0423c73..fcc6568 100644
    /*!
     * \brief an helper function to build a 2D rotation matrix for an in-plane
 diff --git a/include/MGIS/FieldOperations.hxx b/include/MGIS/FieldOperations.hxx
-index 885f156..45f88d7 100644
+index 885f156d..45f88d77 100644
 --- a/include/MGIS/FieldOperations.hxx
 +++ b/include/MGIS/FieldOperations.hxx
 @@ -59,6 +59,8 @@ namespace mgis {
@@ -2959,7 +2964,7 @@ index 885f156..45f88d7 100644
      void fill(const FieldView<real>&, const real);
      //! \brief destructor
 diff --git a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
-index 419907c..28a8f31 100644
+index 419907cd..28a8f315 100644
 --- a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 @@ -30,6 +30,14 @@ namespace mgis::field_operations::internals {
@@ -3009,7 +3014,7 @@ index 419907c..28a8f31 100644
      if (e != cudaSuccess) {
        throw std::runtime_error(std::string{f} + ": " + cudaGetErrorString(e));
 diff --git a/include/MGIS/FieldOperations/HIPFieldOperations.hxx b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
-index 78da154..54b2a44 100644
+index 78da154b..54b2a442 100644
 --- a/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 @@ -30,6 +30,14 @@ namespace mgis::field_operations::internals {
@@ -3059,7 +3064,7 @@ index 78da154..54b2a44 100644
      if (e != hipSuccess) {
        throw std::runtime_error(std::string{f} + ": " + hipGetErrorString(e));
 diff --git a/include/MGIS/FieldOperations/KokkosFieldOperations.hxx b/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
-index 2db1400..b0f7ea6 100644
+index 2db14009..b0f7ea6c 100644
 --- a/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
 @@ -23,6 +23,15 @@ namespace mgis::field_operations::internals {
@@ -3097,7 +3102,7 @@ index 2db1400..b0f7ea6 100644
    void kokkosFillFieldView(const ExecutionSpace& space,
                             real* const dv,
 diff --git a/include/MGIS/FieldView.hxx b/include/MGIS/FieldView.hxx
-index be04436..48d562b 100644
+index be04436d..48d562bf 100644
 --- a/include/MGIS/FieldView.hxx
 +++ b/include/MGIS/FieldView.hxx
 @@ -55,12 +55,12 @@ namespace mgis {
@@ -3189,7 +3194,7 @@ index be04436..48d562b 100644
    template <typename ValueType>
    constexpr FieldView<ValueType> getPoints(const FieldView<ValueType>&,
 diff --git a/include/MGIS/FieldView.ixx b/include/MGIS/FieldView.ixx
-index a5afe71..a5bf0c1 100644
+index a5afe71e..a5bf0c13 100644
 --- a/include/MGIS/FieldView.ixx
 +++ b/include/MGIS/FieldView.ixx
 @@ -20,7 +20,7 @@ namespace mgis::internals {
@@ -3202,7 +3207,7 @@ index a5afe71..a5bf0c1 100644
     */
    [[noreturn]] inline void reportFieldViewContractViolation(
 diff --git a/include/MGIS/Function/FieldViewSupport.hxx b/include/MGIS/Function/FieldViewSupport.hxx
-index b2279f9..24a56c7 100644
+index b2279f97..24a56c7d 100644
 --- a/include/MGIS/Function/FieldViewSupport.hxx
 +++ b/include/MGIS/Function/FieldViewSupport.hxx
 @@ -2,6 +2,20 @@
@@ -3248,7 +3253,7 @@ index b2279f9..24a56c7 100644
  
    /*!
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 329e37a..8dc5627 100644
+index 329e37a7..8dc56272 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -125,9 +125,9 @@ namespace mgis {
@@ -3325,7 +3330,7 @@ index 329e37a..8dc5627 100644
       * \param[in] l: library name
       * \param[in] n: entry point name
 diff --git a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
-index 7b53ec7..90b83f0 100644
+index 7b53ec7d..90b83f03 100644
 --- a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 +++ b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 @@ -35,10 +35,15 @@ extern "C" {
@@ -3412,7 +3417,7 @@ index 7b53ec7..90b83f0 100644
   * strides are read on the host. The evaluation is synchronous if no
   * statistics are given in the execution options.
 diff --git a/include/MGIS/MaterialProperty/MaterialProperty.hxx b/include/MGIS/MaterialProperty/MaterialProperty.hxx
-index 0ebb193..af80354 100644
+index 0ebb1932..af80354b 100644
 --- a/include/MGIS/MaterialProperty/MaterialProperty.hxx
 +++ b/include/MGIS/MaterialProperty/MaterialProperty.hxx
 @@ -47,9 +47,9 @@ namespace mgis::material_property {
@@ -3543,7 +3548,7 @@ index 0ebb193..af80354 100644
     * \param[in] e: execution policy
     * \param[out] values: values of the material property
 diff --git a/include/MGIS/MaterialProperty/OutputStatus.hxx b/include/MGIS/MaterialProperty/OutputStatus.hxx
-index 7f4bd47..ae8c941 100644
+index 7f4bd47e..ae8c941a 100644
 --- a/include/MGIS/MaterialProperty/OutputStatus.hxx
 +++ b/include/MGIS/MaterialProperty/OutputStatus.hxx
 @@ -35,7 +35,7 @@ typedef struct {
@@ -3571,7 +3576,7 @@ index 7f4bd47..ae8c941 100644
     * - If the exit status is -4, the computed value is invalid (either `nan`,
     *   `inf`, or `-inf`).
 diff --git a/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx b/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx
-index 2a5cbd5..78615cb 100644
+index 2a5cbd53..78615cbc 100644
 --- a/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx
 +++ b/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx
 @@ -32,7 +32,7 @@ namespace mgis::material_property {
@@ -3609,7 +3614,7 @@ index 2a5cbd5..78615cb 100644
      MaterialPropertyEvaluationResult getResult() const;
  
 diff --git a/include/MGIS/MemoryLocation.hxx b/include/MGIS/MemoryLocation.hxx
-index 68784f4..1c259a1 100644
+index 68784f42..1c259a15 100644
 --- a/include/MGIS/MemoryLocation.hxx
 +++ b/include/MGIS/MemoryLocation.hxx
 @@ -22,7 +22,8 @@ namespace mgis {
@@ -3666,7 +3671,7 @@ index 68784f4..1c259a1 100644
      return l != MemoryLocation::DEVICE;
    }  // end of isHostAccessible
 diff --git a/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
-index e6a9861..6b70ad1 100644
+index e6a98612..6b70ad16 100644
 --- a/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
 @@ -27,9 +27,9 @@ namespace mgis::memory_resources {
@@ -3683,7 +3688,7 @@ index e6a9861..6b70ad1 100644
     * This header is not compiled by `MGIS`: it is compiled by the calling
     * code, with its own CUDA toolkit.
 diff --git a/include/MGIS/MemoryResources/OverAlignedAllocation.hxx b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
-index 566c4d3..b56b5cf 100644
+index 566c4d3c..b56b5cfd 100644
 --- a/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
 +++ b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
 @@ -26,14 +26,14 @@ namespace mgis::memory_resources::internals {
@@ -3710,7 +3715,7 @@ index 566c4d3..b56b5cf 100644
     * \return the allocated memory
     * \param[in] s: size in bytes
 diff --git a/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
-index 806f185..06765df 100644
+index 806f1850..06765dff 100644
 --- a/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
 @@ -28,7 +28,8 @@ namespace mgis::memory_resources {
@@ -3724,7 +3729,7 @@ index 806f185..06765df 100644
     * This header is not compiled by `MGIS`: it is compiled by the calling
     * code, with its own SYCL implementation.
 diff --git a/include/MGIS/Model/Model.hxx b/include/MGIS/Model/Model.hxx
-index ed3f19a..8e7d608 100644
+index ed3f19a8..8e7d608b 100644
 --- a/include/MGIS/Model/Model.hxx
 +++ b/include/MGIS/Model/Model.hxx
 @@ -35,8 +35,8 @@ namespace mgis::model {
@@ -3750,7 +3755,7 @@ index ed3f19a..8e7d608 100644
    MGIS_EXPORT std::optional<Model> load(Context&,
                                          const std::string&,
 diff --git a/include/MGIS/Profiling.hxx b/include/MGIS/Profiling.hxx
-index fc441bc..93ec96e 100644
+index fc441bca..93ec96ec 100644
 --- a/include/MGIS/Profiling.hxx
 +++ b/include/MGIS/Profiling.hxx
 @@ -1,6 +1,8 @@
@@ -3786,7 +3791,7 @@ index fc441bc..93ec96e 100644
      //! \brief Standard constructor (active or inactive depending on the
      //! 'enabled' flag)
 diff --git a/mgis.doxygen b/mgis.doxygen
-index 1aeb5d6..28d04c1 100644
+index 1aeb5d67..28d04c15 100644
 --- a/mgis.doxygen
 +++ b/mgis.doxygen
 @@ -33,7 +33,7 @@
@@ -3835,7 +3840,7 @@ index 1aeb5d6..28d04c1 100644
   * \namespace mgis::memory_resources
   * \brief memory resources allocating memory accessible by the host and by
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index c8c6d31..f2d907b 100644
+index c8c6d31b..f2d907bb 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -1,6 +1,7 @@
@@ -3877,7 +3882,7 @@ index c8c6d31..f2d907b 100644
     * \param[in] r: rotation matrices
     * \param[in] n: number of points
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 2ba7177..d7d3555 100644
+index 2ba71773..d7d35557 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -206,7 +206,7 @@ namespace mgis::behaviour::internals {
@@ -3910,7 +3915,7 @@ index 2ba7177..d7d3555 100644
     */
    template <typename ExecutionPolicy>
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 47c1778..19833fd 100644
+index 47c1778c..19833fdd 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -24,7 +24,10 @@
@@ -3963,7 +3968,7 @@ index 47c1778..19833fd 100644
    static FieldView<ValueType> getTangentOperatorBlockView(
        MaterialDataManagerType& m,
 diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
-index 4d28a04..a597b0a 100644
+index 4d28a042..a597b0aa 100644
 --- a/src/MaterialProperty.cxx
 +++ b/src/MaterialProperty.cxx
 @@ -1,6 +1,7 @@
@@ -4026,7 +4031,7 @@ index 4d28a04..a597b0a 100644
      // the arguments are not required to be uniform
      const auto os =
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 66184b9..7309f3b 100644
+index 66184b9b..7309f3bd 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -434,7 +434,7 @@ namespace mgis::behaviour {
@@ -4186,7 +4191,7 @@ index 66184b9..7309f3b 100644
    [[nodiscard]] static bool save(Context& ctx,
                                   H5::Group& g,
 diff --git a/src/Profiling.cxx b/src/Profiling.cxx
-index 64753c3..d730ab6 100644
+index 64753c37..d730ab69 100644
 --- a/src/Profiling.cxx
 +++ b/src/Profiling.cxx
 @@ -1,6 +1,7 @@

@@ -1,4 +1,4 @@
-From 2edb8e40591d0807616fb42f1e7a4bcc52f8df32 Mon Sep 17 00:00:00 2001
+From 2977cafb843389ae325b16c7667b171299d48c59 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 13:55:03 +0200
 Subject: [PATCH] Tests of the batches: policies, locations, failures,
@@ -27,7 +27,7 @@ Subject: [PATCH] Tests of the batches: policies, locations, failures,
  4 files changed, 785 insertions(+), 24 deletions(-)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index efd4d14..41941f8 100644
+index efd4d140..41941f8c 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -149,7 +149,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -55,7 +55,7 @@ index efd4d14..41941f8 100644
        GenericParallelCUDATest.cxx)
      target_link_libraries(GenericParallelCUDATest
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index 102d43e..6dc27b0 100644
+index 102d43e0..6dc27b03 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -5,10 +5,11 @@
@@ -368,7 +368,7 @@ index 102d43e..6dc27b0 100644
      std::cerr << e.what() << '\n';
      return EXIT_FAILURE;
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index 18ce6c9..4cd49bd 100644
+index 18ce6c9e..4cd49bdb 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -4,7 +4,7 @@
@@ -946,7 +946,7 @@ index 18ce6c9..4cd49bd 100644
    } catch (std::exception& e) {
      std::cerr << e.what() << '\n';
 diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
-index 22fd614..13e8417 100644
+index 22fd6149..13e84170 100644
 --- a/tests/GenericParallelLoadTest.cxx
 +++ b/tests/GenericParallelLoadTest.cxx
 @@ -4,7 +4,7 @@

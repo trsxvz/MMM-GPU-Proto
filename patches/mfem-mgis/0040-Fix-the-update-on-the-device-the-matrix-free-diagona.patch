@@ -1,4 +1,4 @@
-From 1412e3592ca12db1dc766f7b390d5c8921418fed Mon Sep 17 00:00:00 2001
+From f8748a1aca5bf6139a2b9686ae09550b1059d91d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 01:21:34 +0200
 Subject: [PATCH] Fix the update on the device, the matrix-free diagonal and

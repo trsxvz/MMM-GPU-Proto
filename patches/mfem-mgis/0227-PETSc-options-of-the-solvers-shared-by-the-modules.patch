@@ -1,4 +1,4 @@
-From eb7c3aaf5f590893a0280f47fbe2e6f431c93634 Mon Sep 17 00:00:00 2001
+From 260aca508283b1f40d60b8f1e4f2063f62ddd807 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:27:21 +0200
 Subject: [PATCH] PETSc: options of the solvers shared by the modules

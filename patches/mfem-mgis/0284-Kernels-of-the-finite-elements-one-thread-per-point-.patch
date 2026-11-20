@@ -1,4 +1,4 @@
-From e37c16539bdbfaf1ff4c8c67652c9f425c4f6476 Mon Sep 17 00:00:00 2001
+From cf181e90aa46e8582a8e0d63c1c6625ec8290282 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 10 Nov 2026 02:12:37 +0100
 Subject: [PATCH] Kernels of the finite elements: one thread per point, strides

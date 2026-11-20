@@ -1,4 +1,4 @@
-From 9725a63dd7d0cc86ab8f80e90c12b73ed33b6dd9 Mon Sep 17 00:00:00 2001
+From 641568facc38768949f15e7ddbd7d9582f87b3f1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 08:34:11 +0100
 Subject: [PATCH] Mean thermodynamic forces: sums computed by kernels
@@ -740,5 +740,5 @@ index da91e986e1..121f1dc4cf 100644
    std::cout << (failures == 0 ? "success" : "failure") << '\n';
    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 -- 
-2.34.1
+2.43.0
 

@@ -1,4 +1,4 @@
-From 2f1fc65b4d18cc68f4de9d21caa983d409026b74 Mon Sep 17 00:00:00 2001
+From fd884e8f6bbbc2e2c41f42b267d22cfa60716a4f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 16:33:19 +0200
 Subject: [PATCH] Material arrays: review of lot L1
@@ -458,7 +458,7 @@ index 338ae9d47a..7e7d617b99 100644
      std::vector<std::vector<mfem_mgis::real>> stress_integrals(nmax);
      const auto& mis = p.getAssignedMaterialsIdentifiers();
 diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-index fc192f1eb1..0ee71d4eb9 100644
+index 916a08af09..7071dea66f 100644
 --- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
 +++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
 @@ -196,7 +196,9 @@ namespace mfem_mgis::internals {

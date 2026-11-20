@@ -1,4 +1,4 @@
-From f8a57faa5d949a0d50471774b122f37770de75bd Mon Sep 17 00:00:00 2001
+From 7fadba23ceb09677ab699ede68641fe9de291a78 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 02:11:27 +0200
 Subject: [PATCH] Tests: nvcc options of the cuda-nvcc configuration of TFEL
@@ -13,7 +13,7 @@ to host functions from device code (20011, 20014) are errors.
  1 file changed, 6 insertions(+), 1 deletion(-)
 
 diff --git a/cmake/modules/generic-parallel.cmake b/cmake/modules/generic-parallel.cmake
-index ccebbc3..700b4e3 100644
+index ccebbc3b..700b4e35 100644
 --- a/cmake/modules/generic-parallel.cmake
 +++ b/cmake/modules/generic-parallel.cmake
 @@ -61,8 +61,13 @@ function(_mfront_generic_parallel_check_library name kind backend)

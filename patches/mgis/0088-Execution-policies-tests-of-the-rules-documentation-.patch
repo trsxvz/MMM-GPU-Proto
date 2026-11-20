@@ -1,4 +1,4 @@
-From 2e39ffb8a351830c2f23e625b5a017ac8578a013 Mon Sep 17 00:00:00 2001
+From 1b8bb362dbb659f5f882f123731ccdf8c5ed5e71 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 22 Oct 2026 22:13:36 +0200
 Subject: [PATCH] Execution policies: tests of the rules, documentation of the
@@ -19,7 +19,7 @@ Subject: [PATCH] Execution policies: tests of the rules, documentation of the
  4 files changed, 103 insertions(+), 19 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index 788692c..c563724 100644
+index 788692c7..c5637247 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
 @@ -396,7 +396,8 @@ namespace mgis::behaviour {
@@ -80,7 +80,7 @@ index 788692c..c563724 100644
     * \param[out] mg: gradients in the material frame
     * \param[in] b: behaviour description
 diff --git a/include/MGIS/MaterialProperty/MaterialProperty.hxx b/include/MGIS/MaterialProperty/MaterialProperty.hxx
-index b7f5771..df21ee2 100644
+index b7f57714..df21ee28 100644
 --- a/include/MGIS/MaterialProperty/MaterialProperty.hxx
 +++ b/include/MGIS/MaterialProperty/MaterialProperty.hxx
 @@ -203,11 +203,11 @@ namespace mgis::material_property {
@@ -101,7 +101,7 @@ index b7f5771..df21ee2 100644
     * \return the result of the evaluation. Its status is `0` on success,
     * `1` if a result has been computed out of the bounds with the warning
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 46fa93f..67f2195 100644
+index 46fa93f7..67f21951 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -227,8 +227,11 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -128,7 +128,7 @@ index 46fa93f..67f2195 100644
    # finite strain behaviours given the displacement gradient, if TFEL
    # supports it: point by point and, if TFEL provides the generic-parallel
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index a791fe4..265d5ec 100644
+index a791fe47..265d5ece 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -38,9 +38,9 @@

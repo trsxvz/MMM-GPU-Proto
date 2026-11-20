@@ -1,4 +1,4 @@
-From a8bbd10838d65a93266fad07635737580ec7943c Mon Sep 17 00:00:00 2001
+From 73513f6c2bba4eb466036ae490b4a1e00938f8cf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 23:48:26 +0200
 Subject: [PATCH] Views on the data of a material: FieldView and
@@ -36,7 +36,7 @@ point.
  create mode 100644 tests/MaterialDataViewTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index b52fe34..fcca86e 100644
+index b52fe347..fcca86e3 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -2,6 +2,8 @@ mgis_header(MGIS Config-c.h)
@@ -57,7 +57,7 @@ index b52fe34..fcca86e 100644
  mgis_header(MGIS/MemoryResources CUDAManagedMemoryResource.hxx)
  mgis_header(MGIS/MemoryResources HIPManagedMemoryResource.hxx)
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 65977b5..fc95a4e 100644
+index 65977b56..fc95a4ef 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -22,6 +22,7 @@
@@ -392,7 +392,7 @@ index 65977b5..fc95a4e 100644
  
    /*!
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index d62603e..42d9abc 100644
+index d62603e2..42d9abc4 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -66,6 +66,37 @@ namespace mgis::behaviour {
@@ -435,7 +435,7 @@ index d62603e..42d9abc 100644
    /*!
 diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
 new file mode 100644
-index 0000000..308f78b
+index 00000000..308f78b5
 --- /dev/null
 +++ b/include/MGIS/Behaviour/MaterialDataView.hxx
 @@ -0,0 +1,250 @@
@@ -691,7 +691,7 @@ index 0000000..308f78b
 +#endif /* LIB_MGIS_BEHAVIOUR_MATERIALDATAVIEW_HXX */
 diff --git a/include/MGIS/FieldView.hxx b/include/MGIS/FieldView.hxx
 new file mode 100644
-index 0000000..8a0152e
+index 00000000..8a0152e2
 --- /dev/null
 +++ b/include/MGIS/FieldView.hxx
 @@ -0,0 +1,247 @@
@@ -944,7 +944,7 @@ index 0000000..8a0152e
 +#endif /* LIB_MGIS_FIELDVIEW_HXX */
 diff --git a/include/MGIS/FieldView.ixx b/include/MGIS/FieldView.ixx
 new file mode 100644
-index 0000000..2abe2a6
+index 00000000..2abe2a6a
 --- /dev/null
 +++ b/include/MGIS/FieldView.ixx
 @@ -0,0 +1,263 @@
@@ -1212,7 +1212,7 @@ index 0000000..2abe2a6
 +
 +#endif /* LIB_MGIS_FIELDVIEW_IXX */
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index af6b8a1..0fa2c0c 100644
+index af6b8a17..0fa2c0c5 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -25,6 +25,7 @@ list(APPEND MFrontGenericInterface_SOURCES
@@ -1224,7 +1224,7 @@ index af6b8a1..0fa2c0c 100644
    FiniteStrainSupport.cxx
    Model.cxx
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 32088bb..45e9aa2 100644
+index 32088bb0..45e9aa2e 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -12,7 +12,9 @@
@@ -4134,7 +4134,7 @@ index 32088bb..45e9aa2 100644
  
  }  // end of namespace mgis::behaviour
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 339cfa0..e7ddf16 100644
+index 339cfa0d..e7ddf163 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -13,6 +13,7 @@
@@ -4194,7 +4194,7 @@ index 339cfa0..e7ddf16 100644
    BehaviourIntegrationWorkSpace::BehaviourIntegrationWorkSpace(
 diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
 new file mode 100644
-index 0000000..02dee6e
+index 00000000..02dee6e5
 --- /dev/null
 +++ b/src/MaterialDataView.cxx
 @@ -0,0 +1,332 @@
@@ -4531,7 +4531,7 @@ index 0000000..02dee6e
 +
 +}  // end of namespace mgis::behaviour
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 0ffa756..96907df 100644
+index 0ffa756b..96907df3 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -184,6 +184,19 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -4556,7 +4556,7 @@ index 0ffa756..96907df 100644
      # evaluated on the host by the C++ parallel algorithms
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
 new file mode 100644
-index 0000000..5a493e3
+index 00000000..5a493e30
 --- /dev/null
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -0,0 +1,780 @@

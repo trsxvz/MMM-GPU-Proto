@@ -1,4 +1,4 @@
-From c75b150f20e8c5825c32cdfb617ef38b956517a8 Mon Sep 17 00:00:00 2001
+From 0578a0163f0216fc3056abfb17ca7c81d7926785 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:46:10 +0200
 Subject: [PATCH] Views on the variables of a state view, extraction
@@ -18,7 +18,7 @@ Subject: [PATCH] Views on the variables of a state view, extraction
  4 files changed, 182 insertions(+), 5 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
-index ec3e602..070fb98 100644
+index ec3e6028..070fb989 100644
 --- a/include/MGIS/Behaviour/MaterialDataView.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataView.hxx
 @@ -247,6 +247,43 @@ namespace mgis::behaviour {
@@ -66,7 +66,7 @@ index ec3e602..070fb98 100644
     * \brief copy the arrays of a state (gradients, thermodynamic forces,
     * internal state variables, energies) in the arrays of another state, with
 diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
-index 12c9d02..680b9d8 100644
+index 12c9d02f..680b9d8f 100644
 --- a/src/MaterialDataView.cxx
 +++ b/src/MaterialDataView.cxx
 @@ -329,6 +329,65 @@ namespace mgis::behaviour {
@@ -136,7 +136,7 @@ index 12c9d02..680b9d8 100644
                      const MaterialStateView& i,
                      FieldOperations& ops) {
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 5b8f11d..a403f8d 100644
+index 5b8f11d6..a403f8d9 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -1081,11 +1081,8 @@ namespace mgis::behaviour {
@@ -154,7 +154,7 @@ index 5b8f11d..a403f8d 100644
  
    template <typename ValueType, typename MaterialStateManagerType>
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index 9c9a9f5..1ecfbf4 100644
+index 9c9a9f5e..1ecfbf43 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -891,6 +891,89 @@ static void testUpdateAndRevert(const std::string& library) {

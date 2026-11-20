@@ -1,4 +1,4 @@
-From d5f6a854da6cd9c3ecef75fdee2af70dbeb09796 Mon Sep 17 00:00:00 2001
+From 8a2d7ec405069b7890b6fde4df9f7572f71eafe6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:01:54 +0200
 Subject: [PATCH] Tests of the views: integration types, speed of sound, model,
@@ -20,7 +20,7 @@ Subject: [PATCH] Tests of the views: integration types, speed of sound, model,
  create mode 100644 tests/EnergyTest.mfront
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 99efa2b..17e9d07 100644
+index 99efa2b2..17e9d070 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -135,7 +135,8 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -57,7 +57,7 @@ index 99efa2b..17e9d07 100644
      add_executable(MaterialDataManagerLayoutTest EXCLUDE_FROM_ALL
 diff --git a/tests/EnergyTest.mfront b/tests/EnergyTest.mfront
 new file mode 100644
-index 0000000..92bfe07
+index 00000000..92bfe074
 --- /dev/null
 +++ b/tests/EnergyTest.mfront
 @@ -0,0 +1,29 @@
@@ -91,7 +91,7 @@ index 0000000..92bfe07
 +  Psi_d += (sig | deto) / 10;
 +}
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index 1ecfbf4..17051d5 100644
+index 1ecfbf43..17051d5f 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -180,6 +180,11 @@ struct ViewData {

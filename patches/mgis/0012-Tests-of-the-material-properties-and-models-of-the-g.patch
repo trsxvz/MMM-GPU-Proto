@@ -1,4 +1,4 @@
-From 0e084c6aca39410be7a21713f57ef294d20b4345 Mon Sep 17 00:00:00 2001
+From 9ecdc2391a086114dc69700456f79b625a5a9b4f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 14:16:46 +0200
 Subject: [PATCH] Tests of the material properties and models of the
@@ -21,7 +21,7 @@ Subject: [PATCH] Tests of the material properties and models of the
  create mode 100644 tests/GenericParallelEvaluateTest.cxx
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 41941f8..f6d7d2c 100644
+index 41941f8c..f6d7d2cf 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -152,7 +152,8 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -101,7 +101,7 @@ index 41941f8..f6d7d2c 100644
    endif(enable-generic-parallel-cuda-tests)
  
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index 6dc27b0..ca2d5ad 100644
+index 6dc27b03..ca2d5ad9 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -1,9 +1,10 @@
@@ -267,7 +267,7 @@ index 6dc27b0..ca2d5ad 100644
      return EXIT_FAILURE;
 diff --git a/tests/GenericParallelEvaluateTest.cxx b/tests/GenericParallelEvaluateTest.cxx
 new file mode 100644
-index 0000000..f84c252
+index 00000000..f84c2523
 --- /dev/null
 +++ b/tests/GenericParallelEvaluateTest.cxx
 @@ -0,0 +1,213 @@
@@ -485,7 +485,7 @@ index 0000000..f84c252
 +  return success ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index 4cd49bd..1f30037 100644
+index 4cd49bdb..1f30037c 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -919,6 +919,37 @@ static void testMemoryLocations(const std::string& library,
@@ -548,7 +548,7 @@ index 4cd49bd..1f30037 100644
    } catch (std::exception& e) {
      std::cerr << e.what() << '\n';
 diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
-index 13e8417..2d01854 100644
+index 13e84170..2d018541 100644
 --- a/tests/GenericParallelLoadTest.cxx
 +++ b/tests/GenericParallelLoadTest.cxx
 @@ -19,7 +19,9 @@

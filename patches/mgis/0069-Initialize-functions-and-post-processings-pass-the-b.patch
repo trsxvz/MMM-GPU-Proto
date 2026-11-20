@@ -1,4 +1,4 @@
-From 7dece1e8469f45e1e7b44366c120003791d53b80 Mon Sep 17 00:00:00 2001
+From c3e679673de059295bf58d611e91f736c8d8417d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:01:32 +0200
 Subject: [PATCH] Initialize functions and post-processings: pass the behaviour
@@ -18,7 +18,7 @@ pointer. A local array is used.
  2 files changed, 40 insertions(+), 11 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 88f1de2..53f786d 100644
+index 88f1de28..53f786d3 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -177,6 +177,9 @@ namespace mgis::behaviour {
@@ -52,7 +52,7 @@ index 88f1de2..53f786d 100644
     * `generic-parallel` interface, which only provides functions of batches
     * of integration points.
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index d7d3555..f15449c 100644
+index d7d35557..f15449ca 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -1027,6 +1027,18 @@ namespace mgis::behaviour::internals {

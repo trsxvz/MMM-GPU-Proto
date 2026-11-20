@@ -1,4 +1,4 @@
-From 313f9fb98a91e74ac2661965bb03326dbf31fa9f Mon Sep 17 00:00:00 2001
+From dc58db118655f31fa9d412e2292069fc4bcfc63c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:21:31 +0200
 Subject: [PATCH] Outputs of failing points, conversions, copies and mass
@@ -31,7 +31,7 @@ Subject: [PATCH] Outputs of failing points, conversions, copies and mass
  7 files changed, 232 insertions(+), 54 deletions(-)
 
 diff --git a/include/MGIS/Behaviour/FiniteStrainSupport.hxx b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
-index 70a8a7d..9a9195a 100644
+index 70a8a7db..9a9195ab 100644
 --- a/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 +++ b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
 @@ -90,6 +90,27 @@ namespace mgis::behaviour {
@@ -63,7 +63,7 @@ index 70a8a7d..9a9195a 100644
     * \param[out] s: new stress
     * \param[in] d: behaviour data
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index fc95a4e..366000d 100644
+index fc95a4ef..366000d6 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -1055,7 +1055,13 @@ namespace mgis::behaviour {
@@ -82,7 +82,7 @@ index fc95a4e..366000d 100644
    MGIS_EXPORT BehaviourIntegrationResult
    integrate(BehaviourIntegrationWorkSpace&,
 diff --git a/include/MGIS/FieldOperations.hxx b/include/MGIS/FieldOperations.hxx
-index 5fca2c4..885f156 100644
+index 5fca2c4b..885f156d 100644
 --- a/include/MGIS/FieldOperations.hxx
 +++ b/include/MGIS/FieldOperations.hxx
 @@ -47,11 +47,12 @@ namespace mgis {
@@ -104,7 +104,7 @@ index 5fca2c4..885f156 100644
      void copy(const FieldView<real>&, const FieldView<const real>&);
      /*!
 diff --git a/src/FieldOperations.cxx b/src/FieldOperations.cxx
-index d125eaf..8ffc966 100644
+index d125eafe..8ffc966b 100644
 --- a/src/FieldOperations.cxx
 +++ b/src/FieldOperations.cxx
 @@ -18,22 +18,41 @@
@@ -157,7 +157,7 @@ index d125eaf..8ffc966 100644
      }
      this->do_copy(d, s);
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index 4f79d30..959d092 100644
+index 4f79d307..959d0927 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -139,6 +139,66 @@ namespace mgis::behaviour {
@@ -346,7 +346,7 @@ index 4f79d30..959d092 100644
    }  // end of convertFiniteStrainTangentOperator
  
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 776466f..5db7526 100644
+index 776466fe..5db7526f 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -336,14 +336,18 @@ namespace mgis::behaviour::internals {
@@ -438,7 +438,7 @@ index 776466f..5db7526 100644
      auto memory = internals::TemporaryMemory{};
      const auto v = make_view(m, memory.get());
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index 78ca037..cc3fffb 100644
+index 78ca037d..cc3fffb5 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -17,6 +17,7 @@

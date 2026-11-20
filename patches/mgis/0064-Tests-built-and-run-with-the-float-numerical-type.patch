@@ -1,4 +1,4 @@
-From 28004a12322154dfbbd36a7d917768eb8cb09045 Mon Sep 17 00:00:00 2001
+From df0d33ea1bb5ecbae55149d5a55c464f45f6239e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:53:06 +0200
 Subject: [PATCH] Tests built and run with the float numerical type
@@ -58,7 +58,7 @@ Double: 51/51, float: 47/47.
  create mode 100644 tests/Tolerance.hxx
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index df2ae60..a3705ea 100644
+index df2ae60f..a3705ea5 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -160,6 +160,13 @@ if((NOT MGIS_REAL_TYPE STREQUAL "double") AND
@@ -76,7 +76,7 @@ index df2ae60..a3705ea 100644
  include_directories(BEFORE ${PROJECT_BINARY_DIR}/include)
  
 diff --git a/cmake/modules/behaviours.cmake b/cmake/modules/behaviours.cmake
-index b696b29..8fabff0 100644
+index b696b29e..8fabff0f 100644
 --- a/cmake/modules/behaviours.cmake
 +++ b/cmake/modules/behaviours.cmake
 @@ -24,7 +24,7 @@ function(add_mfront_behaviour_sources lib  file)
@@ -89,7 +89,7 @@ index b696b29..8fabff0 100644
      DEPENDS "${mfront_file}" "${MFRONT}"
      COMMENT "mfront source ${mfront_file}")
 diff --git a/cmake/modules/generic-parallel.cmake b/cmake/modules/generic-parallel.cmake
-index 700b4e3..f8bf575 100644
+index 700b4e35..f8bf575c 100644
 --- a/cmake/modules/generic-parallel.cmake
 +++ b/cmake/modules/generic-parallel.cmake
 @@ -39,7 +39,7 @@ function(_mfront_generic_parallel_check_library name kind backend)
@@ -102,7 +102,7 @@ index 700b4e3..f8bf575 100644
        ARGS "${_file}"
        DEPENDS "${_file}" "${MFRONT}"
 diff --git a/cmake/modules/material-properties.cmake b/cmake/modules/material-properties.cmake
-index 6c74b59..d26fa5f 100644
+index 6c74b590..d26fa5fa 100644
 --- a/cmake/modules/material-properties.cmake
 +++ b/cmake/modules/material-properties.cmake
 @@ -10,7 +10,8 @@ function(add_mfront_material_properties_generated_source lib file)
@@ -117,7 +117,7 @@ index 6c74b59..d26fa5f 100644
    set(${lib}_SOURCES ${mfront_output} ${${lib}_SOURCES} PARENT_SCOPE)
 diff --git a/tests/BitwiseEquality.hxx b/tests/BitwiseEquality.hxx
 new file mode 100644
-index 0000000..a01b7e8
+index 00000000..a01b7e83
 --- /dev/null
 +++ b/tests/BitwiseEquality.hxx
 @@ -0,0 +1,39 @@
@@ -161,7 +161,7 @@ index 0000000..a01b7e8
 +
 +#endif /* LIB_MGIS_TESTS_BITWISEEQUALITY_HXX */
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 18ae26c..49f5cf7 100644
+index 18ae26ce..49f5cf75 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -138,7 +138,56 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -298,7 +298,7 @@ index 18ae26c..49f5cf7 100644
    add_library_test(RotateFunctionsTest RotateFunctionsTest.cxx BehaviourTest)
    add_library_test(RotationMatrixCopyTest RotationMatrixCopyTest.cxx BehaviourTest)
 diff --git a/tests/CoalescedMemoryAccessFunctionViewTest.cxx b/tests/CoalescedMemoryAccessFunctionViewTest.cxx
-index 07377b5..f4dcdff 100644
+index 07377b56..f4dcdffa 100644
 --- a/tests/CoalescedMemoryAccessFunctionViewTest.cxx
 +++ b/tests/CoalescedMemoryAccessFunctionViewTest.cxx
 @@ -19,6 +19,7 @@
@@ -410,7 +410,7 @@ index 07377b5..f4dcdff 100644
      TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] + 1) < eps);
      TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 3) < eps);
 diff --git a/tests/ComputeSpeedOfSoundTest.cxx b/tests/ComputeSpeedOfSoundTest.cxx
-index c87e062..944da3b 100644
+index c87e062f..944da3ba 100644
 --- a/tests/ComputeSpeedOfSoundTest.cxx
 +++ b/tests/ComputeSpeedOfSoundTest.cxx
 @@ -20,6 +20,7 @@
@@ -432,7 +432,7 @@ index c87e062..944da3b 100644
                  << "(expected '" << v_ref << "', computed '" << d.speed_of_sound
                  << "')\n";
 diff --git a/tests/ComputeSpeedOfSoundTest2.cxx b/tests/ComputeSpeedOfSoundTest2.cxx
-index 705c724..d71e556 100644
+index 705c7246..d71e5566 100644
 --- a/tests/ComputeSpeedOfSoundTest2.cxx
 +++ b/tests/ComputeSpeedOfSoundTest2.cxx
 @@ -20,6 +20,7 @@
@@ -454,7 +454,7 @@ index 705c724..d71e556 100644
            << "ComputeSpeedOfSoundTest: invalid value for the speed of sound\n";
        return EXIT_FAILURE;
 diff --git a/tests/EvaluatorsTest.cxx b/tests/EvaluatorsTest.cxx
-index 325d157..2f403d0 100644
+index 325d1572..2f403d0d 100644
 --- a/tests/EvaluatorsTest.cxx
 +++ b/tests/EvaluatorsTest.cxx
 @@ -28,6 +28,7 @@
@@ -587,7 +587,7 @@ index 325d157..2f403d0 100644
  #endif /* MGIS_HAS_STL_PARALLEL_ALGORITHMS */
    }
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index f87dcec..7703ebb 100644
+index f87dcec3..7703ebb4 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -890,12 +890,14 @@ static void testAsynchronousComputations(const std::string& library,
@@ -619,7 +619,7 @@ index f87dcec..7703ebb 100644
      testPartialFailures(argv[1]);
      testAsynchronousComputations(argv[2], argv[1], argv[4], argv[3]);
 diff --git a/tests/GenericParallelEvaluateTest.cxx b/tests/GenericParallelEvaluateTest.cxx
-index 98d0e56..12abb0f 100644
+index 98d0e563..12abb0fd 100644
 --- a/tests/GenericParallelEvaluateTest.cxx
 +++ b/tests/GenericParallelEvaluateTest.cxx
 @@ -14,8 +14,6 @@
@@ -668,7 +668,7 @@ index 98d0e56..12abb0f 100644
          }
        }
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index 0821b1f..8456415 100644
+index 0821b1f4..8456415e 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -14,10 +14,8 @@
@@ -760,7 +760,7 @@ index 0821b1f..8456415 100644
      testAsynchronousComputations(argv[2], argv[1]);
    } catch (std::exception& e) {
 diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
-index 50f9325..1edf85c 100644
+index 50f93255..1edf85ce 100644
 --- a/tests/GenericParallelLoadTest.cxx
 +++ b/tests/GenericParallelLoadTest.cxx
 @@ -18,6 +18,10 @@
@@ -775,7 +775,7 @@ index 50f9325..1edf85c 100644
  #include "MFront/GenericParallelMaterialProperty/MaterialProperty.h"
  #include "MGIS/LibrariesManager.hxx"
 diff --git a/tests/Gurson.mfront b/tests/Gurson.mfront
-index 0cdae3b..11deb7c 100644
+index 0cdae3b1..11deb7c2 100644
 --- a/tests/Gurson.mfront
 +++ b/tests/Gurson.mfront
 @@ -65,7 +65,7 @@ q3.setEntryName("ThirdGursonParameter");
@@ -788,7 +788,7 @@ index 0cdae3b..11deb7c 100644
    if(!broken){
      //Calcul des coefficients d'élasticité et du tenseur d'élasticité
 diff --git a/tests/IntegrateTest.cxx b/tests/IntegrateTest.cxx
-index f6a61f1..0956867 100644
+index f6a61f11..09568672 100644
 --- a/tests/IntegrateTest.cxx
 +++ b/tests/IntegrateTest.cxx
 @@ -20,6 +20,7 @@
@@ -816,7 +816,7 @@ index f6a61f1..0956867 100644
                       "viscoplastic strain "
                    << "(expected '" << p_ref[i] << "', computed '" << p[i]
 diff --git a/tests/IntegrateTest2.cxx b/tests/IntegrateTest2.cxx
-index 09ac02e..9ef9361 100644
+index 09ac02e5..9ef9361e 100644
 --- a/tests/IntegrateTest2.cxx
 +++ b/tests/IntegrateTest2.cxx
 @@ -20,6 +20,7 @@
@@ -852,7 +852,7 @@ index 09ac02e..9ef9361 100644
                       "viscoplastic strain at the last integration point"
                    << "(expected '" << p_ref[i] << "', computed '" << pe[i]
 diff --git a/tests/IntegrateTest2b.cxx b/tests/IntegrateTest2b.cxx
-index 5ad5232..9c04bad 100644
+index 5ad52322..9c04badd 100644
 --- a/tests/IntegrateTest2b.cxx
 +++ b/tests/IntegrateTest2b.cxx
 @@ -20,6 +20,7 @@
@@ -888,7 +888,7 @@ index 5ad5232..9c04bad 100644
                       "viscoplastic strain at the last integration point"
                    << "(expected '" << p_ref[i] << "', computed '" << pe[i]
 diff --git a/tests/IntegrateTest3.cxx b/tests/IntegrateTest3.cxx
-index 984574d..657ac5a 100644
+index 984574d7..657ac5a1 100644
 --- a/tests/IntegrateTest3.cxx
 +++ b/tests/IntegrateTest3.cxx
 @@ -21,6 +21,7 @@
@@ -924,7 +924,7 @@ index 984574d..657ac5a 100644
                       "viscoplastic strain at the last integration point"
                    << "(expected '" << p_ref[i] << "', computed '" << pe[i]
 diff --git a/tests/IntegrateTest3b.cxx b/tests/IntegrateTest3b.cxx
-index 2f4cc81..b36fc99 100644
+index 2f4cc81e..b36fc995 100644
 --- a/tests/IntegrateTest3b.cxx
 +++ b/tests/IntegrateTest3b.cxx
 @@ -21,6 +21,7 @@
@@ -977,7 +977,7 @@ index 2f4cc81..b36fc99 100644
                       "viscoplastic strain at the last integration point"
                    << "(expected '" << p_ref[i] << "', computed '" << pe[i]
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index 404df00..fb10507 100644
+index 404df00c..fb10507c 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -16,7 +16,6 @@
@@ -1026,7 +1026,7 @@ index 404df00..fb10507 100644
                    ": first Piola-Kirchhoff stress different from its "
                    "definition (" +
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index afb0f4e..40d5b6a 100644
+index afb0f4ec..40d5b6a0 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -15,12 +15,10 @@
@@ -1088,7 +1088,7 @@ index afb0f4e..40d5b6a 100644
      testFailingOperations(argv[2]);
      testErrors(argv[2], argv[1]);
 diff --git a/tests/MechanicalEvaluatorsTest.cxx b/tests/MechanicalEvaluatorsTest.cxx
-index c12fef6..eec1f26 100644
+index c12fef65..eec1f269 100644
 --- a/tests/MechanicalEvaluatorsTest.cxx
 +++ b/tests/MechanicalEvaluatorsTest.cxx
 @@ -23,6 +23,7 @@
@@ -1127,7 +1127,7 @@ index c12fef6..eec1f26 100644
      auto space = BasicLinearSpace(1);
      Function<BasicLinearSpace> pk1_function(space, 9);
 diff --git a/tests/Norton.mfront b/tests/Norton.mfront
-index 758d655..bec9d44 100644
+index 758d655b..bec9d440 100644
 --- a/tests/Norton.mfront
 +++ b/tests/Norton.mfront
 @@ -12,5 +12,8 @@
@@ -1141,7 +1141,7 @@ index 758d655..bec9d44 100644
 +  inelastic_flow : "Norton" {criterion : "Mises", A : 1, n : 8.2, K : 114973772.62769}
  };
 diff --git a/tests/NortonFailure.mfront b/tests/NortonFailure.mfront
-index 96b75bf..d2adbe4 100644
+index 96b75bfa..d2adbe47 100644
 --- a/tests/NortonFailure.mfront
 +++ b/tests/NortonFailure.mfront
 @@ -12,7 +12,10 @@
@@ -1157,7 +1157,7 @@ index 96b75bf..d2adbe4 100644
  
  @Integrator{
 diff --git a/tests/ParameterTest.cxx b/tests/ParameterTest.cxx
-index ed51b39..b79c21b 100644
+index ed51b399..b79c21be 100644
 --- a/tests/ParameterTest.cxx
 +++ b/tests/ParameterTest.cxx
 @@ -18,13 +18,15 @@
@@ -1179,7 +1179,7 @@ index ed51b39..b79c21b 100644
    auto check = [&success](const bool b, const std::string& msg) {
 diff --git a/tests/RealTypeTest.cxx b/tests/RealTypeTest.cxx
 new file mode 100644
-index 0000000..53a171b
+index 00000000..53a171ba
 --- /dev/null
 +++ b/tests/RealTypeTest.cxx
 @@ -0,0 +1,61 @@
@@ -1245,7 +1245,7 @@ index 0000000..53a171b
 +  return success ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 diff --git a/tests/RotationMatrixCopyTest.cxx b/tests/RotationMatrixCopyTest.cxx
-index 3d79501..a303b59 100644
+index 3d795014..a303b592 100644
 --- a/tests/RotationMatrixCopyTest.cxx
 +++ b/tests/RotationMatrixCopyTest.cxx
 @@ -13,11 +13,9 @@
@@ -1290,7 +1290,7 @@ index 3d79501..a303b59 100644
    } catch (std::exception& e) {
      std::cerr << e.what() << '\n';
 diff --git a/tests/StridedCoalescedMemoryAccessFunctionViewTest.cxx b/tests/StridedCoalescedMemoryAccessFunctionViewTest.cxx
-index cfb9541..f3684c2 100644
+index cfb9541b..f3684c22 100644
 --- a/tests/StridedCoalescedMemoryAccessFunctionViewTest.cxx
 +++ b/tests/StridedCoalescedMemoryAccessFunctionViewTest.cxx
 @@ -19,6 +19,7 @@
@@ -1412,7 +1412,7 @@ index cfb9541..f3684c2 100644
      TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 3) < eps);
 diff --git a/tests/Tolerance.hxx b/tests/Tolerance.hxx
 new file mode 100644
-index 0000000..8ef9c85
+index 00000000..8ef9c857
 --- /dev/null
 +++ b/tests/Tolerance.hxx
 @@ -0,0 +1,56 @@

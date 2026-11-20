@@ -1,4 +1,4 @@
-From e957b7d9d4618a827f27d7964289668385ed5884 Mon Sep 17 00:00:00 2001
+From 4340b5ce780fae6f278067fd5899e31d5a4cb1a8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 15:44:06 +0200
 Subject: [PATCH] ex8: option -nlsMc selecting the non linear solver of the

@@ -1,4 +1,4 @@
-From 1ac16b766c9eb4bfd0ee8977890a6c96a8d692ef Mon Sep 17 00:00:00 2001
+From 1204c30024d9ddd5da42ca5d92ed62a8feeade81 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:11:44 +0200
 Subject: [PATCH] Add the Jacobi preconditioner by nodal blocks

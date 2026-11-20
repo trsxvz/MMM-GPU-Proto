@@ -1,4 +1,4 @@
-From 98ce4a7a80e21c7f7699cbca0e1fb7508f5eedbe Mon Sep 17 00:00:00 2001
+From bec294981e5e4a4953e27e61365ab65ea078e85c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:58:08 +0200
 Subject: [PATCH] Corrections of the second review of the views
@@ -52,7 +52,7 @@ Subject: [PATCH] Corrections of the second review of the views
  19 files changed, 284 insertions(+), 44 deletions(-)
 
 diff --git a/bindings/fortran/tests/LayoutTest-f.f90 b/bindings/fortran/tests/LayoutTest-f.f90
-index 2d2fbd3..aeedc42 100644
+index 2d2fbd3f..aeedc422 100644
 --- a/bindings/fortran/tests/LayoutTest-f.f90
 +++ b/bindings/fortran/tests/LayoutTest-f.f90
 @@ -21,6 +21,10 @@ subroutine test()
@@ -114,10 +114,10 @@ index 2d2fbd3..aeedc42 100644
    call check_status(free_behaviour(b))
    call check_status(free_thread_pool(p))
 diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
-index 7e49699..3126f0d 100644
+index d04283a6..4d122893 100644
 --- a/docs/web/release-notes-3.2.md
 +++ b/docs/web/release-notes-3.2.md
-@@ -374,10 +374,12 @@ This is described in a dedicated [page](views.html). In short:
+@@ -391,10 +391,12 @@ This is described in a dedicated [page](views.html). In short:
  - the layout is exposed by the `C`, `Fortran` and `Python` bindings.
  
  Once the arrays are allocated, the synchronous functions processing
@@ -135,7 +135,7 @@ index 7e49699..3126f0d 100644
  # New features of the `MGIS/Behaviour` library
  
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 00fdffd..f0e2493 100644
+index 00fdffdb..f0e24930 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -499,7 +499,8 @@ namespace mgis::behaviour {
@@ -179,7 +179,7 @@ index 00fdffd..f0e2493 100644
     * \param[in] v: material data view
     * \param[in] n: name of the post-processing
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 85f15f0..76c35d9 100644
+index 85f15f04..76c35d9d 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -329,8 +329,9 @@ namespace mgis::behaviour {
@@ -207,7 +207,7 @@ index 85f15f0..76c35d9 100644
     * \param[in] ops: operations
     */
 diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
-index 75a6e7e..bae9d58 100644
+index 75a6e7e1..bae9d581 100644
 --- a/include/MGIS/Behaviour/MaterialDataView.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataView.hxx
 @@ -320,6 +320,9 @@ namespace mgis::behaviour {
@@ -221,7 +221,7 @@ index 75a6e7e..bae9d58 100644
    MGIS_EXPORT void updateValues(const MaterialStateView&,
                                  const MaterialStateView&,
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 7747558..6affecb 100644
+index 77475584..6affecbc 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -694,7 +694,10 @@ namespace mgis::behaviour {
@@ -237,7 +237,7 @@ index 7747558..6affecb 100644
     * \param[out] o: output state
     * \param[in] i: input state
 diff --git a/include/MGIS/Behaviour/RotationMatrix.hxx b/include/MGIS/Behaviour/RotationMatrix.hxx
-index 9f8b1e5..0423c73 100644
+index 9f8b1e5a..0423c731 100644
 --- a/include/MGIS/Behaviour/RotationMatrix.hxx
 +++ b/include/MGIS/Behaviour/RotationMatrix.hxx
 @@ -44,7 +44,10 @@ namespace mgis::behaviour {
@@ -267,7 +267,7 @@ index 9f8b1e5..0423c73 100644
      const MaterialAxisStorage a1;
      //! \brief second material axis
 diff --git a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
-index db5a65c..419907c 100644
+index db5a65cc..419907cd 100644
 --- a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 @@ -108,8 +108,9 @@ namespace mgis::field_operations {
@@ -283,7 +283,7 @@ index db5a65c..419907c 100644
     * This header is not compiled by `MGIS`: it is compiled by the calling
     * code with nvcc or clang (CUDA).
 diff --git a/include/MGIS/FieldOperations/HIPFieldOperations.hxx b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
-index 74751c0..78da154 100644
+index 74751c06..78da154b 100644
 --- a/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 @@ -108,8 +108,9 @@ namespace mgis::field_operations {
@@ -299,7 +299,7 @@ index 74751c0..78da154 100644
     * This header is not compiled by `MGIS`: it is compiled by the calling
     * code with hipcc or clang (HIP).
 diff --git a/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
-index 19a759a..36cdc57 100644
+index 19a759a0..36cdc573 100644
 --- a/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
 @@ -59,11 +59,12 @@ namespace mgis::field_operations {
@@ -334,7 +334,7 @@ index 19a759a..36cdc57 100644
          }
        }
 diff --git a/include/MGIS/FieldView.hxx b/include/MGIS/FieldView.hxx
-index 10164bf..be04436 100644
+index 10164bfd..be04436d 100644
 --- a/include/MGIS/FieldView.hxx
 +++ b/include/MGIS/FieldView.hxx
 @@ -63,9 +63,13 @@ namespace mgis {
@@ -355,7 +355,7 @@ index 10164bf..be04436 100644
     * \tparam ValueType: type of the values, `real` or `const real`
     */
 diff --git a/include/MGIS/Function/FieldViewSupport.hxx b/include/MGIS/Function/FieldViewSupport.hxx
-index 8867c67..b2279f9 100644
+index 8867c67f..b2279f97 100644
 --- a/include/MGIS/Function/FieldViewSupport.hxx
 +++ b/include/MGIS/Function/FieldViewSupport.hxx
 @@ -63,6 +63,16 @@ namespace mgis::function {
@@ -376,7 +376,7 @@ index 8867c67..b2279f9 100644
     * \return a constant view on the values of a function stored point by
     * point
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 5db7526..2ba7177 100644
+index 5db7526f..2ba71773 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -206,6 +206,7 @@ namespace mgis::behaviour::internals {
@@ -428,7 +428,7 @@ index 5db7526..2ba7177 100644
  
    /*!
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 443ab33..47c1778 100644
+index 443ab335..47c1778c 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -402,6 +402,10 @@ namespace mgis::behaviour {
@@ -443,7 +443,7 @@ index 443ab33..47c1778 100644
          if (K.empty()) {
            mgis::raise(
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index e52dc15..edceb2e 100644
+index e52dc150..edceb2e5 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -712,7 +712,7 @@ namespace mgis::behaviour {
@@ -465,7 +465,7 @@ index e52dc15..edceb2e 100644
        return u.ctx.registerErrorMessage("unknown exception");
      }
 diff --git a/src/RotationMatrix.cxx b/src/RotationMatrix.cxx
-index e000321..6a327d5 100644
+index e0003219..6a327d59 100644
 --- a/src/RotationMatrix.cxx
 +++ b/src/RotationMatrix.cxx
 @@ -113,7 +113,7 @@ namespace mgis::behaviour {
@@ -478,7 +478,7 @@ index e000321..6a327d5 100644
  
  }  // end of namespace mgis::behaviour
 diff --git a/tests/AllocationTest.cxx b/tests/AllocationTest.cxx
-index 215779c..93167fd 100644
+index 215779c1..93167fde 100644
 --- a/tests/AllocationTest.cxx
 +++ b/tests/AllocationTest.cxx
 @@ -49,6 +49,19 @@ void* operator new(const std::size_t s) {
@@ -600,7 +600,7 @@ index 215779c..93167fd 100644
      testMaterialProperty(argv[3]);
    } catch (std::exception& e) {
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index e945d98..3f11315 100644
+index e945d98c..3f113152 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -35,6 +35,7 @@
@@ -641,7 +641,7 @@ index e945d98..3f11315 100644
      auto me = makeManager(b, n, FieldLayout::COMPONENT_BY_COMPONENT);
      auto thrown = false;
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index da867fa..afb0f4e 100644
+index da867fae..afb0f4ec 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -1609,6 +1609,58 @@ static void testWithoutTangentOperator(const std::string& library) {

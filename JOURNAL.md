@@ -8079,3 +8079,63 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   6034600 could not write their outputs; the ones of the variant `umpire`
   ran again in 6034790, not the ones of the variant without the option on
   a MI300A (6035289).
+
+### 2026-11-20, rebase of MGIS, mfem-mgis, the examples and mm-opera-hpc onto the official branches
+
+- Bases: MGIS `53947f1` (103 patches), mfem-mgis `a00ef65480` (305),
+  mfem-mgis-examples `9300394` of `latug0/mfem-mgis-examples` (39) and
+  mm-opera-hpc `4a4f87c` of `rprat-pro/mm-opera-hpc` (52). TFEL stays on
+  `60a42dd12` (139 patches): its master merged the reviewed version of the
+  `generic-parallel` interface of the material properties
+  (thelfer/tfel#1088 and #1415), the same design as the prototype, which
+  becomes the reference of the next rebase; the prototype keeps on top of
+  it the behaviours on the same runtime and the `kokkos`, `raja`,
+  `openmp`, `openacc` and `arcane` backends. 95 of its 139 patches touch
+  files changed by the official repository: separate task.
+- The local repositories of the workstation lacked the last patches (MGIS
+  101 of 104, mfem-mgis 285 of 305, mm-opera-hpc 41 of 57, the others as
+  uncommitted changes): each branch was first rebuilt from its patch
+  series, which gives the tracked tree. The former states are kept
+  (branches `*-avant-rebase-20261120`, references
+  `refs/backup/20261120/*`, untracked files in
+  `backups/rebase-20261120/`).
+- Licences, before the rebase: mm-opera-hpc #74 removes 39 unused CMake
+  files (copied from mfem-mgis when the repository was created, some of
+  them under the BSD notices of MFEM) and makes the four mesh generation
+  scripts adapted from the examples of Mérope refer to its licence;
+  mfem-mgis-examples #80 does the same for the two scripts of
+  `ex7/script_merope`. Both are merged.
+- Patches dropped, already merged or become empty: MGIS, the libraries
+  never unloaded (merged as MGIS #456: all the libraries stay loaded, the
+  restriction of the prototype to the libraries of the `stlpar` backend is
+  dropped); mm-opera-hpc, the exit status of the help (`bcae91d`), the
+  pressure of the bubble in N/µm² and the number of the generated vectors
+  (`d4ce062`, `d732626`), one line of `env.sh` per library directory (the
+  module `mfem-mgis.cmake` it changed is removed, unused) and the patches
+  merged as #74; the examples, the patch merged as #80.
+- mm-opera-hpc: the tests of the cermet follow the official names
+  (`CermetTest`, the duplicated `CermetImposeGradXXYY` removed,
+  `CermetTest-DisplacementGradient`, `CermetTest-gpu`), next to the
+  official `CermetTestWithPostProPar`; the READMEs keep the official review
+  (#71), the options of the prototype being written one per row as in the
+  official tables; the bubble keeps the limit of 5000 iterations of the
+  conjugate gradient, with BoomerAMG by default; the files formatted by the
+  official `apply clang-format` commit keep their formatting, the lines of
+  the patches being inserted as they were; the code of the patches uses the
+  official names (`MacroscopicElasticMaterialProperties`, fixed in the
+  three patches which introduced the former name).
+- Checks: each file changed by both sides is compared with the three-way
+  merge of the old base, the official branch and the former tree of the
+  prototype; for mm-opera-hpc, every line added by either side is looked
+  for in the new tree, each missing line being one of the choices above;
+  each patch series applies on its base and gives the tracked tree
+  (`scripts/verify-patches.sh`).
+- Tests on the workstation, against the installed TFEL: MGIS 65/65,
+  mm-opera-hpc 21/21, mfem-mgis 397/399. The two failures are
+  `GlobalStiffnessMatrixTest-np4-cuda-host` and
+  `GlobalStiffnessMatrixTest-np4-cuda-gpu-aware-mpi` (4 processes on the
+  only GPU of the workstation: `check failed: order 1, 1 components:
+  conforming space not supported` on each process, then a timeout, also
+  when run alone). The code of mfem-mgis is the one before the rebase plus
+  one comment: defect of these recent tests on one GPU, to be looked at
+  separately. The examples and the cases are unchanged.

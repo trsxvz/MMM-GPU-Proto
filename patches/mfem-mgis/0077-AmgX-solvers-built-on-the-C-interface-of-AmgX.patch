@@ -1,4 +1,4 @@
-From dc821a62ebcdc3df0c14f26268291c4059149613 Mon Sep 17 00:00:00 2001
+From de8248eaef76c5d572ef5101c4c9ce4c6d25ddbd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 22:57:20 +0200
 Subject: [PATCH] AmgX: solvers built on the C interface of AmgX

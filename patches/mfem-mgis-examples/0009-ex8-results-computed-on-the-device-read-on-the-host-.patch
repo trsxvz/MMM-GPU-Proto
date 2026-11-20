@@ -1,4 +1,4 @@
-From a56e45166432e792598f1ecbc1834332d8e141fd Mon Sep 17 00:00:00 2001
+From f0fa1fbf19525bddcce046de1e31649669d683c6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 13:53:09 +0200
 Subject: [PATCH] ex8: results computed on the device read on the host, tests

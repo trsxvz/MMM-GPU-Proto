@@ -1,4 +1,4 @@
-From 996d8910d89891432b439d136a1f889508e41108 Mon Sep 17 00:00:00 2001
+From e84d47aa2411e578f95915ba3c66de58bcd283e1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 00:11:45 +0200
 Subject: [PATCH] Bindings: getAxialDeformationGradientOffset
@@ -22,7 +22,7 @@ here (jlcxx not available).
  7 files changed, 127 insertions(+), 2 deletions(-)
 
 diff --git a/bindings/c/include/MGIS/Behaviour/Behaviour.h b/bindings/c/include/MGIS/Behaviour/Behaviour.h
-index 3a9382b..bfd1ff8 100644
+index 3a9382bd..bfd1ff88 100644
 --- a/bindings/c/include/MGIS/Behaviour/Behaviour.h
 +++ b/bindings/c/include/MGIS/Behaviour/Behaviour.h
 @@ -242,6 +242,20 @@ MGIS_C_EXPORT mgis_status mgis_bv_behaviour_get_tangent_operator_array_size(
@@ -47,7 +47,7 @@ index 3a9382b..bfd1ff8 100644
   * The following rotation functions report a failure for a behaviour which
   * provides no rotation function of an integration point: an isotropic
 diff --git a/bindings/c/src/Behaviour.cxx b/bindings/c/src/Behaviour.cxx
-index 4c11b39..95c930f 100644
+index 4c11b39d..95c930f9 100644
 --- a/bindings/c/src/Behaviour.cxx
 +++ b/bindings/c/src/Behaviour.cxx
 @@ -476,6 +476,17 @@ mgis_status mgis_bv_behaviour_uses_displacement_gradient(
@@ -69,7 +69,7 @@ index 4c11b39..95c930f 100644
                                            const mgis_bv_Behaviour* const b) {
    if (b == nullptr) {
 diff --git a/bindings/c/tests/DisplacementGradientTest-c.c b/bindings/c/tests/DisplacementGradientTest-c.c
-index c0ff828..67abe10 100644
+index c0ff8281..67abe102 100644
 --- a/bindings/c/tests/DisplacementGradientTest-c.c
 +++ b/bindings/c/tests/DisplacementGradientTest-c.c
 @@ -1,7 +1,7 @@
@@ -148,7 +148,7 @@ index c0ff828..67abe10 100644
    return test_status;
  }  // end of main
 diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
-index d890f85..ae753bd 100644
+index d890f85b..ae753bde 100644
 --- a/bindings/fortran/src/mgis_behaviour.f90
 +++ b/bindings/fortran/src/mgis_behaviour.f90
 @@ -884,6 +884,39 @@ contains
@@ -192,7 +192,7 @@ index d890f85..ae753bd 100644
    function behaviour_get_library(l,b) result(s)
      use mgis_fortran_utilities
 diff --git a/bindings/python/src/Behaviour.cxx b/bindings/python/src/Behaviour.cxx
-index 66b7eaf..0d03ab9 100644
+index 66b7eafc..0d03ab9e 100644
 --- a/bindings/python/src/Behaviour.cxx
 +++ b/bindings/python/src/Behaviour.cxx
 @@ -285,6 +285,10 @@ void declareBehaviour(pybind11::module_ &m) {
@@ -207,7 +207,7 @@ index 66b7eaf..0d03ab9 100644
          "hypothesis"_a, "material"_a = std::optional<std::string>{});
    m.def("loadFromDatabase", Behaviour_loadFromDatabase2, "options"_a, "name"_a,
 diff --git a/bindings/python/tests/DisplacementGradientTest.py b/bindings/python/tests/DisplacementGradientTest.py
-index ca2aa69..ecef777 100644
+index ca2aa694..ecef7779 100644
 --- a/bindings/python/tests/DisplacementGradientTest.py
 +++ b/bindings/python/tests/DisplacementGradientTest.py
 @@ -31,6 +31,23 @@ class DisplacementGradientTest(unittest.TestCase):
@@ -235,7 +235,7 @@ index ca2aa69..ecef777 100644
  
  if __name__ == '__main__':
 diff --git a/docs/web/bindings-cxx.md b/docs/web/bindings-cxx.md
-index f20ac00..0c537dc 100644
+index f20ac00a..0c537dce 100644
 --- a/docs/web/bindings-cxx.md
 +++ b/docs/web/bindings-cxx.md
 @@ -200,7 +200,7 @@ by the behaviour, and the one given in the gradients is ignored (`TFEL`

@@ -1,4 +1,4 @@
-From 91392166bc1d8355a35ed2cf3fb73638d5ac9cda Mon Sep 17 00:00:00 2001
+From e35eda494b476ef6c1043e5c30a9f9edf4f62abb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:10:26 +0200
 Subject: [PATCH] Memory resources: an address for zero bytes, alignment of
@@ -26,7 +26,7 @@ Subject: [PATCH] Memory resources: an address for zero bytes, alignment of
  5 files changed, 37 insertions(+), 16 deletions(-)
 
 diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
-index 80220df..2b9abd2 100644
+index 80220df6..2b9abd2b 100644
 --- a/docs/web/generic-parallel.md
 +++ b/docs/web/generic-parallel.md
 @@ -265,9 +265,12 @@ code with its own GPU toolkit (`MGIS/MemoryResources/`):
@@ -46,7 +46,7 @@ index 80220df..2b9abd2 100644
  # Execution policy
  
 diff --git a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
-index 2dd6f9c..6e5c9df 100644
+index 2dd6f9c9..6e5c9df1 100644
 --- a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 @@ -17,7 +17,6 @@
@@ -58,7 +58,7 @@ index 2dd6f9c..6e5c9df 100644
  #include "MGIS/MemoryResources/OverAlignedAllocation.hxx"
  #include <hip/hip_runtime_api.h>
 diff --git a/include/MGIS/MemoryResources/OverAlignedAllocation.hxx b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
-index b56b5cf..57a8816 100644
+index b56b5cfd..57a88162 100644
 --- a/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
 +++ b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
 @@ -27,7 +27,11 @@ namespace mgis::memory_resources::internals {
@@ -84,7 +84,7 @@ index b56b5cf..57a8816 100644
      // room for the address of the allocated block and for the alignment
      const auto extra = a + sizeof(void*);
 diff --git a/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
-index 06765df..e314d1e 100644
+index 06765dff..e314d1ea 100644
 --- a/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
 @@ -19,6 +19,7 @@
@@ -144,7 +144,7 @@ index 06765df..e314d1e 100644
      bool do_is_equal(
          const std::pmr::memory_resource& r) const noexcept override {
 diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
-index 0babe60..63c6b3f 100644
+index 0babe602..63c6b3f0 100644
 --- a/tests/FieldOperationsCUDATest.cu
 +++ b/tests/FieldOperationsCUDATest.cu
 @@ -792,7 +792,10 @@ static void testFunctionsOnDeviceViews(const std::string& gp_library,

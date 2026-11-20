@@ -1,4 +1,4 @@
-From d976a86376d33dd4d26907d14190417988a512bd Mon Sep 17 00:00:00 2001
+From 216746790e51bafa02d661168780af19d10250b7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:58:47 +0200
 Subject: [PATCH] Generic test of the linear solvers on the linear elasticity

@@ -1,4 +1,4 @@
-From d171e34f5584e00fa587f9169b08ca74b6f9f645 Mon Sep 17 00:00:00 2001
+From b7617aad1f2c0ff432f1b3869e6e60b51b1bff7c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 19:43:04 +0200
 Subject: [PATCH] Refuse the Elasticity strategy of BoomerAMG without rigid

@@ -1,4 +1,4 @@
-From d23bbbbea6463570ef33f537725133c1e107ea02 Mon Sep 17 00:00:00 2001
+From ce1e25c1f1b78cb192ad795d2394d2d7e856755e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 18:16:24 +0200
 Subject: [PATCH] Kokkos initialized by mfem_mgis::initialize on demand

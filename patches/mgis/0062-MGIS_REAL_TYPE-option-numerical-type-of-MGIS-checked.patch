@@ -1,4 +1,4 @@
-From 03c01823522fe055e4dea872c5316e01473d8272 Mon Sep 17 00:00:00 2001
+From 9222be4f4c5f224e4fcda28ee7164b4aa23966c3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:34:46 +0200
 Subject: [PATCH] MGIS_REAL_TYPE option: numerical type of MGIS, checked at
@@ -38,7 +38,7 @@ Subject: [PATCH] MGIS_REAL_TYPE option: numerical type of MGIS, checked at
  create mode 100644 include/MGIS/RealType.h.in
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 8bbccf0..df2ae60 100644
+index 8bbccf0e..df2ae60f 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -145,6 +145,24 @@ if(enable-julia-bindings)
@@ -67,7 +67,7 @@ index 8bbccf0..df2ae60 100644
  
  option(enable-hdf5-support "enable HDF5 support" OFF)
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 07167a1..5c847db 100644
+index 07167a13..5c847db3 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -1,4 +1,9 @@
@@ -81,7 +81,7 @@ index 07167a1..5c847db 100644
  mgis_header(MGIS MemoryLocation.hxx)
  mgis_header(MGIS BatchExecutionPolicy.hxx)
 diff --git a/include/MGIS/Behaviour/BatchDataView.hxx b/include/MGIS/Behaviour/BatchDataView.hxx
-index 18980ce..a204097 100644
+index 18980ce6..a2040976 100644
 --- a/include/MGIS/Behaviour/BatchDataView.hxx
 +++ b/include/MGIS/Behaviour/BatchDataView.hxx
 @@ -317,12 +317,14 @@ namespace mgis::behaviour {
@@ -111,7 +111,7 @@ index 18980ce..a204097 100644
  
    /*!
 diff --git a/include/MGIS/Config-c.h b/include/MGIS/Config-c.h
-index 7ee5c9f..8ebf004 100644
+index 7ee5c9f7..8ebf0047 100644
 --- a/include/MGIS/Config-c.h
 +++ b/include/MGIS/Config-c.h
 @@ -120,12 +120,35 @@
@@ -156,7 +156,7 @@ index 7ee5c9f..8ebf004 100644
  
  //! alias to the index type type used in the library
 diff --git a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
-index 28a8f31..92b10e1 100644
+index 28a8f315..92b10e1a 100644
 --- a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 @@ -18,6 +18,7 @@
@@ -184,7 +184,7 @@ index 28a8f31..92b10e1 100644
          internals::checkCUDAStatus(
              cudaMemsetAsync(d.data(), 0, n * nc * sizeof(real), this->stream),
 diff --git a/include/MGIS/FieldOperations/HIPFieldOperations.hxx b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
-index 54b2a44..61c78dd 100644
+index 54b2a442..61c78ddf 100644
 --- a/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 +++ b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 @@ -18,6 +18,7 @@
@@ -212,7 +212,7 @@ index 54b2a44..61c78dd 100644
          internals::checkHIPStatus(
              hipMemsetAsync(d.data(), 0, n * nc * sizeof(real), this->stream),
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 8dc5627..0a1dff5 100644
+index 8dc56272..0a1dff50 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -86,6 +86,25 @@ namespace mgis {
@@ -252,7 +252,7 @@ index 8dc5627..0a1dff5 100644
       * \param[in] n: entry point name
 diff --git a/include/MGIS/RealType.h.in b/include/MGIS/RealType.h.in
 new file mode 100644
-index 0000000..9fee0b8
+index 00000000..9fee0b86
 --- /dev/null
 +++ b/include/MGIS/RealType.h.in
 @@ -0,0 +1,24 @@
@@ -281,7 +281,7 @@ index 0000000..9fee0b8
 +
 +#endif /* LIB_MGIS_REALTYPE_H */
 diff --git a/src/BehaviourDescription.cxx b/src/BehaviourDescription.cxx
-index 2722e84..22005d8 100644
+index 2722e844..22005d8f 100644
 --- a/src/BehaviourDescription.cxx
 +++ b/src/BehaviourDescription.cxx
 @@ -159,22 +159,29 @@ namespace mgis::behaviour {
@@ -319,7 +319,7 @@ index 2722e84..22005d8 100644
        d.memory_space = lm.getGenericParallelMemorySpace(l, b);
        raise_if(!isValidMemorySpace(d.memory_space),
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 381cb39..a47bd1b 100644
+index 381cb391..a47bd1bc 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -71,6 +71,7 @@ mgis_library(MFrontGenericInterface
@@ -339,10 +339,10 @@ index 381cb39..a47bd1b 100644
      $<INSTALL_INTERFACE:${mgis_include_install_path}>)
    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
-index 4473127..d02f412 100644
+index 935adac1..49e4daa4 100644
 --- a/src/LibrariesManager.cxx
 +++ b/src/LibrariesManager.cxx
-@@ -882,10 +882,45 @@ namespace mgis {
+@@ -896,10 +896,45 @@ namespace mgis {
          this->extract<const char *>(l, n + "_generic_parallel_memory_space"));
    }  // end of getGenericParallelMemorySpace
  
@@ -389,7 +389,7 @@ index 4473127..d02f412 100644
      if (generic_parallel == batch) {
        return;
 diff --git a/src/MFrontGenericInterfaceConfig.cmake.in b/src/MFrontGenericInterfaceConfig.cmake.in
-index 617f6b8..238e565 100644
+index 617f6b8e..238e5651 100644
 --- a/src/MFrontGenericInterfaceConfig.cmake.in
 +++ b/src/MFrontGenericInterfaceConfig.cmake.in
 @@ -8,6 +8,8 @@ if(NOT CMAKE_CXX_COMPILER_LOADED)
@@ -402,7 +402,7 @@ index 617f6b8..238e565 100644
  
  if(MGIS_HAVE_TFEL)
 diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
-index d73d744..6a016f9 100644
+index d73d744f..6a016f9a 100644
 --- a/src/MaterialProperty.cxx
 +++ b/src/MaterialProperty.cxx
 @@ -50,13 +50,18 @@ namespace mgis::material_property {

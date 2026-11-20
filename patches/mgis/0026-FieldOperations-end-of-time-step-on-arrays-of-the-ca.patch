@@ -1,4 +1,4 @@
-From f67fcbb9e13305b99b508719e0ff175f483b09a9 Mon Sep 17 00:00:00 2001
+From b4d2c934489ad74b633bc53609a21f9a036fccac Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:23:48 +0200
 Subject: [PATCH] FieldOperations: end of time step on arrays of the calling
@@ -45,7 +45,7 @@ Subject: [PATCH] FieldOperations: end of time step on arrays of the calling
  create mode 100644 tests/FieldOperationsCUDATest.cu
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 2045662..32b771b 100644
+index 2045662d..32b771bf 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -4,6 +4,7 @@ mgis_header(MGIS MemoryLocation.hxx)
@@ -69,7 +69,7 @@ index 2045662..32b771b 100644
  mgis_header(MGIS/Behaviour Behaviour.hxx)
  mgis_header(MGIS/Behaviour StateView.hxx)
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index b259f67..c7add4c 100644
+index b259f67d..c7add4c1 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -390,6 +390,35 @@ namespace mgis::behaviour {
@@ -109,7 +109,7 @@ index b259f67..c7add4c 100644
    /*!
     * \return an array containing the results of a post-processing, allocated
 diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
-index e2365bd..ec3e602 100644
+index e2365bdf..ec3e6028 100644
 --- a/include/MGIS/Behaviour/MaterialDataView.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataView.hxx
 @@ -21,6 +21,7 @@
@@ -176,7 +176,7 @@ index e2365bd..ec3e602 100644
  
  #endif /* LIB_MGIS_BEHAVIOUR_MATERIALDATAVIEW_HXX */
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 0475e52..711cac9 100644
+index 0475e52f..711cac9f 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -38,6 +38,7 @@
@@ -231,7 +231,7 @@ index 0475e52..711cac9 100644
     *
 diff --git a/include/MGIS/FieldOperations.hxx b/include/MGIS/FieldOperations.hxx
 new file mode 100644
-index 0000000..7a9b5b6
+index 00000000..7a9b5b68
 --- /dev/null
 +++ b/include/MGIS/FieldOperations.hxx
 @@ -0,0 +1,132 @@
@@ -369,7 +369,7 @@ index 0000000..7a9b5b6
 +#endif /* LIB_MGIS_FIELDOPERATIONS_HXX */
 diff --git a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 new file mode 100644
-index 0000000..3b70b44
+index 00000000..3b70b44f
 --- /dev/null
 +++ b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
 @@ -0,0 +1,130 @@
@@ -505,7 +505,7 @@ index 0000000..3b70b44
 +#endif /* LIB_MGIS_FIELDOPERATIONS_CUDAFIELDOPERATIONS_HXX */
 diff --git a/include/MGIS/FieldOperations/HIPFieldOperations.hxx b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 new file mode 100644
-index 0000000..da261d4
+index 00000000..da261d46
 --- /dev/null
 +++ b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
 @@ -0,0 +1,130 @@
@@ -641,7 +641,7 @@ index 0000000..da261d4
 +#endif /* LIB_MGIS_FIELDOPERATIONS_HIPFIELDOPERATIONS_HXX */
 diff --git a/include/MGIS/FieldOperations/KokkosFieldOperations.hxx b/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
 new file mode 100644
-index 0000000..b55632a
+index 00000000..b55632a7
 --- /dev/null
 +++ b/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
 @@ -0,0 +1,108 @@
@@ -755,7 +755,7 @@ index 0000000..b55632a
 +#endif /* LIB_MGIS_FIELDOPERATIONS_KOKKOSFIELDOPERATIONS_HXX */
 diff --git a/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
 new file mode 100644
-index 0000000..39e1b1f
+index 00000000..39e1b1f3
 --- /dev/null
 +++ b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
 @@ -0,0 +1,78 @@
@@ -839,7 +839,7 @@ index 0000000..39e1b1f
 +#endif /* LIB_MGIS_FIELDOPERATIONS_OPENMPFIELDOPERATIONS_HXX */
 diff --git a/include/MGIS/FieldOperations/SYCLFieldOperations.hxx b/include/MGIS/FieldOperations/SYCLFieldOperations.hxx
 new file mode 100644
-index 0000000..26d2ffe
+index 00000000..26d2ffed
 --- /dev/null
 +++ b/include/MGIS/FieldOperations/SYCLFieldOperations.hxx
 @@ -0,0 +1,84 @@
@@ -928,7 +928,7 @@ index 0000000..26d2ffe
 +
 +#endif /* LIB_MGIS_FIELDOPERATIONS_SYCLFIELDOPERATIONS_HXX */
 diff --git a/include/MGIS/FieldView.ixx b/include/MGIS/FieldView.ixx
-index 192e34c..3d4b3ed 100644
+index 192e34c8..3d4b3edc 100644
 --- a/include/MGIS/FieldView.ixx
 +++ b/include/MGIS/FieldView.ixx
 @@ -164,7 +164,8 @@ namespace mgis {
@@ -942,7 +942,7 @@ index 192e34c..3d4b3ed 100644
      }
      if (nc <= 1) {
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 0fa2c0c..381cb39 100644
+index 0fa2c0c5..381cb391 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -26,6 +26,7 @@ list(APPEND MFrontGenericInterface_SOURCES
@@ -955,7 +955,7 @@ index 0fa2c0c..381cb39 100644
    Model.cxx
 diff --git a/src/FieldOperations.cxx b/src/FieldOperations.cxx
 new file mode 100644
-index 0000000..7cb5c8f
+index 00000000..7cb5c8f6
 --- /dev/null
 +++ b/src/FieldOperations.cxx
 @@ -0,0 +1,77 @@
@@ -1037,7 +1037,7 @@ index 0000000..7cb5c8f
 +
 +}  // end of namespace mgis
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 16812e2..443ab33 100644
+index 16812e2a..443ab335 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -249,21 +249,37 @@ namespace mgis::behaviour {
@@ -1087,7 +1087,7 @@ index 16812e2..443ab33 100644
    std::vector<mgis::real> allocatePostProcessingVariables(
        const MaterialDataManager& m, const std::string_view n) {
 diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
-index 86068ca..12c9d02 100644
+index 86068ca9..12c9d02f 100644
 --- a/src/MaterialDataView.cxx
 +++ b/src/MaterialDataView.cxx
 @@ -329,4 +329,52 @@ namespace mgis::behaviour {
@@ -1144,7 +1144,7 @@ index 86068ca..12c9d02 100644
 +
  }  // end of namespace mgis::behaviour
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 2553976..5b8f11d 100644
+index 2553976f..5b8f11d6 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -19,6 +19,7 @@
@@ -1524,7 +1524,7 @@ index 2553976..5b8f11d 100644
      auto ctx = Context{};
      updateValues(ctx, o, i) | ctx.getThrowingFailureHandler();
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 22a8624..b5ea5d7 100644
+index 22a86242..b5ea5d71 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -268,6 +268,22 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
@@ -1552,7 +1552,7 @@ index 22a8624..b5ea5d7 100644
  
 diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
 new file mode 100644
-index 0000000..28523f9
+index 00000000..28523f93
 --- /dev/null
 +++ b/tests/FieldOperationsCUDATest.cu
 @@ -0,0 +1,320 @@

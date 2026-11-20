@@ -1,4 +1,4 @@
-From 5767a920cc772a47b28acfc56895c9faeef5fd78 Mon Sep 17 00:00:00 2001
+From e44e58e3f20e11a9a9bb3297c0c9ac9b0bfd29e0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 23:14:33 +0100
 Subject: [PATCH] Material managers: padding of the arrays
@@ -40,7 +40,7 @@ all the arrays keeps the padding; the Python bindings expose it.
  9 files changed, 257 insertions(+), 120 deletions(-)
 
 diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
-index a2ebd57..97a028d 100644
+index a2ebd579..97a028df 100644
 --- a/bindings/c/src/MaterialDataManager.cxx
 +++ b/bindings/c/src/MaterialDataManager.cxx
 @@ -67,9 +67,12 @@ mgis_status mgis_bv_material_data_manager_initializer_set_layout(
@@ -57,7 +57,7 @@ index a2ebd57..97a028d 100644
  }  // end of mgis_bv_material_data_manager_initializer_set_layout
  
 diff --git a/bindings/python/src/MaterialDataManager.cxx b/bindings/python/src/MaterialDataManager.cxx
-index b3c4232..132a425 100644
+index b3c4232e..132a425a 100644
 --- a/bindings/python/src/MaterialDataManager.cxx
 +++ b/bindings/python/src/MaterialDataManager.cxx
 @@ -96,6 +96,7 @@ void declareMaterialDataManager(pybind11::module_& m) {
@@ -69,7 +69,7 @@ index b3c4232..132a425 100644
    pybind11::implicitly_convertible<mgis::FieldLayout,
                                     MaterialDataManagerLayout>();
 diff --git a/bindings/python/src/MaterialStateManager.cxx b/bindings/python/src/MaterialStateManager.cxx
-index 8fd0031..3c4ace5 100644
+index 8fd0031c..3c4ace5c 100644
 --- a/bindings/python/src/MaterialStateManager.cxx
 +++ b/bindings/python/src/MaterialStateManager.cxx
 @@ -323,6 +323,7 @@ void declareMaterialStateManager(pybind11::module_& m) {
@@ -81,7 +81,7 @@ index 8fd0031..3c4ace5 100644
    pybind11::implicitly_convertible<mgis::FieldLayout,
                                     MaterialStateManagerLayout>();
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 90d6d05..ce93486 100644
+index 90d6d050..ce934864 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -37,11 +37,11 @@ namespace mgis::behaviour {
@@ -170,7 +170,7 @@ index 90d6d05..ce93486 100644
      const size_type K_stride;
      //! \brief underlying behaviour
 diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
-index bf32c9d..8142d8a 100644
+index bf32c9d8..8142d8ad 100644
 --- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 +++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
 @@ -526,6 +526,15 @@ namespace mgis::behaviour {
@@ -190,7 +190,7 @@ index bf32c9d..8142d8a 100644
        const auto vv = getComponents(values, vo, N);
        return StridedCoalescedFunctionView<N, SpaceType, is_mutable>(
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 7f57d68..915e9fd 100644
+index 7f57d68e..915e9fd5 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -50,10 +50,12 @@ namespace mgis::behaviour {
@@ -301,7 +301,7 @@ index 7f57d68..915e9fd 100644
 +
  #endif /* LIB_MGIS_BEHAVIOUR_MATERIALSTATEMANAGER_HXX */
 diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
-index 79da881..4e4fe0d 100644
+index 79da881a..4e4fe0df 100644
 --- a/src/FiniteStrainSupport.cxx
 +++ b/src/FiniteStrainSupport.cxx
 @@ -1036,7 +1036,8 @@ namespace mgis::behaviour {
@@ -315,7 +315,7 @@ index 79da881..4e4fe0d 100644
            "convertFiniteStrainTangentOperator: "
            "the array of tangent operator blocks has not been allocated");
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index e9a911a..3069881 100644
+index e9a911ab..3069881c 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -122,24 +122,40 @@ namespace mgis::behaviour {
@@ -432,7 +432,7 @@ index e9a911a..3069881 100644
  
    FieldView<real> getTangentOperatorBlocksView(MaterialDataManager& m) {
 diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
-index 682eb54..8f8c687 100644
+index 682eb543..8f8c6876 100644
 --- a/src/MaterialStateManager.cxx
 +++ b/src/MaterialStateManager.cxx
 @@ -12,6 +12,7 @@

@@ -1,4 +1,4 @@
-From c4932fa9c775394a62dd2ab465dee0fce9c748cc Mon Sep 17 00:00:00 2001
+From b78387caa468834fa71fd4b3676ddba117f2b7ce Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 18:28:05 +0200
 Subject: [PATCH] Orthotropic behaviours integrated by batches: rotations of

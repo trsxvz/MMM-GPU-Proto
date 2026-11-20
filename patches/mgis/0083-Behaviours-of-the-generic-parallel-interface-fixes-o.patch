@@ -1,4 +1,4 @@
-From 976f97ebfeba91610d71639882ed9296a87b9356 Mon Sep 17 00:00:00 2001
+From 2bb526d178146fd8248b6cd67f02743925186a23 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 04:04:41 +0200
 Subject: [PATCH] Behaviours of the generic-parallel interface: fixes of the
@@ -17,7 +17,7 @@ Subject: [PATCH] Behaviours of the generic-parallel interface: fixes of the
  4 files changed, 77 insertions(+)
 
 diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
-index a2f6745..af54d43 100644
+index a2f67458..af54d434 100644
 --- a/src/Behaviour.cxx
 +++ b/src/Behaviour.cxx
 @@ -850,6 +850,11 @@ namespace mgis::behaviour {
@@ -45,7 +45,7 @@ index a2f6745..af54d43 100644
      auto c = PendingBatchComputation(p, b.batch_report, f.name, 0, std::nullopt,
                                       9 * nm);
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 9e6d334..5586dd2 100644
+index 9e6d3341..5586dd2a 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -584,6 +584,23 @@ namespace mgis::behaviour::internals {
@@ -81,7 +81,7 @@ index 9e6d334..5586dd2 100644
      auto r = PendingBatchComputation(p, (b != e) ? v.b->batch_report : nullptr,
                                       f, b, rdt);
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index cbf67dd..6e4afe2 100644
+index cbf67dd9..6e4afe23 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -1117,6 +1117,24 @@ static void testAsynchronousComputations(const std::string& library,
@@ -110,7 +110,7 @@ index cbf67dd..6e4afe2 100644
      auto shared = AsynchronousBatchExecutionPolicy{};
      shared.location = MemoryLocation::SHARED;
 diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
-index 40999ea..6293bd4 100644
+index 40999eac..6293bd45 100644
 --- a/tests/GenericParallelLoadTest.cxx
 +++ b/tests/GenericParallelLoadTest.cxx
 @@ -54,22 +54,50 @@ MGIS_CHECK_MEMBER(BatchExecutionOptions, ExecutionOptions, statistics);

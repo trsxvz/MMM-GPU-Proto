@@ -1,0 +1,54 @@
+From 197cead9f3acdfdbf7a65fb8337d13a0e1f049ab Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 15 Nov 2026 01:58:44 +0100
+Subject: [PATCH] Polycrystal: stresses in the global frame kept between the
+ time steps
+
+The post-processing writing the averages of the stresses per grain, with
+one material for all the grains, created at each time step the vector of
+the stresses in the global frame (9 components per point for the
+orthotropic behaviour in finite strain): on a GPU, this vector was
+allocated on the device at each step. It is now kept by the
+post-processing. Same operations, same results.
+---
+ polycrystal/UniaxialPolycrystal.cxx | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 00afac3..40042ba 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -1079,9 +1079,13 @@ static void addGrainsMeanStresses(
+       }
+     }
+   }
++  // stresses in the global frame, kept between the time steps: on a GPU, a
++  // vector created at each step is allocated on the device each time
++  auto rotated = std::make_shared<mfem::Vector>();
+   p.getImplementation<true>().addPostProcessing(
+-      ctx, [&ctx, &p, &grains, out, nc, or_die](const mfem_mgis::real t,
+-                                                const mfem_mgis::real dt) {
++      ctx,
++      [&ctx, &p, &grains, out, rotated, nc, or_die](const mfem_mgis::real t,
++                                                    const mfem_mgis::real dt) {
+         auto &impl = p.getImplementation<true>();
+         const auto &mat = p.getMaterial(ctx, 1, 0) | or_die;
+         const auto &w = impl.getIntegrationPointsWeights(ctx, 1, 0) | or_die;
+@@ -1100,11 +1104,11 @@ static void addGrainsMeanStresses(
+           }
+         };
+         if (mat.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+-          auto rotated = mfem::Vector{};
+-          mat.computeThermodynamicForcesInGlobalFrame(rotated);
++          mat.computeThermodynamicForcesInGlobalFrame(*rotated);
+           add(mgis::makePointByPointFieldView(
+               std::span<const mfem_mgis::real>(
+-                  rotated.HostRead(), static_cast<std::size_t>(rotated.Size())),
++                  rotated->HostRead(),
++                  static_cast<std::size_t>(rotated->Size())),
+               static_cast<mfem_mgis::size_type>(w.size()),
+               static_cast<mfem_mgis::size_type>(nc),
+               static_cast<mfem_mgis::size_type>(nc)));
+-- 
+2.43.0
+

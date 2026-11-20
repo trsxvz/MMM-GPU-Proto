@@ -16,7 +16,7 @@
 #include <string_view>
 #include "MGIS/Context.hxx"
 #include "MM_OPERA_HPC/Config.hxx"
-#include "MM_OPERA_HPC/MacroscropicElasticMaterialProperties.hxx"
+#include "MM_OPERA_HPC/MacroscopicElasticMaterialProperties.hxx"
 
 namespace mfem_mgis {
 
@@ -34,7 +34,7 @@ namespace mm_opera_hpc {
    *   tolerance): the normal stresses are uniaxial along the zz axis, the
    *   shear stresses being the reactions of the null off-diagonal
    *   components of the deformation gradient
-   * - the axial componenent Fzz of the macroscopic deformation gradient is
+   * - the axial component Fzz of the macroscopic deformation gradient is
    *   prescribed
    * - the off-diagonal components of the macroscopic deformation gradient are
    *   set to zero
@@ -79,7 +79,7 @@ namespace mm_opera_hpc {
       const bool switch_microscopic_equilibrium_convergence_criterion = true;
       //
       //! \brief macroscopic material parameters
-      const MacroscropicElasticMaterialProperties
+      const MacroscopicElasticMaterialProperties
           macroscopic_elastic_material_properties;
       /*!
        * \brief absolute tolerance on the lateral macroscopic stresses. The
@@ -114,9 +114,9 @@ namespace mm_opera_hpc {
       // increment of the diagonal part of the displacement gradient during
       // the previous time step
       std::array<mfem_mgis::real, 3u> dH = std::array<mfem_mgis::real, 3u>{};
-      // diagonal components of the macroscropic Cauchy stress
+      // diagonal components of the macroscopic Cauchy stress
       std::array<mfem_mgis::real, 3u> S = std::array<mfem_mgis::real, 3u>{};
-      // previous succesful time step
+      // previous successful time step
       std::optional<mfem_mgis::real> previous_time_increment;
       // estimate of the jacobian of the lateral stresses with respect to
       // the lateral components of the displacement gradient (row major),

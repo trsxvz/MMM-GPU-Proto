@@ -1,4 +1,4 @@
-From df3539adf4986bb007abeb4caa13178da7a0c05f Mon Sep 17 00:00:00 2001
+From e7539bdd7e83dc729565a74f3f0eb9c5b71ab568 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 19:53:07 +0200
 Subject: [PATCH] Gradients and inner forces computed by kernels
@@ -608,7 +608,7 @@ index f9ee48944c..1fec9fa1cd 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-index 0ee71d4eb9..202fa6038e 100644
+index 7071dea66f..82513587e5 100644
 --- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
 +++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
 @@ -227,6 +227,13 @@ namespace mfem_mgis::internals {
@@ -634,7 +634,7 @@ index 0ee71d4eb9..202fa6038e 100644
      //! \brief location in the main mesh
      LocationIdentifier location;
      //! \brief number of integration points
-@@ -483,6 +492,13 @@ namespace mfem_mgis {
+@@ -484,6 +493,13 @@ namespace mfem_mgis {
       * number of integration points. Readable on the device (`Read`).
       */
      [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;

@@ -1,4 +1,4 @@
-From 557bac7e687f3a501722be3dc593610303ad65b0 Mon Sep 17 00:00:00 2001
+From 5ca84ff52712696f308e9795b46ed02f9df605ca Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 9 Nov 2026 21:43:39 +0100
 Subject: [PATCH] Integration of material data managers: rdt of the manager as
@@ -21,7 +21,7 @@ m.rdt get the same results, its default value being 10.
  1 file changed, 35 insertions(+), 20 deletions(-)
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 6ee9524..99e3dcb 100644
+index 6ee95243..99e3dcbb 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -633,21 +633,22 @@ namespace mgis::behaviour::internals {

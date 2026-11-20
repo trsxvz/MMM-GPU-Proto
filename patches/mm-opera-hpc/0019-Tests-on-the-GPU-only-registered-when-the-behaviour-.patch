@@ -1,0 +1,54 @@
+From a19e7eefe0588531a65fb32aa49d8d3579b1970e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 14:53:44 +0200
+Subject: [PATCH] Tests on the GPU only registered when the behaviour libraries
+ are built for the GPU
+
+---
+ bubble/CMakeLists.txt      | 2 +-
+ cermet/CMakeLists.txt      | 2 +-
+ polycrystal/CMakeLists.txt | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/bubble/CMakeLists.txt b/bubble/CMakeLists.txt
+index fef47ff..8805a4e 100644
+--- a/bubble/CMakeLists.txt
++++ b/bubble/CMakeLists.txt
+@@ -33,7 +33,7 @@ target_include_directories(test-bubble
+ file(COPY Elasticity.mfront mesh DESTINATION ${PROJECT_BINARY_DIR})
+ 
+ add_test(NAME BubbleTest COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt)
+-if(MM_OPERA_HPC_RUN_GPU_TESTS)
++if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursBubble_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME BubbleTest-gpu COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt --execution gpu)
+   set_tests_properties(BubbleTest-gpu PROPERTIES RESOURCE_LOCK gpu)
+ endif()
+diff --git a/cermet/CMakeLists.txt b/cermet/CMakeLists.txt
+index f2c4640..6eb1ca0 100644
+--- a/cermet/CMakeLists.txt
++++ b/cermet/CMakeLists.txt
+@@ -23,7 +23,7 @@ target_compile_definitions(cermet PRIVATE
+ add_dependencies(check cermet BehavioursCermet)
+ add_test(NAME CermetTest COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
+ add_test(NAME CermetTestWithPostProPar COMMAND mpirun -n 2 ./cermet --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)
+-if(MM_OPERA_HPC_RUN_GPU_TESTS)
++if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursCermet_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME CermetTest-gpu COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0 --execution gpu)
+   set_tests_properties(CermetTest-gpu PROPERTIES RESOURCE_LOCK gpu)
+ endif()
+diff --git a/polycrystal/CMakeLists.txt b/polycrystal/CMakeLists.txt
+index 67c2820..2e8986d 100755
+--- a/polycrystal/CMakeLists.txt
++++ b/polycrystal/CMakeLists.txt
+@@ -23,7 +23,7 @@ target_compile_definitions(uniaxial-polycrystal PRIVATE
+ # testing
+ add_dependencies(check uniaxial-polycrystal BehavioursPolycrystal)
+ add_test(NAME UniaxialPolycrystalTest COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1)
+-if(MM_OPERA_HPC_RUN_GPU_TESTS)
++if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursPolycrystal_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME UniaxialPolycrystalTest-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution gpu)
+   add_test(NAME UniaxialPolycrystalTest-mixed-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution mixed --behaviours cpu)
+   set_tests_properties(UniaxialPolycrystalTest-gpu UniaxialPolycrystalTest-mixed-gpu PROPERTIES RESOURCE_LOCK gpu)
+-- 
+2.43.0
+

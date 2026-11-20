@@ -1,4 +1,4 @@
-From 40d49f32aa6062c78d30762f0bc558c5a92753a1 Mon Sep 17 00:00:00 2001
+From 46c1be06b820593d301edf654738bfb2c9a0da2c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:22:16 +0200
 Subject: [PATCH] Tests: copies of the same values, conversions refusals, mass
@@ -11,7 +11,7 @@ Subject: [PATCH] Tests: copies of the same values, conversions refusals, mass
  3 files changed, 121 insertions(+)
 
 diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
-index 65412fe..dadcd76 100644
+index 65412fee..dadcd76a 100644
 --- a/tests/FieldOperationsCUDATest.cu
 +++ b/tests/FieldOperationsCUDATest.cu
 @@ -291,6 +291,21 @@ static void testAsynchronousComputationsWithPool(
@@ -37,7 +37,7 @@ index 65412fe..dadcd76 100644
      auto pending = std::vector<PendingBatchComputation>{};
      pending.reserve(4);
 diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
-index 154c1d7..5c535fd 100644
+index 154c1d7f..5c535fd7 100644
 --- a/tests/MaterialDataManagerLayoutTest.cxx
 +++ b/tests/MaterialDataManagerLayoutTest.cxx
 @@ -60,6 +60,20 @@ static bool check(const bool b, const std::string_view msg) {
@@ -113,7 +113,7 @@ index 154c1d7..5c535fd 100644
        const auto s = getThermodynamicForcesView(m->s1);
        for (size_type i = 0; i != n; ++i) {
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index cc3fffb..97e28fd 100644
+index cc3fffb5..97e28fdd 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -1037,6 +1037,33 @@ static void testHostFieldOperations() {

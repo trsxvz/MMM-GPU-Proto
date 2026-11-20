@@ -1,4 +1,4 @@
-From fa164dfdf797a25ce7e711fa05db584218de5e9b Mon Sep 17 00:00:00 2001
+From 146f51c94bad0a678ae549196e8523aaac0b81ee Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 04:25:02 +0200
 Subject: [PATCH] Libraries with the functions of the generic interface:
@@ -9,7 +9,7 @@ Subject: [PATCH] Libraries with the functions of the generic interface:
  1 file changed, 23 insertions(+)
 
 diff --git a/tests/GenericParallelGenericFunctionsTest.cxx b/tests/GenericParallelGenericFunctionsTest.cxx
-index d7241c7..ae2211c 100644
+index d7241c75..ae2211cd 100644
 --- a/tests/GenericParallelGenericFunctionsTest.cxx
 +++ b/tests/GenericParallelGenericFunctionsTest.cxx
 @@ -100,6 +100,29 @@ static void testBehaviour(const std::string& library) {

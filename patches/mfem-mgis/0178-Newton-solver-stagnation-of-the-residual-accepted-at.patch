@@ -1,4 +1,4 @@
-From 988bad0977dfc3c2391689a686f73f91bc5cfb25 Mon Sep 17 00:00:00 2001
+From cf0fd71b71b5bfc16ad6a82bb71e070cd2246b98 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 15:31:56 +0200
 Subject: [PATCH] Newton solver: stagnation of the residual accepted at its

@@ -1,4 +1,4 @@
-From 640dce96b148bcc7a5c8568943708f74c7adbb7e Mon Sep 17 00:00:00 2001
+From 2d49f0fd138fbd0e0ca1304844710fc39122e947 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 18:54:52 +0200
 Subject: [PATCH] PETSc: solvers and preconditioners of PETSc on the GPU

@@ -1,4 +1,4 @@
-From 63d3e56ef9062fc59bb867d28821ad3408e88c1a Mon Sep 17 00:00:00 2001
+From edcd04d1c2334d3b00e893f8e4e63a9508113c75 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:24:49 +0200
 Subject: [PATCH] Add the preconditioner of MUMPS

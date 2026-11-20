@@ -1,4 +1,4 @@
-From eafa14a8698ba053ba58885fc1a1ce48413d478d Mon Sep 17 00:00:00 2001
+From cdd1a8a8f747948b9dea7f56462b461e114c2c0d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:58:17 +0200
 Subject: [PATCH] views.md: accessors of the Fortran bindings refusing the
@@ -9,7 +9,7 @@ Subject: [PATCH] views.md: accessors of the Fortran bindings refusing the
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/docs/web/views.md b/docs/web/views.md
-index a1898be..ac435f7 100644
+index a1898be2..ac435f7d 100644
 --- a/docs/web/views.md
 +++ b/docs/web/views.md
 @@ -128,8 +128,9 @@ views of `mgis::function`.

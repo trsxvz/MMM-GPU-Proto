@@ -1,0 +1,226 @@
+From 9d2091d6f2bed4063b10b72b17881779540794d5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:05:38 +0200
+Subject: [PATCH] Documentation: review of the READMEs and of the help of the
+ options
+
+The READMEs were checked against the programs: requirements of the prototype branch of mfem-mgis, names of the options (--postprocessing, post-processing options of the polycrystal), default numbers of steps, unknown components Fxx and Fyy. The help texts of the cermet and of the polycrystal no longer give wrong default values (MFEM prints the actual ones).
+---
+ README.md                                    | 14 ++++++--------
+ bubble/README.md                             |  8 ++++++--
+ cermet/README.md                             |  8 ++++++--
+ cermet/randomVectorGeneration/README.md      | 12 +++++++++---
+ polycrystal/README.md                        | 12 ++++++++----
+ polycrystal/UniaxialPolycrystal.cxx          |  2 +-
+ polycrystal/randomVectorGeneration/README.md | 12 +++++++++---
+ 7 files changed, 45 insertions(+), 23 deletions(-)
+
+diff --git a/README.md b/README.md
+index d29662a..12c4327 100644
+--- a/README.md
++++ b/README.md
+@@ -12,22 +12,20 @@ spack repo update builtin --branch develop
+ 
+ The last command selects the `develop` branch of the Spack packages, because their releases do not provide mfem-mgis yet.
+ 
+-The test cases require the `@master` version of mfem-mgis:
++The test cases of this branch require the prototype branch of mfem-mgis, which provides the CMake function `mfem_mgis_add_behaviours_library`, the option `--execution` and the function `mfem_mgis::getBehavioursLibrary` used by the three cases. This branch of mfem-mgis must be built from its sources, as described by its installation guide, with a version of MGIS providing `MGIS/FieldOperations.hxx`. `spack install mfem-mgis@master` installs a version of mfem-mgis without these functions, with which the configuration of the test cases fails; Spack may still provide the other dependencies (MFEM, TFEL...).
+ 
+-```bash
+-spack install mfem-mgis@master
+-spack load mfem-mgis
+-```
++The test cases build their behaviour libraries with MFront: when CMake configures the build, `mfront` must be found in the `PATH` (or given by the CMake variable `MFRONT`).
+ 
+-Build and run the test cases:
++Build and run the test cases from the sources of this branch, `MFEMMGIS_DIR` giving the installation of mfem-mgis:
+ 
+ ```bash
+-git clone https://github.com/rprat-pro/mm-opera-hpc.git
+-cmake -S mm-opera-hpc -B build
++cmake -S mm-opera-hpc -B build -DMFEMMGIS_DIR=<prefix of mfem-mgis>/share/mfem-mgis/cmake
+ cmake --build build -j 4
+ ctest --test-dir build
+ ```
+ 
++The option `-DMM_OPERA_HPC_GPU_TESTS=ON` also registers the tests of the cases on a GPU (`--execution gpu`, and `--execution mixed --behaviours cpu` for the polycrystal), when MFEM is compiled with CUDA or HIP and the behaviour libraries of the case are built for the GPU (TFEL providing the configuration file `config-cuda-nvcc.json`, resp. `config-hip-hipcc.json`, of MFront; CMake prints why they are not built). A GPU is then required to run them. The three cases accept the options of mfem-mgis, in particular `--execution cpu|gpu|mixed`, which places the computations on the CPU or on the GPU.
++
+ For more details on installing mfem-mgis, for example on a supercomputer without internet access, see its installation guide: https://thelfer.github.io/mfem-mgis/installation_guide/installation_guide.html
+ 
+ ## Over-pressurized bubbles scenario 
+diff --git a/bubble/README.md b/bubble/README.md
+index 968cf32..0ce647e 100644
+--- a/bubble/README.md
++++ b/bubble/README.md
+@@ -45,7 +45,7 @@ Usage: ./test-bubble [options] ...
+ 
+ | Option                                    | Type   | Default                  | Description                                 |
+ | ----------------------------------------- | ------ | ------------------------ | ------------------------------------------- |
+-| `-h, --help`                              | —      | —                        | Print the help message and exit.            |
++| `-h, --help`                              | flag   | off                      | Print the help message and exit.            |
+ | `-m <string>, --mesh <string>`            | string | `mesh/single_sphere.msh` | Mesh file to use.                           |
+ | `-pm <int>, --parallel-mesh <int>`        | int    | `0`                      | Read a parallel mesh or not.                |
+ | `-l <string>, --library <string>`         | string | built with the case | Material behaviour library (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                 |
+@@ -58,7 +58,7 @@ Usage: ./test-bubble [options] ...
+ | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the test case.                      |
+ | `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
+ | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in N/µm².          |
+-| `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver (`HypreDiagScale`..., `none` for no preconditioner). |
++| `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver `HyprePCG` (`HypreDiagScale`..., `none` for no preconditioner). |
+ 
+ The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
+ to compute on a GPU, the behaviours built by the case for the GPU being then
+@@ -92,3 +92,7 @@ python3 mmm_vs_analytical.py
+ The comparison between the computational results and the analytical solution is shown below.
+ 
+ ![Bubble Case](../img/bubble/comparison_analytical_mmm.png)
++
++## Tests
++
++`ctest` runs `BubbleTest`, the case on the coarse mesh `mesh/mesh_sphere.msh` with `mesh/single_bubble_ci.txt`, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `BubbleTest-gpu`, the same with `--execution gpu`.
+diff --git a/cermet/README.md b/cermet/README.md
+index 11591a3..aa6b451 100644
+--- a/cermet/README.md
++++ b/cermet/README.md
+@@ -19,7 +19,7 @@ This case is similar to the `UO2` polycrystal with the addition of a metallic in
+ 	- **Norton creep law:**
+ 		- $`\displaystyle \dot{\varepsilon}_{eq} = \frac{A D_0 \exp\!\left(-\frac{Q}{R T}\right)}{b^2}\left( \frac{\sigma_{eq}}{C} \right)^n`$
+ 		- A = 2.5e+11 [a. u.]
+-		- n = 4.75
++		- n = 4.75 (parameter `n1` of the law)
+ 		- Q = 306.27e+03 [a. u.]
+ 		- D0 = 1.55e-5 [a. u.]
+ 		- b = 2.5e-10 [a. u.]
+@@ -104,7 +104,7 @@ Usage: ./cermet [options] ...
+ 
+ | Option                                      | Type   | Default               | Description                                                                                                                                                       |
+ | ------------------------------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+-| `-h, --help`                                | —      | —                     | Print the help message and exit.                                                                                                                                  |
++| `-h, --help`                                | flag   | off                   | Print the help message and exit.                                                                                                                                  |
+ | `-m <string>, --mesh <string>`              | string | `mesh/5grains.msh`    | Mesh file to use.                                                                                                                                                 |
+ | `-l <string>, --library <string>`           | string | built with the case | Material library containing the behaviours of the grains and of the metallic interface (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                                                                          |
+ | `-o <int>, --order <int>`                   | int    | `1`                   | Finite element order (polynomial degree).                                                                                                                         |
+@@ -124,6 +124,10 @@ The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
+ to compute on a GPU, the behaviours built by the case for the GPU being then
+ used (or `--execution mixed` to place each phase on the CPU or on the GPU).
+ 
++### Tests
++
++`ctest` runs `CermetNullStrainXXYY` and `CermetImposeGradXXYY`, one time step of 0.4 s without post-processing (both tests run the same command), and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
++
+ 
+ ### Run it
+ 
+diff --git a/cermet/randomVectorGeneration/README.md b/cermet/randomVectorGeneration/README.md
+index 517b674..4079329 100644
+--- a/cermet/randomVectorGeneration/README.md
++++ b/cermet/randomVectorGeneration/README.md
+@@ -8,9 +8,15 @@ To run this script, you need to have Python installed on your system. The script
+ 
+ ## Usage
+ 
+-The script generates pairs of orthonormal vectors. You can specify the number of vectors to be generated and the algorithm to use.
++The script generates pairs of orthonormal vectors. Run it with:
+ 
+-### Arguments
++```
++python3 generate_random_vectors.py
++```
++
++It writes 6 vectors (3 orthonormal pairs, the 5 vectors requested being completed to whole pairs), computed by the `angles` algorithm, to the file `vectors.txt`. The number of vectors and the algorithm are the arguments of the function `main` of the script: edit the call to `main` at the end of the script to change them.
++
++### Arguments of the function `main`
+ 
+ - nbVec (int): The number of vectors to generate (two per grain).
+ - algoKey (str): The algorithm to use for generating vectors. It can be either 'default' or 'angles'. 'default' uses a standard method for generating orthonormal vectors, while 'angles' generates orthonormal vectors using specific angles.
+@@ -23,4 +29,4 @@ The “default” algorithm generates random vectors by generating vector coordi
+ 
+ #### Angles
+ 
+-The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the PhD thesis *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).
+\ No newline at end of file
++The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the PhD thesis *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index 97ba2a4..0ecbb0a 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -66,7 +66,7 @@ Usage: ./uniaxial-polycrystal --help
+ 
+ | Option                                      | Type   | Default                      | Description                                                                                                                                   |
+ | ------------------------------------------- | ------ | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+-| `-h, --help`                                | —      | —                            | Print the help message and exit.                                                                                                              |
++| `-h, --help`                                | flag   | off                          | Print the help message and exit.                                                                                                              |
+ | `-m <string>, --mesh <string>`              | string | `mesh/5crystals.msh`         | Mesh file to use.                                                                                                                             |
+ | `-mm <string>, --mesh_mode <string>`        | string | `FromScratch`                | Mesh read mode (`FromScratch`, or `Restart` for a split mesh).                                                                                |
+ | `-f <string>, --vect <string>`              | string | `mesh/vectors_5crystals.txt` | Vector file to use.                                                                                                                           |
+@@ -78,11 +78,11 @@ Usage: ./uniaxial-polycrystal --help
+ | `-d <double>, --duration <double>`          | double | `200`                        | Duration of the simulation.                                                                                                                   |
+ | `-n <int>, --nstep <int>`                   | int    | `200`                        | Number of simulation steps.                                                                                                                   |
+ | `--linear-solver <string>`                  | string | `HyprePCG`                   | Linear solver of the Newton method: a Krylov solver of hypre (`HyprePCG`, `HypreGMRES` or `HypreFGMRES`, preconditioned by `--linear-solver-preconditioner`), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only), the matrices being given as general ones. Ignored by `NewtonK0`. |
+-| `--reuse-analysis`, `--no-reuse-analysis`   | bool   | `false`                      | Reuse the analysis of the direct solver for the matrices of the same pattern (parameter `ReuseAnalysis` of mfem-mgis). Ignored, with a warning, without a direct solver. |
++| `--reuse-analysis`, `--no-reuse-analysis`   | bool   | `false`                      | Reuse the analysis of the direct solver for the matrices of the same pattern (parameter `ReuseAnalysis` of mfem-mgis). Ignored, with a warning, without a direct solver, with `NewtonK0` or with PETSc. |
+ | `--non-linear-solver <string>`              | string | `Newton`                     | Non linear solver: `Newton` or `NewtonK0` (tangent systems solved by a conjugate gradient preconditioned by the elastic operator).            |
+ | `--adaptive-linear-solver-tolerance <string>` | string | `None`                       | Relative tolerance of the linear solver adapted to the decrease of the residual: `None`, `EisenstatWalker1` or `EisenstatWalker2`; requires an iterative linear solver. |
+-| `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if negative.                                                                                      |
+-| `--elastic-operator-linear-solver <string>` | string | `HypreBoomerAMG`             | Linear solver of the elastic operator of `NewtonK0`: `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX).                         |
++| `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if `-1`. Giving it without `--adaptive-linear-solver-tolerance` is an error.                      |
++| `--elastic-operator-linear-solver <string>` | string | `HypreBoomerAMG`             | Linear solver of the elastic operator of `NewtonK0`: `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX, which requires mfem-mgis built with `-Denable-amgx=ON`). |
+ | `--amgx-parameters <string>`                | string |                              | Parameters of AmgX, as `name=value` separated by commas.                                                                                      |
+ | `--amgx-single-precision`, `--no-amgx-single-precision` | bool   | `false`                      | Computations of AmgX in single precision.                                                                                                     |
+ | `--linear-solver-preconditioner <string>`   | string | `HypreBoomerAMG`             | Preconditioner for the linear solver. Use `none` to disable.                                                                                  |
+@@ -158,6 +158,10 @@ Check PASS.
+ 
+ This table shows the comparison between the simulated Cauchy stress values and the reference Cast3M results, along with the relative difference and a status check.
+ 
++## Tests
++
++`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.1 s without post-processing), `UniaxialPolycrystalTestPar` (the same on 2 processes) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours cpu`.
++
+ ## References
+ 
+ [^1]: JOSIEN, Marc. Mérope: A microstructure generator for simulation of heterogeneous materials. Journal of Computational Science, 2024, vol. 81, p. 102359.
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 5bbd1ba..8119449 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -399,7 +399,7 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+                  "EisenstatWalker1 or EisenstatWalker2");
+   args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
+                  "--adaptive-linear-solver-initial-tolerance",
+-                 "initial adaptive tolerance, the default one if negative");
++                 "initial adaptive tolerance, the default one if -1");
+   args.AddOption(&p.elastic_operator_linear_solver, "",
+                  "--elastic-operator-linear-solver",
+                  "linear solver of the elastic operator of NewtonK0: "
+diff --git a/polycrystal/randomVectorGeneration/README.md b/polycrystal/randomVectorGeneration/README.md
+index 517b674..7f24c86 100644
+--- a/polycrystal/randomVectorGeneration/README.md
++++ b/polycrystal/randomVectorGeneration/README.md
+@@ -8,9 +8,15 @@ To run this script, you need to have Python installed on your system. The script
+ 
+ ## Usage
+ 
+-The script generates pairs of orthonormal vectors. You can specify the number of vectors to be generated and the algorithm to use.
++The script generates pairs of orthonormal vectors. Run it with:
+ 
+-### Arguments
++```
++python3 generate_random_vectors.py
++```
++
++It writes 16 vectors (8 orthonormal pairs), computed by the `angles` algorithm, to the file `vectors.txt`. The number of vectors and the algorithm are the arguments of the function `main` of the script: edit the call to `main` at the end of the script to change them.
++
++### Arguments of the function `main`
+ 
+ - nbVec (int): The number of vectors to generate (two per grain).
+ - algoKey (str): The algorithm to use for generating vectors. It can be either 'default' or 'angles'. 'default' uses a standard method for generating orthonormal vectors, while 'angles' generates orthonormal vectors using specific angles.
+@@ -23,4 +29,4 @@ The “default” algorithm generates random vectors by generating vector coordi
+ 
+ #### Angles
+ 
+-The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the PhD thesis *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).
+\ No newline at end of file
++The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the PhD thesis *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).
+-- 
+2.43.0
+

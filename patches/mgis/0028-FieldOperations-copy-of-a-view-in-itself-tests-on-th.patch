@@ -1,4 +1,4 @@
-From 1468f6a876c94fa5db7478b40c4f13bb2021d90e Mon Sep 17 00:00:00 2001
+From 93e475b8d79f73439c07ae3b557f0ec0789903ae Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:42:39 +0200
 Subject: [PATCH] FieldOperations: copy of a view in itself, tests on the host
@@ -17,7 +17,7 @@ Subject: [PATCH] FieldOperations: copy of a view in itself, tests on the host
  3 files changed, 147 insertions(+), 1 deletion(-)
 
 diff --git a/include/MGIS/FieldOperations.hxx b/include/MGIS/FieldOperations.hxx
-index 7a9b5b6..5fca2c4 100644
+index 7a9b5b68..5fca2c4b 100644
 --- a/include/MGIS/FieldOperations.hxx
 +++ b/include/MGIS/FieldOperations.hxx
 @@ -49,7 +49,9 @@ namespace mgis {
@@ -32,7 +32,7 @@ index 7a9b5b6..5fca2c4 100644
      void copy(const FieldView<real>&, const FieldView<const real>&);
      /*!
 diff --git a/src/FieldOperations.cxx b/src/FieldOperations.cxx
-index 7cb5c8f..d125eaf 100644
+index 7cb5c8f6..d125eafe 100644
 --- a/src/FieldOperations.cxx
 +++ b/src/FieldOperations.cxx
 @@ -30,6 +30,12 @@ namespace mgis {
@@ -49,7 +49,7 @@ index 7cb5c8f..d125eaf 100644
    }  // end of copy
  
 diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
-index 632f15a..9c9a9f5 100644
+index 632f15ac..9c9a9f5e 100644
 --- a/tests/MaterialDataViewTest.cxx
 +++ b/tests/MaterialDataViewTest.cxx
 @@ -30,6 +30,7 @@

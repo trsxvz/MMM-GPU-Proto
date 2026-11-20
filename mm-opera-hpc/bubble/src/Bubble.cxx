@@ -1,5 +1,5 @@
 /*!
- * \file   main.cxx
+ * \file   Bubble.cxx
  * \brief  Main program for bubble fracture simulation in porous materials
  * \date   29/09/2024
  *
@@ -238,17 +238,15 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
       "principal stress is searched, in µm (0.950 by default); the periodic "
       "images of the bubbles are not considered.");
   args.AddOption(&p.bubble_pressure, "-pr", "--pref",
-                 "Internal bubble pressure, in N µm^-2 (unit of the Young "
-                 "modulus of the case, whose lengths are in µm)");
+                 "Internal bubble pressure, in N/µm², default = 1");
 
   args.Parse();
 
   // Validate arguments
   if (!args.Good()) {
-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
+      args.PrintUsage(std::cout);
     mfem_mgis::finalize();
-    // the help (-h) is a success, an invalid option a failure, which a
-    // test must see
     exit(args.Help() ? EXIT_SUCCESS : EXIT_FAILURE);
   }
   if (p.mesh_file == nullptr) {
@@ -258,7 +256,8 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
     }
     mfem_mgis::abort(EXIT_FAILURE);
   }
-  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
+    args.PrintOptions(std::cout);
   // behaviour library: given by --library, or else the library built with
   // the case for the processor of the behaviours (option --execution)
   p.behaviour_library = std::string_view{p.library}.empty()
@@ -464,8 +463,11 @@ int main(int argc, char** argv) {
   mfem_mgis::Parameters solverParameters;
   solverParameters.insert(mfem_mgis::may_throw,
                           mfem_mgis::Parameters{{"VerbosityLevel", verbosity}});
-  solverParameters.insert(mfem_mgis::may_throw,
-                          mfem_mgis::Parameters{{"Tolerance", 1e-10}});
+  // The default limit of 1000 iterations is not enough on fine meshes
+  solverParameters.insert(
+      mfem_mgis::may_throw,
+      mfem_mgis::Parameters{{"Tolerance", 1e-10},
+                            {"MaximumNumberOfIterations", 5000}});
   // algebraic multigrid preconditioner by default: with the diagonal
   // scaling, the solver does not reach its tolerance on the default mesh
   if (std::string_view{p.linear_solver_preconditioner} != "none") {
@@ -524,11 +526,11 @@ int main(int argc, char** argv) {
 
   // Partial Quadrature functions for post-processing needs
   // eig for the first eigenstress
-  auto eig = mfem_mgis::PartialQuadratureFunction{
-      m.getPartialQuadratureSpace(), 1};
+  auto eig =
+      mfem_mgis::PartialQuadratureFunction{m.getPartialQuadratureSpace(), 1};
   // hyp for the hydrostatic stress
-  auto hyp = mfem_mgis::PartialQuadratureFunction{
-      m.getPartialQuadratureSpace(), 1};
+  auto hyp =
+      mfem_mgis::PartialQuadratureFunction{m.getPartialQuadratureSpace(), 1};
 
   mfem_mgis::size_type nstep{1};
   // Solve the mechanical equilibrium problem
@@ -627,7 +629,7 @@ int main(int argc, char** argv) {
         // Third check is on the z: check if point is within bounding box on
         // 2-axis
         if (std::abs(pt.location[2] - bz) > reach) continue;
-        // if we made here, the point is worthwile of consideration!
+        // if we made it here, the point is worthy of consideration!
         const auto dx = pt.location[0] - bx;
         const auto dy = pt.location[1] - by;
         const auto dz = pt.location[2] - bz;

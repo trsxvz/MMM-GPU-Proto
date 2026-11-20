@@ -1,4 +1,4 @@
-From be8f2c1819e7b2e3cf348ac6407fd613cb63333e Mon Sep 17 00:00:00 2001
+From 30effdc867973dda7d7be78fa1cb2448434f2a05 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 12 Nov 2026 16:16:41 +0100
 Subject: [PATCH] HypreDevicePoolSizeTest: allocation in the pool with hypre
@@ -28,5 +28,5 @@ index 259dc2afcf..971cb24553 100644
  #include "umpire/interface/c_fortran/umpire.h"
  #define MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE_TEST_ALLOCATION
 -- 
-2.34.1
+2.43.0
 

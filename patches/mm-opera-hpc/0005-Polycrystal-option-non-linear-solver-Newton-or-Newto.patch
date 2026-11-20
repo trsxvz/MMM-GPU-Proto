@@ -1,0 +1,74 @@
+From e3186707c87c70019cd358f0d8669749735273ce Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 03:37:29 +0200
+Subject: [PATCH] Polycrystal: option --non-linear-solver (Newton or NewtonK0)
+
+NewtonK0 is the FixedPoint solver of mfem-mgis with the NewtonK0 method:
+the conjugate gradient is preconditioned by BoomerAMG built once on the
+elastic operator, given by an integration of the behaviours.
+---
+ polycrystal/UniaxialPolycrystal.cxx | 33 +++++++++++++++++++++++++++--
+ 1 file changed, 31 insertions(+), 2 deletions(-)
+
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 551e360..584cff6 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -61,6 +61,12 @@ struct NumericalParameters {
+   const char *linear_solver_preconditioner = "HypreBoomerAMG";
+   //! \brief default tolerance for the convergence of the linear solver
+   mfem_mgis::real linear_solver_tolerance = mfem_mgis::real{1e-12};
++  /*!
++   * \brief non linear solver: `Newton`, or `NewtonK0` (Newton's method, the
++   * conjugate gradient being preconditioned by BoomerAMG built once on the
++   * elastic operator, see the `FixedPoint` solver of mfem-mgis)
++   */
++  const char *non_linear_solver = "Newton";
+ };
+ 
+ /*!
+@@ -169,9 +175,30 @@ int main(int argc, char *argv[]) {
+                                 {"NumberOfUniformRefinements", p.refinement},
+                                 {"Parallel", true}}) |
+       or_die;
++  auto problem_parameters = mfem_mgis::Parameters{};
++  if (std::string_view{p.non_linear_solver} == "NewtonK0") {
++    // the behaviour does not provide its prediction operator: the elastic
++    // operator is given by an integration
++    const auto tangent_linear_solver = mfem_mgis::Parameters{
++        {"RelativeTolerance", p.linear_solver_tolerance},
++        {"MaximumNumberOfIterations", 2000}};
++    const auto options = mfem_mgis::Parameters{
++        {"Method", "NewtonK0"},
++        {"ElasticOperatorComputation", "Integration"},
++        {"ElasticOperatorUpdate", "Once"},
++        {"ElasticOperatorLinearSolver", "HypreBoomerAMG"},
++        {"TangentLinearSolver", tangent_linear_solver}};
++    problem_parameters.insert(
++        mfem_mgis::throwing,
++        {{"NonLinearSolver", mfem_mgis::Parameters{{"FixedPoint", options}}}});
++  } else if (std::string_view{p.non_linear_solver} != "Newton") {
++    mfem_mgis::Profiler::Utils::Message(
++        "error: invalid non linear solver (expected Newton or NewtonK0)");
++    std::exit(EXIT_FAILURE);
++  }
+   auto problem =
+-      mfem_mgis::construct<mfem_mgis::PeriodicNonLinearEvolutionProblem>(ctx,
+-                                                                         fed) |
++      mfem_mgis::construct<mfem_mgis::PeriodicNonLinearEvolutionProblem>(
++          ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters) |
+       or_die;
+   mm_opera_hpc::printMeshInformation(ctx, problem);
+ 
+@@ -243,6 +270,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+   args.AddOption(&p.linear_solver_preconditioner, "",
+                  "--linear-solver-preconditioner",
+                  "preconditioner of the linear solver to be used");
++  args.AddOption(&p.non_linear_solver, "", "--non-linear-solver",
++                 "non linear solver: Newton (default) or NewtonK0");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+-- 
+2.43.0
+

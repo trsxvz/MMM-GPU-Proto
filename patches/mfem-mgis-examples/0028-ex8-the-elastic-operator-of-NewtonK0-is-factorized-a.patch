@@ -1,4 +1,4 @@
-From 2045d4044754995756d46977dcc37a452618ac98 Mon Sep 17 00:00:00 2001
+From ff399e095978e97cfe75ee7ee52c07f0225d2604 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:25:29 +0200
 Subject: [PATCH] ex8: the elastic operator of NewtonK0 is factorized at each

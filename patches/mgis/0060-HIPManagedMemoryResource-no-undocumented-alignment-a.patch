@@ -1,4 +1,4 @@
-From fb3fdded7a0b47f2b13d006776600445ce126f29 Mon Sep 17 00:00:00 2001
+From 76a98bc18792eda9cfd013691b13dadf4ee8565a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:28:57 +0200
 Subject: [PATCH] HIPManagedMemoryResource: no undocumented alignment assumed
@@ -13,7 +13,7 @@ a stricter alignment is obtained by over-allocation.
  1 file changed, 17 insertions(+), 12 deletions(-)
 
 diff --git a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
-index 58746b3..2dd6f9c 100644
+index 58746b35..2dd6f9c9 100644
 --- a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 @@ -17,6 +17,7 @@

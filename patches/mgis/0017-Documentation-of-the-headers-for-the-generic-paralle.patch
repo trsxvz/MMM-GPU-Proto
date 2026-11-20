@@ -1,4 +1,4 @@
-From 39d7f4569fd6bd23cec4991e3750f58e91f555f6 Mon Sep 17 00:00:00 2001
+From 80504057e9d90f1a8443fcb5ccca7ddc6f7eab67 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 15:57:46 +0200
 Subject: [PATCH] Documentation of the headers for the generic-parallel
@@ -40,7 +40,7 @@ touched headers (update, parameters, typos).
  24 files changed, 603 insertions(+), 154 deletions(-)
 
 diff --git a/bindings/c/include/MGIS/Behaviour/Behaviour.h b/bindings/c/include/MGIS/Behaviour/Behaviour.h
-index 3bc1853..0c42783 100644
+index 3bc18531..0c427830 100644
 --- a/bindings/c/include/MGIS/Behaviour/Behaviour.h
 +++ b/bindings/c/include/MGIS/Behaviour/Behaviour.h
 @@ -204,6 +204,13 @@ MGIS_C_EXPORT mgis_status mgis_bv_load_finite_strain_behaviour(
@@ -58,7 +58,7 @@ index 3bc1853..0c42783 100644
   * \brief return the number of tangent operator blocks
   * \param[out] c: number of tangent operator blocks
 diff --git a/bindings/c/include/MGIS/Behaviour/Integrate.h b/bindings/c/include/MGIS/Behaviour/Integrate.h
-index ffe7dc8..6c7e2cb 100644
+index ffe7dc86..6c7e2cb1 100644
 --- a/bindings/c/include/MGIS/Behaviour/Integrate.h
 +++ b/bindings/c/include/MGIS/Behaviour/Integrate.h
 @@ -106,11 +106,18 @@ MGIS_C_EXPORT mgis_status mgis_bv_free_behaviour_integration_options(
@@ -82,7 +82,7 @@ index ffe7dc8..6c7e2cb 100644
  mgis_bv_integrate_debug(int* const,
                          mgis_bv_BehaviourDataView* const,
 diff --git a/include/MGIS/BatchExecutionPolicy.hxx b/include/MGIS/BatchExecutionPolicy.hxx
-index 523a09a..417264f 100644
+index 523a09a7..417264fe 100644
 --- a/include/MGIS/BatchExecutionPolicy.hxx
 +++ b/include/MGIS/BatchExecutionPolicy.hxx
 @@ -20,19 +20,26 @@ namespace mgis {
@@ -116,7 +116,7 @@ index 523a09a..417264f 100644
      bool preserve_stack_size = false;
    };
 diff --git a/include/MGIS/Behaviour/BatchBehaviourFctPtr.hxx b/include/MGIS/Behaviour/BatchBehaviourFctPtr.hxx
-index 0bdee17..59896b4 100644
+index 0bdee174..59896b4b 100644
 --- a/include/MGIS/Behaviour/BatchBehaviourFctPtr.hxx
 +++ b/include/MGIS/Behaviour/BatchBehaviourFctPtr.hxx
 @@ -20,6 +20,11 @@
@@ -132,7 +132,7 @@ index 0bdee17..59896b4 100644
  typedef int (*mgis_bv_BatchBehaviourFctPtr)(mgis_bv_BatchOutputStatus* const,
                                              const mgis_bv_BatchDataView* const);
 diff --git a/include/MGIS/Behaviour/BatchDataView.hxx b/include/MGIS/Behaviour/BatchDataView.hxx
-index ef11aff..874e44f 100644
+index ef11aff3..874e44f8 100644
 --- a/include/MGIS/Behaviour/BatchDataView.hxx
 +++ b/include/MGIS/Behaviour/BatchDataView.hxx
 @@ -39,7 +39,8 @@ extern "C" {
@@ -363,7 +363,7 @@ index ef11aff..874e44f 100644
  } mgis_bv_BatchOutputStatus;
  
 diff --git a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
-index a0fe256..384a054 100644
+index a0fe2561..384a054a 100644
 --- a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
 +++ b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
 @@ -25,7 +25,7 @@ namespace mgis::behaviour {
@@ -376,7 +376,7 @@ index a0fe256..384a054 100644
     */
    constexpr BatchExecutionOptions getBatchExecutionOptions(
 diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
-index ada9d02..2488551 100644
+index ada9d024..24885519 100644
 --- a/include/MGIS/Behaviour/Behaviour.hxx
 +++ b/include/MGIS/Behaviour/Behaviour.hxx
 @@ -210,6 +210,10 @@ namespace mgis::behaviour {
@@ -577,7 +577,7 @@ index ada9d02..2488551 100644
                                                 std::span<real>,
                                                 const Behaviour &,
 diff --git a/include/MGIS/Behaviour/BehaviourDescription.hxx b/include/MGIS/Behaviour/BehaviourDescription.hxx
-index 73ae8b5..428a5b6 100644
+index 73ae8b5b..428a5b66 100644
 --- a/include/MGIS/Behaviour/BehaviourDescription.hxx
 +++ b/include/MGIS/Behaviour/BehaviourDescription.hxx
 @@ -69,8 +69,8 @@ namespace mgis::behaviour {
@@ -609,7 +609,7 @@ index 73ae8b5..428a5b6 100644
    MGIS_EXPORT void loadBehaviourDescription(BehaviourDescription &,
                                              const std::string &,
 diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
-index 3c643dc..97ab49c 100644
+index 3c643dc8..97ab49c2 100644
 --- a/include/MGIS/Behaviour/Integrate.hxx
 +++ b/include/MGIS/Behaviour/Integrate.hxx
 @@ -102,20 +102,34 @@ namespace mgis::behaviour {
@@ -1043,7 +1043,7 @@ index 3c643dc..97ab49c 100644
    MGIS_EXPORT BehaviourIntegrationResult
    executePostProcessing(std::span<real>,
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index ca12f08..1aec748 100644
+index ca12f083..1aec748f 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -74,19 +74,24 @@ namespace mgis::behaviour {
@@ -1213,7 +1213,7 @@ index ca12f08..1aec748 100644
     * \param[in] g: group
     * \param[in] m: material data manager
 diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
-index 5ba9d21..3ed028d 100644
+index 5ba9d212..3ed028d7 100644
 --- a/include/MGIS/Behaviour/MaterialStateManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
 @@ -52,7 +52,11 @@ namespace mgis::behaviour {
@@ -1432,7 +1432,7 @@ index 5ba9d21..3ed028d 100644
     * \param[in] g: group
     * \param[in] s: material state manager
 diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
-index 88aaab0..3897d8b 100644
+index 88aaab0a..3897d8b2 100644
 --- a/include/MGIS/LibrariesManager.hxx
 +++ b/include/MGIS/LibrariesManager.hxx
 @@ -39,6 +39,15 @@ namespace mgis {
@@ -1520,7 +1520,7 @@ index 88aaab0..3897d8b 100644
      std::vector<std::string> getMaterialPropertyInputsNames(
          const std::string &, const std::string &);
 diff --git a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
-index 20e350a..cada844 100644
+index 20e350a8..cada8444 100644
 --- a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 +++ b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 @@ -21,7 +21,8 @@
@@ -1556,7 +1556,7 @@ index 20e350a..cada844 100644
  typedef void(
      MGIS_MATERIALPROPERTY_ADDCALL_PTR mgis_mp_BatchMaterialPropertyFctPtr)(
 diff --git a/include/MGIS/MaterialProperty/MaterialProperty.hxx b/include/MGIS/MaterialProperty/MaterialProperty.hxx
-index 9bbb68d..5692d30 100644
+index 9bbb68db..5692d304 100644
 --- a/include/MGIS/MaterialProperty/MaterialProperty.hxx
 +++ b/include/MGIS/MaterialProperty/MaterialProperty.hxx
 @@ -1,6 +1,7 @@
@@ -1664,7 +1664,7 @@ index 9bbb68d..5692d30 100644
     * \param[in] e: execution policy
     * \param[out] values: values of the material property, one per point
 diff --git a/include/MGIS/MaterialProperty/OutputStatus.hxx b/include/MGIS/MaterialProperty/OutputStatus.hxx
-index 1229d11..2840091 100644
+index 1229d113..2840091e 100644
 --- a/include/MGIS/MaterialProperty/OutputStatus.hxx
 +++ b/include/MGIS/MaterialProperty/OutputStatus.hxx
 @@ -21,7 +21,7 @@ extern "C" {
@@ -1697,7 +1697,7 @@ index 1229d11..2840091 100644
    int status;
    //! \brief error number reported by the C library.
 diff --git a/include/MGIS/MemoryLocation.hxx b/include/MGIS/MemoryLocation.hxx
-index 17a9ad1..68784f4 100644
+index 17a9ad18..68784f42 100644
 --- a/include/MGIS/MemoryLocation.hxx
 +++ b/include/MGIS/MemoryLocation.hxx
 @@ -48,6 +48,12 @@ namespace mgis {
@@ -1723,7 +1723,7 @@ index 17a9ad1..68784f4 100644
    constexpr bool canAllocateIn(
        const MemoryLocation l,
 diff --git a/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
-index 50c3b01..1b780ac 100644
+index 50c3b010..1b780ac9 100644
 --- a/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
 @@ -25,7 +25,11 @@ namespace mgis::memory_resources {
@@ -1740,7 +1740,7 @@ index 50c3b01..1b780ac 100644
    struct CUDAManagedMemoryResource final : std::pmr::memory_resource {
     private:
 diff --git a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
-index 5183784..58bc56f 100644
+index 5183784b..58bc56fe 100644
 --- a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
 @@ -25,7 +25,11 @@ namespace mgis::memory_resources {
@@ -1757,7 +1757,7 @@ index 5183784..58bc56f 100644
    struct HIPManagedMemoryResource final : std::pmr::memory_resource {
     private:
 diff --git a/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx b/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
-index 2b43044..ff3f025 100644
+index 2b430443..ff3f0257 100644
 --- a/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
 @@ -26,7 +26,13 @@ namespace mgis::memory_resources {
@@ -1776,7 +1776,7 @@ index 2b43044..ff3f025 100644
    struct KokkosSharedSpaceMemoryResource final : std::pmr::memory_resource {
     private:
 diff --git a/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
-index bfa7115..806f185 100644
+index bfa71153..806f1850 100644
 --- a/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
 +++ b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
 @@ -25,7 +25,13 @@ namespace mgis::memory_resources {
@@ -1795,7 +1795,7 @@ index bfa7115..806f185 100644
    struct SYCLSharedMemoryResource final : std::pmr::memory_resource {
      /*!
 diff --git a/mgis.doxygen b/mgis.doxygen
-index e86a307..1aeb5d6 100644
+index e86a3070..1aeb5d67 100644
 --- a/mgis.doxygen
 +++ b/mgis.doxygen
 @@ -13,7 +13,8 @@
@@ -1837,7 +1837,7 @@ index e86a307..1aeb5d6 100644
 + * with its own GPU toolkit.
 + */
 diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
-index d96a393..bcfed07 100644
+index d96a393e..bcfed070 100644
 --- a/src/MaterialProperty.cxx
 +++ b/src/MaterialProperty.cxx
 @@ -119,7 +119,9 @@ namespace mgis::material_property {
@@ -1852,7 +1852,7 @@ index d96a393..bcfed07 100644
        mgis::raise("evaluate: evaluation of material property '" +
                    mp.material_property + "' failed with status " +
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index c7a8c3e..7f55722 100644
+index c7a8c3e3..7f55722c 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -292,7 +292,7 @@ static void testElasticity(const std::string& library,
@@ -1865,7 +1865,7 @@ index c7a8c3e..7f55722 100644
    using namespace mgis::behaviour;
    constexpr auto n = mgis::size_type{10};
 diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
-index 1f30037..28d95bc 100644
+index 1f30037c..28d95bcc 100644
 --- a/tests/GenericParallelIntegrateTest.cxx
 +++ b/tests/GenericParallelIntegrateTest.cxx
 @@ -736,8 +736,8 @@ static void testSpeedOfSound(const std::string& library,

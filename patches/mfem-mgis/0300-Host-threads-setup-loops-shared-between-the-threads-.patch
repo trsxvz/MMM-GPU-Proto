@@ -1,4 +1,4 @@
-From 98b10f2f3c492d19e531de7d41c3bd18f6387e34 Mon Sep 17 00:00:00 2001
+From c172eb98d6a2527194d71456a9d664d37173077f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 16 Nov 2026 01:38:21 +0100
 Subject: [PATCH] Host threads: setup loops shared between the threads of
@@ -422,5 +422,5 @@ index 0000000000..7d1aa3eff1
 +  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 -- 
-2.34.1
+2.43.0
 

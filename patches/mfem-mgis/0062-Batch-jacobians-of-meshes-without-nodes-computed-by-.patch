@@ -1,4 +1,4 @@
-From a5a5947a1151ce9e863942dc43dbd56da63a57b0 Mon Sep 17 00:00:00 2001
+From f1e8e113b16bd676870c2c13761bd2a302df75e5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 06:15:50 +0200
 Subject: [PATCH] Batch: jacobians of meshes without nodes computed by a kernel

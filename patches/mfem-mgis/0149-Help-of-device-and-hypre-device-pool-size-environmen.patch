@@ -1,4 +1,4 @@
-From 8e8e49a534eac6955e6a5b466b06eb30c850289d Mon Sep 17 00:00:00 2001
+From b1c89586a8c40103af18ab465668e2759639a64c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:24:00 +0200
 Subject: [PATCH] Help of --device and --hypre-device-pool-size: environment

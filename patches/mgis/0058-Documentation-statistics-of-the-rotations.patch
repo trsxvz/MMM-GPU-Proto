@@ -1,4 +1,4 @@
-From c69194aa3323f9f847dfd03d523f3019da2a5337 Mon Sep 17 00:00:00 2001
+From 2004bb206578817bbc5b99116ce7af4311bebb40 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:48:34 +0200
 Subject: [PATCH] Documentation: statistics of the rotations
@@ -9,7 +9,7 @@ The rotations leave the statistics unchanged only if their time step scaling fac
  1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/include/MGIS/Behaviour/BatchDataView.hxx b/include/MGIS/Behaviour/BatchDataView.hxx
-index 95643cb..18980ce 100644
+index 95643cb8..18980ce6 100644
 --- a/include/MGIS/Behaviour/BatchDataView.hxx
 +++ b/include/MGIS/Behaviour/BatchDataView.hxx
 @@ -237,7 +237,9 @@ typedef struct mgis_bv_BatchRotationDataView {

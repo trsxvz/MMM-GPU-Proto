@@ -1,4 +1,4 @@
-From d363f8e8a2364e4ebb7a70e2b4877251ecc27852 Mon Sep 17 00:00:00 2001
+From af83a1add4413f8ceb49590f67f482a339fa1b73 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 00:36:56 +0200
 Subject: [PATCH] Tests: axisymmetrical generalised plane stress
@@ -29,7 +29,7 @@ not tested before.
  4 files changed, 168 insertions(+), 84 deletions(-)
 
 diff --git a/tests/DisplacementGradientTest.cxx b/tests/DisplacementGradientTest.cxx
-index bceec64..6655fa7 100644
+index bceec64a..6655fa78 100644
 --- a/tests/DisplacementGradientTest.cxx
 +++ b/tests/DisplacementGradientTest.cxx
 @@ -15,7 +15,8 @@
@@ -346,7 +346,7 @@ index bceec64..6655fa7 100644
          }
        }
 diff --git a/tests/GreenLagrangeElasticity.mfront b/tests/GreenLagrangeElasticity.mfront
-index a7293ba..bd7ef99 100644
+index a7293bae..bd7ef99f 100644
 --- a/tests/GreenLagrangeElasticity.mfront
 +++ b/tests/GreenLagrangeElasticity.mfront
 @@ -6,7 +6,8 @@
@@ -404,7 +404,7 @@ index a7293ba..bd7ef99 100644
    }
  }
 diff --git a/tests/HenckyElasticity.mfront b/tests/HenckyElasticity.mfront
-index 55384c5..70fec1f 100644
+index 55384c56..70fec1fb 100644
 --- a/tests/HenckyElasticity.mfront
 +++ b/tests/HenckyElasticity.mfront
 @@ -6,7 +6,8 @@
@@ -462,7 +462,7 @@ index 55384c5..70fec1f 100644
    }
  }
 diff --git a/tests/SaintVenantKirchhoffElasticity.mfront b/tests/SaintVenantKirchhoffElasticity.mfront
-index 8abffc1..448f5fe 100644
+index 8abffc15..448f5fe1 100644
 --- a/tests/SaintVenantKirchhoffElasticity.mfront
 +++ b/tests/SaintVenantKirchhoffElasticity.mfront
 @@ -6,7 +6,8 @@

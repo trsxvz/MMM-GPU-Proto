@@ -1,4 +1,4 @@
-From 57751239c81d416e4247c68f5209c10dcd085ff2 Mon Sep 17 00:00:00 2001
+From da9d49870f9b2835f71144249ec20b589732126e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:46:32 +0200
 Subject: [PATCH] ex8: ordering and strategy of BoomerAMG of the mechanical

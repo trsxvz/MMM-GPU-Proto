@@ -1,4 +1,4 @@
-From 2bfd6464a63f7539ee945210a1c4106e37de8b99 Mon Sep 17 00:00:00 2001
+From aaa6c233231abc192be38a05bd72a58c25d86021 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 14 Nov 2026 06:08:43 +0100
 Subject: [PATCH] Prediction by linear extrapolation: default prediction after
@@ -720,5 +720,5 @@ index 583a555037..707cafcbab 100644
        checkPlasticCube(mesh, library, solver);
      }
 -- 
-2.34.1
+2.43.0
 

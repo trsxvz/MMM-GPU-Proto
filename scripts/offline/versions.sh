@@ -4,7 +4,7 @@
 PROTO_SPACK_VERSION=v1.2.2
 PROTO_SPACK_PACKAGES_COMMIT=3b7fdffc24
 PROTO_MGIS_URL=https://github.com/thelfer/MFrontGenericInterfaceSupport.git
-PROTO_MGIS_BASE=b1afeb3
+PROTO_MGIS_BASE=53947f1
 # MFEM built from its sources by `deploy.sh mfem` on the machines whose
 # libraries come from their modules (no spack environment, see
 # docs/install.md): archive of the release (URL and checksum of the recipe

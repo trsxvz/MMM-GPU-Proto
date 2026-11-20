@@ -1,4 +1,4 @@
-From ba2571242e634173bb7ecf5e120ee66bfb7b77f4 Mon Sep 17 00:00:00 2001
+From 6b4f1da261df41942749d32aff8ead47bd769bd6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:58:04 +0200
 Subject: [PATCH] CMake: module for the sources containing kernels of MFEM

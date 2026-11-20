@@ -1,4 +1,4 @@
-From 745494c9ced5987b95dfc2530c4449c0949e7a66 Mon Sep 17 00:00:00 2001
+From 51b9560c1a864812bc0e4d3adf7e8e8b48290db1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 14:32:18 +0200
 Subject: [PATCH] Execution policies for the material properties of the
@@ -30,7 +30,7 @@ Subject: [PATCH] Execution policies for the material properties of the
  create mode 100644 include/MGIS/BatchExecutionPolicy.hxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 82f554d..648b499 100644
+index 82f554df..648b4992 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -1,6 +1,7 @@
@@ -43,7 +43,7 @@ index 82f554d..648b499 100644
  mgis_header(MGIS AbstractErrorHandler.hxx)
 diff --git a/include/MGIS/BatchExecutionPolicy.hxx b/include/MGIS/BatchExecutionPolicy.hxx
 new file mode 100644
-index 0000000..523a09a
+index 00000000..523a09a7
 --- /dev/null
 +++ b/include/MGIS/BatchExecutionPolicy.hxx
 @@ -0,0 +1,42 @@
@@ -90,7 +90,7 @@ index 0000000..523a09a
 +
 +#endif /* LIB_MGIS_BATCHEXECUTIONPOLICY_HXX */
 diff --git a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
-index c419ab1..a0fe256 100644
+index c419ab14..a0fe2561 100644
 --- a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
 +++ b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
 @@ -1,6 +1,8 @@
@@ -139,7 +139,7 @@ index c419ab1..a0fe256 100644
    /*!
     * \return the options of a synchronous execution of the computations on a
 diff --git a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
-index b5b3abf..76c8337 100644
+index b5b3abf0..76c8337f 100644
 --- a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 +++ b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
 @@ -25,30 +25,49 @@
@@ -212,7 +212,7 @@ index b5b3abf..76c8337 100644
  }  // end of namespace mgis::material_property
  
 diff --git a/include/MGIS/MaterialProperty/MaterialProperty.hxx b/include/MGIS/MaterialProperty/MaterialProperty.hxx
-index 73602d7..9bbb68d 100644
+index 73602d73..9bbb68db 100644
 --- a/include/MGIS/MaterialProperty/MaterialProperty.hxx
 +++ b/include/MGIS/MaterialProperty/MaterialProperty.hxx
 @@ -20,6 +20,7 @@
@@ -280,7 +280,7 @@ index 73602d7..9bbb68d 100644
  }  // end of namespace mgis::material_property
  
 diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
-index 4dd263c..41c7b2f 100644
+index 4dd263cb..41c7b2f1 100644
 --- a/src/MaterialProperty.cxx
 +++ b/src/MaterialProperty.cxx
 @@ -109,6 +109,51 @@ namespace mgis::material_property {

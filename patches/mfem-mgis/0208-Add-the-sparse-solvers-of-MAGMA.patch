@@ -1,4 +1,4 @@
-From 8eac3d7d0572a0d69fc30eb8c94c8be5f498238e Mon Sep 17 00:00:00 2001
+From c1c38fcc791bf7c5ec92b02865b1b08f3352cd45 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:11:29 +0200
 Subject: [PATCH] Add the sparse solvers of MAGMA

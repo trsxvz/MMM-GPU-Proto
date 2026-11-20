@@ -1,4 +1,4 @@
-From a14d0d40230b4730a2cb240937aff16f63f8d83c Mon Sep 17 00:00:00 2001
+From 48f9f891921b7ae077caadbf0e9fd897f231d1ca Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 16 Nov 2026 01:38:51 +0100
 Subject: [PATCH] Assembled and global stiffness matrices: setup shared between
@@ -1276,5 +1276,5 @@ index 23f884d1a0..23bde9337d 100644
      }
    }
 -- 
-2.34.1
+2.43.0
 

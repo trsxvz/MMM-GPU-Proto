@@ -1,4 +1,4 @@
-From 686563457c8c5a9120476981f4ce0c4dc0086c47 Mon Sep 17 00:00:00 2001
+From 5ff971d41031ce2d79b7a9e662023dc2e173a9b8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:17:30 +0200
 Subject: [PATCH] Doxygen: no warning, comments checked against the code
@@ -3364,7 +3364,7 @@ index 5e3ee25e33..8b7032d44b 100644
    template <bool parallel>
    [[nodiscard]] bool updateGridFunction(
 diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-index 202fa6038e..32aaa19c84 100644
+index 82513587e5..aedb2406d9 100644
 --- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
 +++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
 @@ -229,8 +229,9 @@ namespace mfem_mgis::internals {

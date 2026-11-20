@@ -1,4 +1,4 @@
-From 801df15a08884f45a71ee796c29dbe21d3eb487c Mon Sep 17 00:00:00 2001
+From a042d2e13795a512dbc9402b037673df5f22e2e6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:41:10 +0200
 Subject: [PATCH] boundRelativeTolerance keeps a null tolerance

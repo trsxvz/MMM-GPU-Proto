@@ -1,4 +1,4 @@
-From 3a0d93d4bc8c5d2576998ba2f99f0bfdd39b3e99 Mon Sep 17 00:00:00 2001
+From ff2ef2c745462126155a73de44322995105b174d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] FBar kernels: tangent by kernels without gradients by kernels

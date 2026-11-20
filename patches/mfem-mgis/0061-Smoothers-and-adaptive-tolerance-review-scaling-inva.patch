@@ -1,4 +1,4 @@
-From 75706892a5f9b4d9017790c15e304d5b2a496dcf Mon Sep 17 00:00:00 2001
+From 330d33f8ddea521a3221f318830fe8db031f4762 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 05:36:45 +0200
 Subject: [PATCH] Smoothers and adaptive tolerance: review (scaling invariance,

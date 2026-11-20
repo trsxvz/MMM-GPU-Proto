@@ -1,4 +1,4 @@
-From 7a8126d34aa5552f369169308bd878d362e0dbb5 Mon Sep 17 00:00:00 2001
+From 6552ba0054577833e07599a32125456b0e6cd50f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:07:59 +0200
 Subject: [PATCH] Bindings: layout of the material data managers
@@ -35,7 +35,7 @@ the three languages.
  create mode 100644 bindings/python/tests/LayoutTest.py
 
 diff --git a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
-index 3b4f12a..a0f624b 100644
+index 3b4f12a6..a0f624b4 100644
 --- a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 +++ b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
 @@ -66,6 +66,14 @@ mgis_status mgis_bv_material_data_manager_initializer_bind_tangent_operator(
@@ -54,7 +54,7 @@ index 3b4f12a..a0f624b 100644
   * \brief get the initializer of the state at the beginning of the time step
   * \param[out] s: pointer to a pointer to the state initializer
 diff --git a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
-index 44a582b..444546b 100644
+index 44a582b2..444546b7 100644
 --- a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
 +++ b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
 @@ -52,6 +52,25 @@ typedef enum {
@@ -103,7 +103,7 @@ index 44a582b..444546b 100644
  MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_gradients_stride(
      mgis_size_type* const, mgis_bv_MaterialStateManager* const);
 diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
-index c89e7e9..1409399 100644
+index c89e7e92..14093994 100644
 --- a/bindings/c/src/MaterialDataManager.cxx
 +++ b/bindings/c/src/MaterialDataManager.cxx
 @@ -55,6 +55,24 @@ mgis_status mgis_bv_material_data_manager_initializer_bind_tangent_operator(
@@ -132,7 +132,7 @@ index c89e7e9..1409399 100644
      mgis_bv_MaterialDataManagerInitializer* d,
      mgis_real* const p,
 diff --git a/bindings/c/src/MaterialStateManager.cxx b/bindings/c/src/MaterialStateManager.cxx
-index 2984e93..3d0f0b1 100644
+index 2984e93c..3d0f0b13 100644
 --- a/bindings/c/src/MaterialStateManager.cxx
 +++ b/bindings/c/src/MaterialStateManager.cxx
 @@ -222,6 +222,18 @@ mgis_status mgis_bv_material_state_manager_get_internal_state_variables(
@@ -155,7 +155,7 @@ index 2984e93..3d0f0b1 100644
      mgis_size_type* const gs, mgis_bv_MaterialStateManager* const s) {
    if (s == nullptr) {
 diff --git a/bindings/c/tests/CMakeLists.txt b/bindings/c/tests/CMakeLists.txt
-index cb3f229..45740db 100644
+index cb3f2292..45740db0 100644
 --- a/bindings/c/tests/CMakeLists.txt
 +++ b/bindings/c/tests/CMakeLists.txt
 @@ -61,6 +61,11 @@ add_executable(IntegrateTest-c
@@ -192,7 +192,7 @@ index cb3f229..45740db 100644
   "$<TARGET_FILE:ModelTest>")
 diff --git a/bindings/c/tests/LayoutTest-c.c b/bindings/c/tests/LayoutTest-c.c
 new file mode 100644
-index 0000000..7b2d842
+index 00000000..7b2d8423
 --- /dev/null
 +++ b/bindings/c/tests/LayoutTest-c.c
 @@ -0,0 +1,172 @@
@@ -369,7 +369,7 @@ index 0000000..7b2d842
 +  return EXIT_SUCCESS;
 +}
 diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
-index 17cee02..6908247 100644
+index 17cee021..69082470 100644
 --- a/bindings/fortran/src/mgis_behaviour.f90
 +++ b/bindings/fortran/src/mgis_behaviour.f90
 @@ -44,6 +44,11 @@ module mgis_behaviour
@@ -497,7 +497,7 @@ index 17cee02..6908247 100644
    end function material_state_manager_get_internal_state_variables
    !
 diff --git a/bindings/fortran/tests/CMakeLists.txt b/bindings/fortran/tests/CMakeLists.txt
-index de29fba..05b8733 100644
+index de29fba0..05b87336 100644
 --- a/bindings/fortran/tests/CMakeLists.txt
 +++ b/bindings/fortran/tests/CMakeLists.txt
 @@ -45,6 +45,7 @@ test_fortran_bindings(StateTest2-f)
@@ -510,7 +510,7 @@ index de29fba..05b8733 100644
  test_fortran_bindings(UpdatePolicyTest-f)
 diff --git a/bindings/fortran/tests/LayoutTest-f.f90 b/bindings/fortran/tests/LayoutTest-f.f90
 new file mode 100644
-index 0000000..d4dff59
+index 00000000..d4dff59f
 --- /dev/null
 +++ b/bindings/fortran/tests/LayoutTest-f.f90
 @@ -0,0 +1,62 @@
@@ -577,7 +577,7 @@ index 0000000..d4dff59
 +  end if
 +end program main
 diff --git a/bindings/python/include/MGIS/Python/NumPySupport.hxx b/bindings/python/include/MGIS/Python/NumPySupport.hxx
-index 8189c70..3430da5 100644
+index 8189c700..3430da57 100644
 --- a/bindings/python/include/MGIS/Python/NumPySupport.hxx
 +++ b/bindings/python/include/MGIS/Python/NumPySupport.hxx
 @@ -21,6 +21,7 @@
@@ -619,7 +619,7 @@ index 8189c70..3430da5 100644
  
  #endif /* LIB_MGIS_PYTHON_NUMPYSUPPORT_HXX */
 diff --git a/bindings/python/src/MaterialDataManager.cxx b/bindings/python/src/MaterialDataManager.cxx
-index cd45b28..8fad71a 100644
+index cd45b288..8fad71a0 100644
 --- a/bindings/python/src/MaterialDataManager.cxx
 +++ b/bindings/python/src/MaterialDataManager.cxx
 @@ -44,6 +44,18 @@ static void MaterialDataManager_useExternalArrayOfSpeedOfSounds(
@@ -658,7 +658,7 @@ index cd45b28..8fad71a 100644
        .def_readonly("s1", &MaterialDataManager::s1)
        .def_property_readonly("K", &MaterialDataManager_getK)
 diff --git a/bindings/python/src/MaterialStateManager.cxx b/bindings/python/src/MaterialStateManager.cxx
-index b0d3091..1ec0d21 100644
+index b0d30910..1ec0d21c 100644
 --- a/bindings/python/src/MaterialStateManager.cxx
 +++ b/bindings/python/src/MaterialStateManager.cxx
 @@ -44,45 +44,22 @@ static void MaterialStateManagerInitializer_bindDissipatedEnergies(
@@ -731,7 +731,7 @@ index b0d3091..1ec0d21 100644
        .def_readonly("gradients_stride", &MaterialStateManager::gradients_stride)
        .def_property_readonly("thermodynamic_forces",
 diff --git a/bindings/python/src/NumPySupport.cxx b/bindings/python/src/NumPySupport.cxx
-index f127e86..8e3f53b 100644
+index f127e867..8e3f53b6 100644
 --- a/bindings/python/src/NumPySupport.cxx
 +++ b/bindings/python/src/NumPySupport.cxx
 @@ -129,4 +129,25 @@ namespace mgis::python {
@@ -761,7 +761,7 @@ index f127e86..8e3f53b 100644
 +
  }  // end of namespace mgis::python
 diff --git a/bindings/python/tests/CMakeLists.txt b/bindings/python/tests/CMakeLists.txt
-index 8a957df..e9d6a14 100644
+index 8a957df4..e9d6a143 100644
 --- a/bindings/python/tests/CMakeLists.txt
 +++ b/bindings/python/tests/CMakeLists.txt
 @@ -37,6 +37,7 @@ test_python_bindings(ParameterTest)
@@ -774,7 +774,7 @@ index 8a957df..e9d6a14 100644
  test_python_bindings(IntegrateTest6)
 diff --git a/bindings/python/tests/LayoutTest.py b/bindings/python/tests/LayoutTest.py
 new file mode 100644
-index 0000000..8a118c1
+index 00000000..8a118c12
 --- /dev/null
 +++ b/bindings/python/tests/LayoutTest.py
 @@ -0,0 +1,56 @@

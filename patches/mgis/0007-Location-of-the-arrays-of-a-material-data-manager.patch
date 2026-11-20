@@ -1,4 +1,4 @@
-From f0ff673a7a15d8163756c3da2321907334e2f9d4 Mon Sep 17 00:00:00 2001
+From fbbb41af9637bf9abb939e7b678fee37b9860e1d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:19:11 +0200
 Subject: [PATCH] Location of the arrays of a material data manager
@@ -32,7 +32,7 @@ each refusal by its message.
  create mode 100644 include/MGIS/Behaviour/MemoryLocation.hxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 96f9fa4..49a93b3 100644
+index 96f9fa48..49a93b36 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -42,6 +42,8 @@ mgis_header(MGIS/Behaviour FiniteStrainBehaviourOptions.hxx)
@@ -45,7 +45,7 @@ index 96f9fa4..49a93b3 100644
  mgis_header(MGIS/Behaviour Behaviour.hxx)
  mgis_header(MGIS/Behaviour StateView.hxx)
 diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
-index 61f4672..f694646 100644
+index 61f4672f..f6946468 100644
 --- a/include/MGIS/Behaviour/MaterialDataManager.hxx
 +++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
 @@ -26,6 +26,7 @@
@@ -82,7 +82,7 @@ index 61f4672..f694646 100644
       * size of K is K_stride times the number of integration points)
 diff --git a/include/MGIS/Behaviour/MemoryLocation.hxx b/include/MGIS/Behaviour/MemoryLocation.hxx
 new file mode 100644
-index 0000000..27401d5
+index 00000000..27401d53
 --- /dev/null
 +++ b/include/MGIS/Behaviour/MemoryLocation.hxx
 @@ -0,0 +1,39 @@
@@ -126,7 +126,7 @@ index 0000000..27401d5
 +
 +#endif /* LIB_MGIS_BEHAVIOUR_MEMORYLOCATION_HXX */
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 0b083ab..9640199 100644
+index 0b083ab6..96401994 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -452,6 +452,23 @@ namespace mgis::behaviour::internals {
@@ -178,7 +178,7 @@ index 0b083ab..9640199 100644
        return BehaviourIntegrationResult{};
      }
 diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
-index 4c46b00..699b164 100644
+index 4c46b00b..699b1647 100644
 --- a/src/MaterialDataManager.cxx
 +++ b/src/MaterialDataManager.cxx
 @@ -57,8 +57,33 @@ namespace mgis::behaviour {
@@ -283,7 +283,7 @@ index 4c46b00..699b164 100644
      updateValues(m.s1, m.s0);
    }  // end of update
 diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
-index f1af800..102d43e 100644
+index f1af8001..102d43e0 100644
 --- a/tests/GenericParallelCUDATest.cxx
 +++ b/tests/GenericParallelCUDATest.cxx
 @@ -42,6 +42,20 @@ static bool check(const bool b, const std::string_view msg) {

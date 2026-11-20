@@ -1,4 +1,4 @@
-From b4b18c1ae0c68da2599b559bc6383e7fda934b97 Mon Sep 17 00:00:00 2001
+From 46a60793a41a61c7ce8114eafe4034bb8cd626a9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 23:00:05 +0200
 Subject: [PATCH] Tests: plane stress with F and H against the analytical
@@ -24,7 +24,7 @@ axial strain given by the caller in the Green-Lagrange framework).
  3 files changed, 96 insertions(+), 50 deletions(-)
 
 diff --git a/tests/DisplacementGradientTest.cxx b/tests/DisplacementGradientTest.cxx
-index 7a9103c..961e0dd 100644
+index 7a9103ca..961e0dda 100644
 --- a/tests/DisplacementGradientTest.cxx
 +++ b/tests/DisplacementGradientTest.cxx
 @@ -142,7 +142,17 @@ struct Managers {
@@ -189,7 +189,7 @@ index 7a9103c..961e0dd 100644
      const auto e =
          gap(m.mH.s1.thermodynamic_forces, m.mF.s1.thermodynamic_forces);
 diff --git a/tests/GreenLagrangeElasticity.mfront b/tests/GreenLagrangeElasticity.mfront
-index 107be31..a7293ba 100644
+index 107be31a..a7293bae 100644
 --- a/tests/GreenLagrangeElasticity.mfront
 +++ b/tests/GreenLagrangeElasticity.mfront
 @@ -41,10 +41,13 @@ eini.setEntryName("InitialStrainMeasure");
@@ -210,7 +210,7 @@ index 107be31..a7293ba 100644
    if (computeTangentOperator_) {
      // plane stress elastic operator
 diff --git a/tests/HenckyElasticity.mfront b/tests/HenckyElasticity.mfront
-index af582c4..55384c5 100644
+index af582c4a..55384c56 100644
 --- a/tests/HenckyElasticity.mfront
 +++ b/tests/HenckyElasticity.mfront
 @@ -41,10 +41,13 @@ eini.setEntryName("InitialStrainMeasure");

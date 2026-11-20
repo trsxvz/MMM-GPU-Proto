@@ -1,4 +1,4 @@
-From 4faec856aa53c60ff7b04804ecb55ef4188db75b Mon Sep 17 00:00:00 2001
+From 5520b388356b34ab81afff0a9ec4f34843c743a5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 15 Nov 2026 18:43:48 +0100
 Subject: [PATCH] Assembled stiffness matrix: pattern built for the nodes, then
@@ -406,5 +406,5 @@ index d4b9a8d82c..23f884d1a0 100644
    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
  }  // end of main
 -- 
-2.34.1
+2.43.0
 

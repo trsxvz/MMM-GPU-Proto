@@ -1,4 +1,4 @@
-From 4e8163f3484d3516a315f2ea765dd33b5974d92b Mon Sep 17 00:00:00 2001
+From 8b9a10ee99eed681aeb3017df2b345430045ea6c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 13:13:41 +0200
 Subject: [PATCH] PartialQuadratureSpace: documentation of the forwarding
@@ -13,10 +13,10 @@ in the implementation.
  1 file changed, 6 insertions(+), 3 deletions(-)
 
 diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-index 32aaa19c84..7c819096df 100644
+index aedb2406d9..a66a267d4e 100644
 --- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
 +++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-@@ -464,7 +464,9 @@ namespace mfem_mgis {
+@@ -465,7 +465,9 @@ namespace mfem_mgis {
      [[nodiscard]] std::optional<size_type> getNumberOfQuadraturePoints(
          Context &ctx, const size_type e) const noexcept;
      /*!
@@ -27,7 +27,7 @@ index 32aaa19c84..7c819096df 100644
       *
       * \note element numbers refer to the mesh of the partial quadrature space.
       * They are boundary element numbers if `shallUseBoundaryElementsAPI`
-@@ -495,8 +497,9 @@ namespace mfem_mgis {
+@@ -496,8 +498,9 @@ namespace mfem_mgis {
      [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
      /*!
       * \return the integration rule used by all the elements of the space, or

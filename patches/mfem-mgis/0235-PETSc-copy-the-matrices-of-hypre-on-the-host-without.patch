@@ -1,4 +1,4 @@
-From 885e3a52951c1944a14beae0b14cc86d523e3a41 Mon Sep 17 00:00:00 2001
+From 02fd442229fdb1ef55cb3b3c5f5c6d9e39f21a83 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 20:23:14 +0200
 Subject: [PATCH] PETSc: copy the matrices of hypre on the host without

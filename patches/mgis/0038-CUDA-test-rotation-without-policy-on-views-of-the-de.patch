@@ -1,4 +1,4 @@
-From ac92f01a81113f47bc0965ea723321d8ac68f01a Mon Sep 17 00:00:00 2001
+From e213a143b33113fb0533cfe8a5f0cef653ce7eae Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:08:36 +0200
 Subject: [PATCH] CUDA test: rotation without policy on views of the device
@@ -8,7 +8,7 @@ Subject: [PATCH] CUDA test: rotation without policy on views of the device
  1 file changed, 16 insertions(+)
 
 diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
-index a7d09c4..65412fe 100644
+index a7d09c49..65412fee 100644
 --- a/tests/FieldOperationsCUDATest.cu
 +++ b/tests/FieldOperationsCUDATest.cu
 @@ -446,6 +446,22 @@ static void testViewsOnDevice(const std::string& gp_library,
