@@ -152,8 +152,10 @@ static std::uint64_t computeChecksum(const mfem::HypreParMatrix& K) {
  * \param[in] order: order of the finite elements
  * \param[in] vdim: number of components of the unknowns
  * \param[in] name: name of the case
+ * \return false if the space is refused by
+ * `batch::GlobalStiffnessMatrix::isSupported` (on all the processes)
  */
-static void testCase(mfem::ParMesh& mesh,
+static bool testCase(mfem::ParMesh& mesh,
                      const int order,
                      const int vdim,
                      const std::string& name) {
@@ -161,15 +163,18 @@ static void testCase(mfem::ParMesh& mesh,
   auto ctx = Context{};
   auto fec = mfem::H1_FECollection(order, mesh.Dimension());
   auto fes = mfem::ParFiniteElementSpace(&mesh, &fec, vdim);
-  check(batch::GlobalStiffnessMatrix::isSupported(fes),
-        name + ": conforming space not supported");
+  const auto supported = batch::GlobalStiffnessMatrix::isSupported(fes);
+  check(supported, name + ": conforming space not supported");
+  if (!supported) {
+    return false;
+  }
   auto dofs = mfem::Array<int>{};
   check(batch::computeElementsDegreesOfFreedom(ctx, dofs, fes),
         name + ": degrees of freedom of the elements");
   const auto A = batch::makeAssembledStiffnessMatrix(ctx, fes, dofs);
   check(A != nullptr, name + ": local matrix");
   if (A == nullptr) {
-    return;
+    return true;
   }
   // essential degrees of freedom of the first boundary, eliminated from the
   // global matrix after each assembly, as by the non linear problems
@@ -253,6 +258,7 @@ static void testCase(mfem::ParMesh& mesh,
   setValues(*A, 7);
   static_cast<void>(
       assemble(mfem::Mpi::Root() ? copy : *A, "other arrays on one process"));
+  return true;
 }  // end of testCase
 
 /*!
@@ -411,9 +417,15 @@ int main(int argc, char** argv) {
   auto mesh = mfem::ParMesh(MPI_COMM_WORLD, serial);
   for (const auto order : {1, 2}) {
     for (const auto vdim : {1, 3}) {
-      testCase(mesh, order, vdim,
-               "order " + std::to_string(order) + ", " + std::to_string(vdim) +
-                   " components");
+      if (!testCase(mesh, order, vdim,
+                    "order " + std::to_string(order) + ", " +
+                        std::to_string(vdim) + " components")) {
+        // the space is refused on all the processes (collective call): the
+        // other computations would call hypre on the processes where it may
+        // have failed (for instance for lack of memory on the GPU), and
+        // their collective calls might never complete
+        return EXIT_FAILURE;
+      }
     }
   }
   testOperationsAfterAssembly(mesh);

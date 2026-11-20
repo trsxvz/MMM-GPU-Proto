@@ -8131,11 +8131,24 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   each patch series applies on its base and gives the tracked tree
   (`scripts/verify-patches.sh`).
 - Tests on the workstation, against the installed TFEL: MGIS 65/65,
-  mm-opera-hpc 21/21, mfem-mgis 397/399. The two failures are
-  `GlobalStiffnessMatrixTest-np4-cuda-host` and
-  `GlobalStiffnessMatrixTest-np4-cuda-gpu-aware-mpi` (4 processes on the
-  only GPU of the workstation: `check failed: order 1, 1 components:
-  conforming space not supported` on each process, then a timeout, also
-  when run alone). The code of mfem-mgis is the one before the rebase plus
-  one comment: defect of these recent tests on one GPU, to be looked at
-  separately. The examples and the cases are unchanged.
+  mm-opera-hpc 21/21, mfem-mgis 399/399 with the patch 0306 below (397/399
+  before). The examples and the cases are unchanged.
+- mfem-mgis, patch 0306: `GlobalStiffnessMatrixTest-np4-cuda-host` and
+  `GlobalStiffnessMatrixTest-np4-cuda-gpu-aware-mpi` timed out on the
+  workstation (4 processes on its only GPU of 16 GiB), after
+  `check failed: order 1, 1 components: conforming space not supported` on
+  each process. hypre allocates at once a pool of 4 GiB of the memory of
+  the GPU per process (default of hypre 3.2): two of the four processes
+  could not allocate it (`cudaMalloc( bytes = 4294967312 ) failed with
+  error: out of memory`, thrown by Umpire while the prolongation was
+  built), which `GlobalStiffnessMatrix::isSupported` took for an
+  unsupported space; the test then went on with collective calls which
+  could not complete on these processes. `isSupported` now writes the
+  message of the exception on the standard error stream of the process
+  (the error stream of mfem-mgis is disabled on the other processes than
+  the first one), the test stops at the first refused space, and its GPU
+  variants on several processes use a pool of 1 GiB per process
+  (`MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`, as
+  `DirectSolverReuseAnalysisTestP3-cudss-cuda`). With pools of 4 GiB, the
+  test now fails in one second with the message of Umpire. Not seen on
+  Adastra, where each process has its own GPU.

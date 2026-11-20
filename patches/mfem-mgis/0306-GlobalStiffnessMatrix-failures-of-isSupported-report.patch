@@ -1,0 +1,182 @@
+From 5cc2a539716691eed23e4d5734bd94734519ff68 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 20 Nov 2026 18:10:00 +0100
+Subject: [PATCH] GlobalStiffnessMatrix: failures of isSupported reported, GPU
+ tests on several processes with a smaller pool of hypre
+
+On a workstation with one GPU of 16 GiB, GlobalStiffnessMatrixTest-np4-cuda-host
+and GlobalStiffnessMatrixTest-np4-cuda-gpu-aware-mpi timed out. hypre
+allocates at once a pool of 4 GiB of the memory of the GPU per process
+(default of hypre 3.2): two of the four processes could not allocate it
+(`cudaMalloc( bytes = 4294967312 ) failed with error: out of memory`,
+thrown by Umpire while the prolongation was built).
+
+- GlobalStiffnessMatrix::isSupported caught the exception without a
+  message, which gave "conforming space not supported" in the test: the
+  message of the exception is written on the standard error stream of the
+  process, the error stream of mfem-mgis being disabled on the processes
+  other than the first one.
+- The test went on with the other cases, whose collective calls could not
+  complete on the processes where hypre had failed: it stops at the first
+  refused space, refused on all the processes (collective call).
+- The GPU tests on several processes use a pool of 1 GiB per process
+  (MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE), as
+  DirectSolverReuseAnalysisTestP3-cudss-cuda.
+
+With a pool of 4 GiB per process, the test now fails in one second, the
+processes which could not allocate it giving the message of Umpire.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx  |  5 +++-
+ src/Batch/GlobalStiffnessMatrix.cxx           | 16 ++++++++++++
+ tests/CMakeLists.txt                          |  9 +++++++
+ tests/GlobalStiffnessMatrixTest.cxx           | 26 ++++++++++++++-----
+ 4 files changed, 48 insertions(+), 8 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx b/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx
+index 30f2cc2390..177c4ed60f 100644
+--- a/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx
++++ b/include/MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx
+@@ -78,7 +78,10 @@ namespace mfem_mgis::batch {
+     /*!
+      * \return true if the global matrices of a finite element space can be
+      * assembled by this class: each row of the prolongation has a single
+-     * entry, equal to one, on all the processes (collective call)
++     * entry, equal to one, on all the processes (collective call). A failure
++     * of the construction of the prolongation, for instance an allocation of
++     * hypre on the GPU, also gives false, its message being written on the
++     * standard error stream of the process.
+      * \param[in] fes: finite element space
+      */
+     [[nodiscard]] static bool isSupported(
+diff --git a/src/Batch/GlobalStiffnessMatrix.cxx b/src/Batch/GlobalStiffnessMatrix.cxx
+index 0aa246fcc4..7bbb8be820 100644
+--- a/src/Batch/GlobalStiffnessMatrix.cxx
++++ b/src/Batch/GlobalStiffnessMatrix.cxx
+@@ -17,6 +17,7 @@
+ #include <utility>
+ #include <numeric>
+ #include <algorithm>
++#include <iostream>
+ #include <exception>
+ #include "mfem/general/forall.hpp"
+ #include "mfem/general/communication.hpp"
+@@ -505,6 +506,17 @@ namespace mfem_mgis::batch {
+ 
+   bool GlobalStiffnessMatrix::isSupported(
+       const mfem::ParFiniteElementSpace& fes) noexcept {
++    // a failure, for instance an allocation of hypre on the GPU, is not an
++    // unsupported space: its message is written on the standard error
++    // stream, as the error stream of mfem-mgis may be disabled on this
++    // process
++    const auto report = [&fes](const char* const what) {
++      auto rank = int{};
++      MPI_Comm_rank(fes.GetComm(), &rank);
++      std::cerr << "process " << rank
++                << ": GlobalStiffnessMatrix::isSupported: " << what
++                << std::endl;
++    };
+     auto supported = int{0};
+     try {
+       // the construction of the prolongation is collective: it is built on
+@@ -514,7 +526,11 @@ namespace mfem_mgis::batch {
+                    (!getGlobalTrueDegreesOfFreedom(fes).empty()))
+                       ? 1
+                       : 0;
++    } catch (const std::exception& e) {
++      report(e.what());
++      supported = 0;
+     } catch (...) {
++      report("unknown exception");
+       supported = 0;
+     }
+     auto all = int{0};
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 835e5d0723..0eeecf5b0e 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1773,6 +1773,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+                            -P ${CMAKE_CURRENT_SOURCE_DIR}/GlobalStiffnessMatrixTest.cmake)
+           set_tests_properties(GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
+                                PROPERTIES RESOURCE_LOCK gpu)
++          # several processes on the GPU: one pool of hypre of the default
++          # size (4 GiB) per process does not fit in a GPU of 16 GiB with four
++          # processes (the fourth one failed, see also
++          # DirectSolverReuseAnalysisTestP3-cudss-cuda); the mesh is small
++          if(_np GREATER 1)
++            set_property(TEST GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
++                         APPEND PROPERTY ENVIRONMENT
++                         MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1)
++          endif()
+         endforeach()
+       endif()
+     endforeach()
+diff --git a/tests/GlobalStiffnessMatrixTest.cxx b/tests/GlobalStiffnessMatrixTest.cxx
+index fe85f48de2..264aed52b9 100644
+--- a/tests/GlobalStiffnessMatrixTest.cxx
++++ b/tests/GlobalStiffnessMatrixTest.cxx
+@@ -152,8 +152,10 @@ static std::uint64_t computeChecksum(const mfem::HypreParMatrix& K) {
+  * \param[in] order: order of the finite elements
+  * \param[in] vdim: number of components of the unknowns
+  * \param[in] name: name of the case
++ * \return false if the space is refused by
++ * `batch::GlobalStiffnessMatrix::isSupported` (on all the processes)
+  */
+-static void testCase(mfem::ParMesh& mesh,
++static bool testCase(mfem::ParMesh& mesh,
+                      const int order,
+                      const int vdim,
+                      const std::string& name) {
+@@ -161,15 +163,18 @@ static void testCase(mfem::ParMesh& mesh,
+   auto ctx = Context{};
+   auto fec = mfem::H1_FECollection(order, mesh.Dimension());
+   auto fes = mfem::ParFiniteElementSpace(&mesh, &fec, vdim);
+-  check(batch::GlobalStiffnessMatrix::isSupported(fes),
+-        name + ": conforming space not supported");
++  const auto supported = batch::GlobalStiffnessMatrix::isSupported(fes);
++  check(supported, name + ": conforming space not supported");
++  if (!supported) {
++    return false;
++  }
+   auto dofs = mfem::Array<int>{};
+   check(batch::computeElementsDegreesOfFreedom(ctx, dofs, fes),
+         name + ": degrees of freedom of the elements");
+   const auto A = batch::makeAssembledStiffnessMatrix(ctx, fes, dofs);
+   check(A != nullptr, name + ": local matrix");
+   if (A == nullptr) {
+-    return;
++    return true;
+   }
+   // essential degrees of freedom of the first boundary, eliminated from the
+   // global matrix after each assembly, as by the non linear problems
+@@ -253,6 +258,7 @@ static void testCase(mfem::ParMesh& mesh,
+   setValues(*A, 7);
+   static_cast<void>(
+       assemble(mfem::Mpi::Root() ? copy : *A, "other arrays on one process"));
++  return true;
+ }  // end of testCase
+ 
+ /*!
+@@ -411,9 +417,15 @@ int main(int argc, char** argv) {
+   auto mesh = mfem::ParMesh(MPI_COMM_WORLD, serial);
+   for (const auto order : {1, 2}) {
+     for (const auto vdim : {1, 3}) {
+-      testCase(mesh, order, vdim,
+-               "order " + std::to_string(order) + ", " + std::to_string(vdim) +
+-                   " components");
++      if (!testCase(mesh, order, vdim,
++                    "order " + std::to_string(order) + ", " +
++                        std::to_string(vdim) + " components")) {
++        // the space is refused on all the processes (collective call): the
++        // other computations would call hypre on the processes where it may
++        // have failed (for instance for lack of memory on the GPU), and
++        // their collective calls might never complete
++        return EXIT_FAILURE;
++      }
+     }
+   }
+   testOperationsAfterAssembly(mesh);
+-- 
+2.43.0
+

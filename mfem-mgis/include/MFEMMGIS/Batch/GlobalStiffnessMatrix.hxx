@@ -78,7 +78,10 @@ namespace mfem_mgis::batch {
     /*!
      * \return true if the global matrices of a finite element space can be
      * assembled by this class: each row of the prolongation has a single
-     * entry, equal to one, on all the processes (collective call)
+     * entry, equal to one, on all the processes (collective call). A failure
+     * of the construction of the prolongation, for instance an allocation of
+     * hypre on the GPU, also gives false, its message being written on the
+     * standard error stream of the process.
      * \param[in] fes: finite element space
      */
     [[nodiscard]] static bool isSupported(

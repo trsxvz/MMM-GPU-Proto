@@ -1773,6 +1773,15 @@ if(MFEM_MGIS_HAVE_TFEL)
                            -P ${CMAKE_CURRENT_SOURCE_DIR}/GlobalStiffnessMatrixTest.cmake)
           set_tests_properties(GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
                                PROPERTIES RESOURCE_LOCK gpu)
+          # several processes on the GPU: one pool of hypre of the default
+          # size (4 GiB) per process does not fit in a GPU of 16 GiB with four
+          # processes (the fourth one failed, see also
+          # DirectSolverReuseAnalysisTestP3-cudss-cuda); the mesh is small
+          if(_np GREATER 1)
+            set_property(TEST GlobalStiffnessMatrixTest-np${_np}-${global_stiffness_matrix_test_device}-${_mpi}
+                         APPEND PROPERTY ENVIRONMENT
+                         MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1)
+          endif()
         endforeach()
       endif()
     endforeach()

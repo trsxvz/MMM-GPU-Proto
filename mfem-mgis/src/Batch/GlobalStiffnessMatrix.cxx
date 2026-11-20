@@ -17,6 +17,7 @@
 #include <utility>
 #include <numeric>
 #include <algorithm>
+#include <iostream>
 #include <exception>
 #include "mfem/general/forall.hpp"
 #include "mfem/general/communication.hpp"
@@ -505,6 +506,17 @@ namespace mfem_mgis::batch {
 
   bool GlobalStiffnessMatrix::isSupported(
       const mfem::ParFiniteElementSpace& fes) noexcept {
+    // a failure, for instance an allocation of hypre on the GPU, is not an
+    // unsupported space: its message is written on the standard error
+    // stream, as the error stream of mfem-mgis may be disabled on this
+    // process
+    const auto report = [&fes](const char* const what) {
+      auto rank = int{};
+      MPI_Comm_rank(fes.GetComm(), &rank);
+      std::cerr << "process " << rank
+                << ": GlobalStiffnessMatrix::isSupported: " << what
+                << std::endl;
+    };
     auto supported = int{0};
     try {
       // the construction of the prolongation is collective: it is built on
@@ -514,7 +526,11 @@ namespace mfem_mgis::batch {
                    (!getGlobalTrueDegreesOfFreedom(fes).empty()))
                       ? 1
                       : 0;
+    } catch (const std::exception& e) {
+      report(e.what());
+      supported = 0;
     } catch (...) {
+      report("unknown exception");
       supported = 0;
     }
     auto all = int{0};
