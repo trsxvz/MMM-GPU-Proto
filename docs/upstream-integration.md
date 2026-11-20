@@ -316,8 +316,8 @@ be rebuilt from the final state, by pieces of files.
 
 ## mfem-mgis-examples and mm-opera-hpc
 
-The changes of the examples (39 patches since `f256bd8`) and of
-mm-opera-hpc (53 patches since `f3fc124`) follow the contributions of
+The changes of the examples (40 patches since `f256bd8`) and of
+mm-opera-hpc (57 patches since `f3fc124`) follow the contributions of
 mfem-mgis that they use. They will be proposed after them, by topic:
 
 - options of mfem-mgis and of the behaviour in each example and each case

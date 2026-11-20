@@ -1,0 +1,82 @@
+From 7f79f4650e994f0ee3876acfecdc2ae80bf71519 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 20 Nov 2026 15:39:59 +0100
+Subject: [PATCH] =?UTF-8?q?Refer=20to=20the=20licence=20of=20M=C3=A9rope?=
+ =?UTF-8?q?=20in=20the=20scripts=20adapted=20from=20its=20examples?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The four mesh generation scripts are adapted from the examples of
+Mérope. Only 5grains.py referred to its licence, through a License.txt
+file that does not exist in this repository. They now carry the same
+reference to the licence of Mérope.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ cermet/mesh/5grains.py           | 4 +++-
+ mesh/mesh_opera.py               | 4 ++++
+ polycrystal/mesh/1000crystals.py | 4 ++++
+ polycrystal/mesh/5crystals.py    | 4 ++++
+ 4 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/cermet/mesh/5grains.py b/cermet/mesh/5grains.py
+index 4d1003e..55377ad 100644
+--- a/cermet/mesh/5grains.py
++++ b/cermet/mesh/5grains.py
+@@ -3,7 +3,9 @@
+ # Author: M. Josien
+ # Date: 31/01/2025
+ #
+-# Copyright : see License.txt
++# Adapted from the examples of Mérope.
++# Copyright : see the licence of Mérope,
++# https://github.com/MarcJos/Merope/blob/main/Licence.txt
+ #
+ # Build a .geo file to be meshed by gmsh
+ 
+diff --git a/mesh/mesh_opera.py b/mesh/mesh_opera.py
+index d486864..51ef4cf 100644
+--- a/mesh/mesh_opera.py
++++ b/mesh/mesh_opera.py
+@@ -1,3 +1,7 @@
++# Adapted from the examples of Mérope.
++# Copyright : see the licence of Mérope,
++# https://github.com/MarcJos/Merope/blob/main/Licence.txt
++
+ import sac_de_billes as sdb
+ import merope
+ 
+diff --git a/polycrystal/mesh/1000crystals.py b/polycrystal/mesh/1000crystals.py
+index f785e8e..ce305e8 100644
+--- a/polycrystal/mesh/1000crystals.py
++++ b/polycrystal/mesh/1000crystals.py
+@@ -1,6 +1,10 @@
+ # Create mesh for https://github.com/rprat-pro/mm-opera-hpc 
+ # Test case polycrystal
+ # Build a .geo file to be meshed by gmsh
++#
++# Adapted from the examples of Mérope.
++# Copyright : see the licence of Mérope,
++# https://github.com/MarcJos/Merope/blob/main/Licence.txt
+ 
+ import sac_de_billes
+ import merope
+diff --git a/polycrystal/mesh/5crystals.py b/polycrystal/mesh/5crystals.py
+index 036dd35..7f8e811 100644
+--- a/polycrystal/mesh/5crystals.py
++++ b/polycrystal/mesh/5crystals.py
+@@ -1,6 +1,10 @@
+ # Create mesh for https://github.com/rprat-pro/mm-opera-hpc 
+ # Test case polycrystal
+ # Build a .geo file to be meshed by gmsh
++#
++# Adapted from the examples of Mérope.
++# Copyright : see the licence of Mérope,
++# https://github.com/MarcJos/Merope/blob/main/Licence.txt
+ 
+ import sac_de_billes
+ import merope
+-- 
+2.43.0
+
