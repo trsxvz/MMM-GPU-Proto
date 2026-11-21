@@ -66,6 +66,23 @@ namespace mfront::generic_parallel::raja {
       int* events;
       //! \brief ordered key of the initial time step scaling factor
       unsigned long long rdt0;
+      /*!
+       * \brief object giving the function object used by a thread (see
+       * `RAJA::internal::thread_privatize`): this object, which is never
+       * modified. By default, RAJA copies it in the stack of each thread,
+       * i.e. about a kilobyte per thread for a behaviour.
+       */
+      struct privatizer {
+        //! \brief constructor
+        RAJA_HOST_DEVICE explicit privatizer(const AtomicUpdate& u) noexcept
+            : update(u) {}
+        //! \return the function object
+        RAJA_HOST_DEVICE const AtomicUpdate& get_priv() const noexcept {
+          return this->update;
+        }
+        //! \brief function object
+        const AtomicUpdate& update;
+      };
     };
 
     /*!

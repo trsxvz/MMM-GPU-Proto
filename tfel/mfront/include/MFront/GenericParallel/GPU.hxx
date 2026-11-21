@@ -35,14 +35,15 @@
 /*!
  * \brief qualifier of the function object passed by value to the kernels.
  *
- * The member functions of this object take its address. The CUDA compilers
- * then copy it in the stack of each thread (local memory), i.e. more than a
- * kilobyte per thread for a behaviour, unless the parameter is declared
- * `__grid_constant__` (compute capability 7.0 or later): the threads then
- * read it in place. The HIP compilers for AMD GPUs always read the kernel
- * parameters in place.
+ * The member functions of this object take its address. nvcc then copies it
+ * in the stack of each thread (local memory), i.e. about a kilobyte per
+ * thread for a behaviour, unless the parameter is declared
+ * `__grid_constant__`: the threads then read it in place. This qualifier is
+ * defined by the headers of CUDA 11.7 or later and requires a compute
+ * capability of 7.0 or later. clang reads this parameter in place without
+ * it, as do the HIP compilers for AMD GPUs.
  */
-#if (!defined(__HIP_PLATFORM_AMD__)) && \
+#if defined(__grid_constant__) && (!defined(__HIP_PLATFORM_AMD__)) && \
     ((!defined(__CUDA_ARCH__)) || (__CUDA_ARCH__ >= 700))
 #define MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT __grid_constant__
 #else

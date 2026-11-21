@@ -1,6 +1,6 @@
-From 7fac61e9275251263d24d8c8249f6ad895dced65 Mon Sep 17 00:00:00 2001
+From 6ac02cf4c846e47d4b77c3be72ba9d5af51f5183 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 07:19:04 +0100
+Date: Sat, 21 Nov 2026 12:46:55 +0100
 Subject: [PATCH] generic-parallel: Kokkos backend
 
 Kokkos::parallel_for in the execution space given by the

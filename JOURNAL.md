@@ -8359,3 +8359,69 @@ the fixes, the 7922 tests of TFEL pass again, then the 68 tests of the
 behaviours concerned after the last one. Each series of patches applies on
 its base and gives the tracked tree (`scripts/verify-patches.sh`).
 
+
+### 2026-11-21, copy of the function object of the kernels in each thread, by backend
+
+The function object passed to the kernels (fields, parameters, about a
+kilobyte for a behaviour) may be copied in the stack of each thread.
+Bytes copied per thread, counted in the machine code of `ImplicitNorton`
+built with each backend (RTX 5080; kernel parameters stored in the
+stack):
+
+| Backend (compiler) | copy | why |
+|---|---|---|
+| `cuda` (nvcc) | no | `__grid_constant__` |
+| `cuda`, `hip` on NVIDIA (clang 20) | no | clang reads the parameters in place |
+| `kokkos` (nvcc) | no | Kokkos 5.2 declares its parameter `__grid_constant__` |
+| `openmp` offload, `openacc` (nvc++) | no | `map(to: f)`, `copyin(f)`: one copy in device memory |
+| `raja` (nvcc) | 0.86 to 0.95 kB | `thread_privatize` of RAJA copies the body in each thread, although RAJA declares it `__grid_constant__` |
+| `arcane` (clang) | 0.82 to 0.90 kB | `privatize` of Arccore ("TODO: to be removed when old reductions are gone") |
+| `sycl` (AdaptiveCpp, JIT) | 0.88 kB | read in the PTX of the JIT cache |
+| `stlpar` (nvc++) | 1.6 to 1.7 kB | CUB kernels of NVHPC; nvc++ ignores `__grid_constant__` ("unknown attribute") |
+
+Changes of the TFEL series:
+
+- patch 3: the qualifier is only used if the headers of CUDA define it
+  (CUDA 11.7 or later). Without this condition, CUDA 11.6 or older failed
+  ("identifier `__grid_constant__` is undefined", reproduced by undefining
+  the macro); nvcc refuses it for compute capabilities older than 7.0
+  ("only allowed for architecture compute_70 or later", nvcc 12.9, sm_60),
+  already excluded. Checked: the macro is defined in the host and device
+  passes of nvcc 13.0, nvcc 12.9 and clang 20.
+- patch 6: `privatizer` of the function object of the RAJA backend (the
+  customization point of `thread_privatize`), giving the object itself,
+  which is never modified: copy 0.86 to 0.95 kB -> 60 B per thread (the
+  residue of the `cuda` backend). Time not measured.
+- not changed: the probes of the stack size of Kokkos and RAJA still copy
+  the object with nvcc, which overestimates the stack (memory reserved,
+  not time).
+
+Tests of the changed configurations, -O3 (`cuda-nvcc`, `hip-hipcc`,
+`raja`, `raja-host`, `raja-options`, behaviours and material properties):
+all pass (`results/generic-parallel-tests-2026-11-21-grid-constant-raja-O3.txt`).
+
+Worst case of `__grid_constant__` (object of 1 kB read 4 to 512 times per
+thread through an escaping address, uniform or divergent indices, 2^20
+threads): faster in the 12 cases (1.64 -> 0.004 ms for 4 uniform reads,
+19.9 -> 0.25 ms for 512 divergent reads).
+
+`reproducers/grid-constant/tfel-master.patch`: the same qualifier for the
+official master of TFEL, independent of the series: issue thelfer/tfel#1479,
+commit `b1e9d011d` on the branch of the issue (no pull request yet).
+Branch built and tested: material properties `cuda-nvcc` and `hip-hipcc`
+pass, `cuda-clang` too with CUDA 12.9 for clang (master gives clang the
+CUDA of nvcc, 13.0, which clang 20 does not support: missing
+`texture_fetch_functions.h`). The kernels of the material properties of
+master copy nothing, before or after (stack of 0 or 48 B, fully inlined):
+the qualifier is neutral on master, and matters for the behaviours.
+Merged by thelfer/tfel#1480 (`de654f30e`).
+
+thelfer/tfel#1481, merged by #1482 (`efe02e355`): the `cuda-clang` and
+`hip-clang` configurations of master gave clang the CUDA of nvcc
+(`TFEL_CLANG_CUDA_PATH`, already documented by master, did not exist). The
+variable of patch 10 of the series, with its documentation, ported to
+master; tested there with nvcc 13.0, clang 20 and CUDA 12.9 for clang:
+material properties `cuda-nvcc`, `cuda-clang`, `hip-hipcc` and
+`hip-clang-nvidia-platform` pass; without the variable, the substitutions
+are the ones of nvcc. The TFEL series, still based on `753cd76da`, will be
+rebased on this master.

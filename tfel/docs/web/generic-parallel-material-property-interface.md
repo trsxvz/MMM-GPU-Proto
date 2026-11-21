@@ -578,12 +578,13 @@ The function object evaluating the material property at the points of a
 batch, which holds the pointers to the arguments and to the output and
 their strides, is passed by value to the kernel, as a kernel parameter,
 which `CUDA` stores in constant memory. This parameter is declared
-`__grid_constant__` (devices of compute capability 7.0 or later): its
-member functions take its address, which would otherwise make each thread
-copy it in its stack (local memory). For the behaviours, this copy took
-more than a kilobyte per thread, and 29 % of the time of the integration
-of an elastic behaviour in finite strain. The `HIP` compilers for `AMD`
-GPUs read the kernel parameters in place.
+`__grid_constant__` (`CUDA` 11.7 or later, devices of compute capability
+7.0 or later): its member functions take its address, which would
+otherwise make `nvcc` copy it in the stack (local memory) of each thread.
+For the behaviours, this copy took about a kilobyte per thread, and 29 %
+of the time of the integration of an elastic behaviour in finite strain.
+`clang` and the `HIP` compilers for `AMD` GPUs read the kernel parameters
+in place.
 
 If the material property exposes parameters, those are stored in a global
 variable on the host (the CPU). For efficiency, the values of the

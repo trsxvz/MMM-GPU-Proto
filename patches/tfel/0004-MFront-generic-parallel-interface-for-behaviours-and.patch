@@ -1,6 +1,6 @@
-From e20bbe5b0f757e6a85cf2711a655881333f047a9 Mon Sep 17 00:00:00 2001
+From 9c5b18cfe7579ac3e5d73645cc2a786cfa436ae0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 07:19:04 +0100
+Date: Sat, 21 Nov 2026 12:46:55 +0100
 Subject: [PATCH] MFront: generic-parallel interface for behaviours and models
 
 Integration of a behaviour, initialize functions, post-processings,

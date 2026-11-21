@@ -1,6 +1,6 @@
-From 2ea0ddd26856169dbe3b861913c4adf08bed47cf Mon Sep 17 00:00:00 2001
+From 539b5121e58f14692985110b123e9560480beca8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 07:19:04 +0100
+Date: Sat, 21 Nov 2026 12:46:54 +0100
 Subject: [PATCH] MFront: generated code compatible with device code, numerical
  type of the generic interfaces
 

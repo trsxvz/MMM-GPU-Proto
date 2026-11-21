@@ -1,6 +1,6 @@
-From 95179f67b22a26601c35484e64edfeaf2bc4cfa9 Mon Sep 17 00:00:00 2001
+From e4a564d087bd7f9820803a17d35adac626494d72 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 07:19:04 +0100
+Date: Sat, 21 Nov 2026 12:46:55 +0100
 Subject: [PATCH] generic-parallel: runtime shared by the behaviours, the
  models and the material properties
 
@@ -13,9 +13,10 @@ Subject: [PATCH] generic-parallel: runtime shared by the behaviours, the
   memory, and the device signals an event to the host by a flag in
   pinned memory, so that a call without event performs neither copy nor
   additional synchronization.
-- function object of the CUDA kernels declared __grid_constant__: its
-  member functions take its address, which made each thread copy it in its
-  stack (more than a kilobyte per thread for a behaviour).
+- function object of the CUDA kernels declared __grid_constant__ (CUDA
+  11.7 or later): its member functions take its address, which made nvcc
+  copy it in the stack of each thread (about a kilobyte per thread for a
+  behaviour).
 - the material properties may also contain the function of the generic
   interface (generic_functions option).
 
@@ -26,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  .../MFront/GenericParallel/BackendFactory.hxx |   6 +
  .../MFront/GenericParallel/BackendOptions.hxx |  31 ++-
  .../include/MFront/GenericParallel/Batch.hxx  | 108 +++++++++-
- mfront/include/MFront/GenericParallel/GPU.hxx | 149 ++++++++-----
+ mfront/include/MFront/GenericParallel/GPU.hxx | 150 ++++++++-----
  .../MFront/GenericParallel/GPUBackend.hxx     |   6 +-
  .../MFront/GenericParallel/GPUStackSize.hxx   |  11 +-
  .../MFront/GenericParallel/MemorySpace.hxx    |  34 ++-
@@ -45,7 +46,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  .../GenericParallel/ParallelSTLBackend.cxx    |   3 +-
  mfront/src/GenericParallel/SYCLBackend.cxx    |  33 ++-
  ...nericParallelMaterialPropertyInterface.cxx | 201 ++++++++++++++----
- 24 files changed, 846 insertions(+), 186 deletions(-)
+ 24 files changed, 847 insertions(+), 186 deletions(-)
 
 diff --git a/mfront/include/MFront/GenericParallel/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/AbstractBackend.hxx
 index c2e951311..42fa39390 100644
@@ -422,7 +423,7 @@ index 16f1da48f..e25901f51 100644
     * \brief execution of the computations on a batch, as given by the
     * calling code: the policy, checked by the backend against its own policy
 diff --git a/mfront/include/MFront/GenericParallel/GPU.hxx b/mfront/include/MFront/GenericParallel/GPU.hxx
-index 2299dd42d..77de529f1 100644
+index 2299dd42d..907c2f3b9 100644
 --- a/mfront/include/MFront/GenericParallel/GPU.hxx
 +++ b/mfront/include/MFront/GenericParallel/GPU.hxx
 @@ -19,6 +19,7 @@
@@ -433,21 +434,22 @@ index 2299dd42d..77de529f1 100644
  #include <limits>
  #include <string>
  #include <cstdint>
-@@ -31,6 +32,23 @@
+@@ -31,6 +32,24 @@
  #include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
  #endif
  
 +/*!
 + * \brief qualifier of the function object passed by value to the kernels.
 + *
-+ * The member functions of this object take its address. The CUDA compilers
-+ * then copy it in the stack of each thread (local memory), i.e. more than a
-+ * kilobyte per thread for a behaviour, unless the parameter is declared
-+ * `__grid_constant__` (compute capability 7.0 or later): the threads then
-+ * read it in place. The HIP compilers for AMD GPUs always read the kernel
-+ * parameters in place.
++ * The member functions of this object take its address. nvcc then copies it
++ * in the stack of each thread (local memory), i.e. about a kilobyte per
++ * thread for a behaviour, unless the parameter is declared
++ * `__grid_constant__`: the threads then read it in place. This qualifier is
++ * defined by the headers of CUDA 11.7 or later and requires a compute
++ * capability of 7.0 or later. clang reads this parameter in place without
++ * it, as do the HIP compilers for AMD GPUs.
 + */
-+#if (!defined(__HIP_PLATFORM_AMD__)) && \
++#if defined(__grid_constant__) && (!defined(__HIP_PLATFORM_AMD__)) && \
 +    ((!defined(__CUDA_ARCH__)) || (__CUDA_ARCH__ >= 700))
 +#define MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT __grid_constant__
 +#else
@@ -457,7 +459,7 @@ index 2299dd42d..77de529f1 100644
  namespace mfront::generic_parallel::gpu {
  
    namespace internals {
-@@ -127,17 +145,21 @@ namespace mfront::generic_parallel::gpu {
+@@ -127,17 +146,21 @@ namespace mfront::generic_parallel::gpu {
       * point, and update the statistics of the batch. The number of threads
       * per block must be a multiple of the warp size.
       *
@@ -484,7 +486,7 @@ index 2299dd42d..77de529f1 100644
        const auto i = static_cast<size_type>(blockIdx.x) * blockDim.x +
                       static_cast<size_type>(threadIdx.x);
        auto failures = 0u;
-@@ -182,12 +204,43 @@ namespace mfront::generic_parallel::gpu {
+@@ -182,12 +205,43 @@ namespace mfront::generic_parallel::gpu {
              atomicMin(&(s->rdt), rdt);
            }
          }
@@ -530,7 +532,7 @@ index 2299dd42d..77de529f1 100644
       * \tparam Statistics: statistics updated by the devices
       * \tparam PointFunction: function applied at the points, which is
       * specific to a generated function
-@@ -201,7 +254,7 @@ namespace mfront::generic_parallel::gpu {
+@@ -201,7 +255,7 @@ namespace mfront::generic_parallel::gpu {
       */
      template <typename Statistics, typename PointFunction>
      auto& getStatisticsBlocks() noexcept {
@@ -539,7 +541,7 @@ index 2299dd42d..77de529f1 100644
        static auto pool = Pool{};
        return pool;
      }  // end of getStatisticsBlocks
-@@ -217,13 +270,11 @@ namespace mfront::generic_parallel::gpu {
+@@ -217,13 +271,11 @@ namespace mfront::generic_parallel::gpu {
     * kernel is launched. Otherwise, it waits for its completion.
     *
     * Without statistics given by the calling code, the statistics are held by
@@ -558,7 +560,7 @@ index 2299dd42d..77de529f1 100644
     *
     * If the function never reports an event (see the `hasEvents` method of
     * the handler), the statistics are neither combined nor reported, and no
-@@ -299,73 +350,69 @@ namespace mfront::generic_parallel::gpu {
+@@ -299,73 +351,69 @@ namespace mfront::generic_parallel::gpu {
      const auto stream = p.policy == nullptr ? Stream{} : p.policy->stream;
      const auto rdt0 = toOrderedKey(h.initial().rdt);
      // launch the kernel and return the error of the launch

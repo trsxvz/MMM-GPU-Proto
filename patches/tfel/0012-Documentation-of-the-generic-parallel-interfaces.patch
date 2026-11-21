@@ -1,6 +1,6 @@
-From 87521ba42f60408f9a838d6b28331e87de7e69c5 Mon Sep 17 00:00:00 2001
+From 19bf631c6ee0191dd60e38a400d41045fd8c5158 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 07:19:07 +0100
+Date: Sat, 21 Nov 2026 12:46:57 +0100
 Subject: [PATCH] Documentation of the generic-parallel interfaces
 
 Page of the generic-parallel interface for behaviours, additional
@@ -42,7 +42,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  docs/web/documentations.md                    |    1 +
  docs/web/generic-behaviours-interface.md      |  102 +-
  .../generic-parallel-behaviour-interface.md   | 1444 +++++++++++++++++
- ...ic-parallel-material-property-interface.md |  393 ++++-
+ ...ic-parallel-material-property-interface.md |  394 ++++-
  docs/web/initializers.md                      |   10 +-
  docs/web/install.md                           |   13 +
  docs/web/mfront-template.html                 |    2 +
@@ -51,7 +51,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  docs/web/tensors.md                           |    9 +
  docs/web/tfel-config.md                       |   94 +-
  docs/web/tfel-math.md                         |   20 +
- 42 files changed, 3689 insertions(+), 98 deletions(-)
+ 42 files changed, 3690 insertions(+), 98 deletions(-)
  create mode 100644 docs/mfront/SharedData.md
  create mode 100644 docs/web/generic-parallel-behaviour-interface.md
 
@@ -3122,7 +3122,7 @@ index 000000000..da00d716f
 +policy being copied in the generated code
 +(`check-execution-policies.sh` script, generation of the sources only).
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index 96bea2db8..5ad967efc 100644
+index 96bea2db8..2cdb65e40 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -18,7 +18,12 @@ This page describes the `generic-parallel` interface for material
@@ -3400,22 +3400,23 @@ index 96bea2db8..5ad967efc 100644
  #### Example of configuration file for `clang++`
  
  The following configuration file exemplifies how to use the `clang++`
-@@ -478,7 +577,13 @@ and \(256\).
+@@ -478,7 +577,14 @@ and \(256\).
  The function object evaluating the material property at the points of a
  batch, which holds the pointers to the arguments and to the output and
  their strides, is passed by value to the kernel, as a kernel parameter,
 -which `CUDA` stores in constant memory.
 +which `CUDA` stores in constant memory. This parameter is declared
-+`__grid_constant__` (devices of compute capability 7.0 or later): its
-+member functions take its address, which would otherwise make each thread
-+copy it in its stack (local memory). For the behaviours, this copy took
-+more than a kilobyte per thread, and 29 % of the time of the integration
-+of an elastic behaviour in finite strain. The `HIP` compilers for `AMD`
-+GPUs read the kernel parameters in place.
++`__grid_constant__` (`CUDA` 11.7 or later, devices of compute capability
++7.0 or later): its member functions take its address, which would
++otherwise make `nvcc` copy it in the stack (local memory) of each thread.
++For the behaviours, this copy took about a kilobyte per thread, and 29 %
++of the time of the integration of an elastic behaviour in finite strain.
++`clang` and the `HIP` compilers for `AMD` GPUs read the kernel parameters
++in place.
  
  If the material property exposes parameters, those are stored in a global
  variable on the host (the CPU). For efficiency, the values of the
-@@ -495,17 +600,26 @@ computes the status of its point. The statuses of the points of a warp are
+@@ -495,17 +601,26 @@ computes the status of its point. The statuses of the points of a warp are
  combined, and the statistics are only accessed, with integer atomic
  operations, if an event occurs in the warp, minimizing the cost of error
  handling. Without statistics given by the calling code, the statistics are
@@ -3452,7 +3453,7 @@ index 96bea2db8..5ad967efc 100644
  
  Before launching a kernel, the stack size of the threads is increased if
  the kernel requires it (see the `preserve_stack_size` option of the
-@@ -605,7 +719,12 @@ linking_options : {
+@@ -605,7 +720,12 @@ linking_options : {
  ~~~~
  
  The library is marked as never unloaded (`-Wl,-z,nodelete`): unloading
@@ -3466,7 +3467,7 @@ index 96bea2db8..5ad967efc 100644
  
  #### Example of configuration file for `nvc++`
  
-@@ -616,22 +735,27 @@ execute the computation of the material property on the device:
+@@ -616,22 +736,27 @@ execute the computation of the material property on the device:
  ~~~~{.json}
  interfaces_options: {
    generic-parallel: {
@@ -3498,7 +3499,7 @@ index 96bea2db8..5ad967efc 100644
  
  ### Options
  
-@@ -643,7 +767,8 @@ Two options are available:
+@@ -643,7 +768,8 @@ Two options are available:
    - `parallel_policy` (or `par`)
    - `parallel_unsequenced_policy` (or `par_unseq`, default)
  - `device_stack_size`: minimal stack size, in bytes, of the threads of the
@@ -3508,7 +3509,7 @@ index 96bea2db8..5ad967efc 100644
  
  The exact meaning of those policies are implementations defined and may
  depend on compiler flags used. See [this
-@@ -732,7 +857,8 @@ This backend has two options:
+@@ -732,7 +858,8 @@ This backend has two options:
  
  - `data_transfer_policy` (see below);
  - `device_stack_size`: minimal stack size, in bytes, of the threads of an
@@ -3518,7 +3519,7 @@ index 96bea2db8..5ad967efc 100644
  
  #### Data transfer policy
  
-@@ -747,12 +873,13 @@ available:
+@@ -747,12 +874,13 @@ available:
    both directions, so that the values between two values of a strided
    output are kept. The output, the statuses and the statistics are copied
    back once the kernel is completed: the evaluation is then synchronous
@@ -3535,7 +3536,7 @@ index 96bea2db8..5ad967efc 100644
  throws them, as the handlers of most calling codes do.
  
  > **Providing data on the device**
-@@ -765,6 +892,141 @@ throws them, as the handlers of most calling codes do.
+@@ -765,6 +893,141 @@ throws them, as the handlers of most calling codes do.
  > another queue, the user is responsible for ensuring that the data are
  > effectively copied before calling `MFront`'s generated functions.
  
@@ -3677,7 +3678,7 @@ index 96bea2db8..5ad967efc 100644
  # Tests
  
  Unlike other material property interfaces, the tests for the
-@@ -779,7 +1041,8 @@ named `generic-parallel-configurations` when invoking `cmake` as follows:
+@@ -779,7 +1042,8 @@ named `generic-parallel-configurations` when invoking `cmake` as follows:
  cmake -Dgeneric-parallel-configurations="cuda-nvcc;cuda-clang"
  ~~~~
  
@@ -3687,7 +3688,7 @@ index 96bea2db8..5ad967efc 100644
  
  Each configuration runs:
  
-@@ -802,11 +1065,17 @@ Each configuration runs:
+@@ -802,11 +1066,17 @@ Each configuration runs:
    configuration. The values are compared exactly when the computations
    are performed on the host by a compiler which neither contracts nor
    reorders the floating point operations by default (`g++`, `clang++`,
@@ -3707,7 +3708,7 @@ index 96bea2db8..5ad967efc 100644
  
  The following tests configurations are currently supported:
  
-@@ -829,6 +1098,22 @@ The following tests configurations are currently supported:
+@@ -829,6 +1099,22 @@ The following tests configurations are currently supported:
    compiler on the CPU.
  - `sycl-gpu-acpp`: compilation of `SYCL` files using the `acpp`
    compiler on the GPU using the `generic` target.
