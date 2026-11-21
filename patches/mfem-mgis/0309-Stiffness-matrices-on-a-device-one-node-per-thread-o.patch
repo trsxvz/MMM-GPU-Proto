@@ -1,0 +1,52 @@
+From eb3a804541bc5ef715c924c27c063dffc9907aac Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 21 Nov 2026 08:34:14 +0100
+Subject: [PATCH] Stiffness matrices on a device: one node per thread on AMD
+ GPUs, where the kernels of MFEM have 128 registers of 32 bits per thread and
+ groups of five nodes spill 296 of them in finite strain in double precision
+ (gfx942), against 32 with one node
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Batch/StiffnessMatricesKernels.cxx | 20 ++++++++++++++------
+ 1 file changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index a4711d652c..759bf12974 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -419,17 +419,25 @@ namespace mfem_mgis::batch::internals {
+    * node with itself). The products `K B_b`, which take most of the
+    * operations, are computed once for these blocks, whose sums take
+    * `nodes_per_thread * V * V` registers. Measured on quadratic tetrahedra
+-   * in finite strain (single precision, four points per element): assembly
+-   * 2.2 times faster than with one thread per pair of nodes, against 1.8
+-   * times with two nodes and 1.7 times with ten. A variable of the
+-   * namespace, and not of the function launching the kernel: clang can't
+-   * use the latter as the size of an array in the kernel without capturing
+-   * it.
++   * in finite strain (single precision, four points per element, NVIDIA
++   * GPU): assembly 2.2 times faster than with one thread per pair of nodes,
++   * against 1.8 times with two nodes and 1.7 times with ten. One node on
++   * AMD GPUs: the kernels of MFEM are compiled there for blocks of 1024
++   * threads, which leaves 128 registers of 32 bits to a thread, and groups
++   * of five nodes spill 296 of them in finite strain in double precision on
++   * a MI300A (`gfx942`), against 32 with one node (no spill on NVIDIA GPUs,
++   * which give 255 registers to a thread). A variable of the namespace, and
++   * not of the function launching the kernel: clang can't use the latter as
++   * the size of an array in the kernel without capturing it.
+    * \tparam blocks: blocks computed
+    */
+   template <StiffnessBlocks blocks>
+   inline constexpr std::size_t nodes_per_thread =
++#if defined(__HIP_PLATFORM_AMD__)
++      std::size_t{1};
++#else
+       blocks == StiffnessBlocks::ALL ? 5 : 1;
++#endif
+ 
+   /*!
+    * \brief launches the kernel adding the stiffness matrices of the
+-- 
+2.43.0
+

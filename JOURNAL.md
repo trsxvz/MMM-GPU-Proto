@@ -8272,7 +8272,15 @@ tetrahedra, 196,608 elements, 4 points per element as the FM):
   `MFEM_MGIS_UNROLL` (CUDA and HIP) unrolls them.
 - One thread per node `b` of an element and per group of five nodes `a`:
   the products `K B_b` are computed once for five blocks (two nodes: ×1.8,
-  five: ×2.2, ten: ×1.7).
+  five: ×2.2, ten: ×1.7). On AMD GPUs, one node per thread (patch 0309 of
+  mfem-mgis): the kernels of MFEM are compiled there for blocks of 1024
+  threads, which leaves 128 registers of 32 bits to a thread, and in
+  finite strain in double precision (`gfx942`), the groups of five nodes
+  spill 296 of them, against 32 with one node and 36 to 38 for the kernel
+  of before (nvcc: 255 registers in double precision, 128 in single
+  precision, no spill). With a bound of 256 threads (the blocks of MFEM),
+  nothing would spill (154 registers with one node, 267 with five), but
+  the loops of MFEM have no such bound: to be measured on a MI300A.
 - The positions of the entries are also used on the GPU (×1.5 in single
   precision): the measurement which had excluded them was made in double
   precision on this GPU, where the kernel is bound by its few double
