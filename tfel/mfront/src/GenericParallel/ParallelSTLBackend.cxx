@@ -2,7 +2,8 @@
  * \file   mfront/src/GenericParallel/ParallelSTLBackend.cxx
  * \brief  This file implements the C++ parallel algorithms backend
  * (`stlpar`) of the `generic-parallel` interfaces
- * \date   05/10/2026
+ * \author Thomas Helfer
+ * \date   07/04/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -41,12 +42,13 @@ namespace mfront::generic_parallel {
   }  // end of writeSpecificIncludes
 
   std::string ParallelSTLBackend::getApply() const {
-    auto apply =
-        "mfront::generic_parallel::stlpar::makeApply(" + this->execution_policy;
-    if (this->device_stack_size != 0) {
-      apply += ", " + std::to_string(this->device_stack_size);
+    if (this->device_stack_size == 0) {
+      return "mfront::generic_parallel::stlpar::makeApply(" +
+             this->execution_policy + ")";
     }
-    return apply + ")";
+    return "mfront::generic_parallel::stlpar::makeApply<" +
+           std::to_string(this->device_stack_size) + ">(" +
+           this->execution_policy + ")";
   }  // end of getApply
 
   std::string ParallelSTLBackend::getMemorySpace() const {

@@ -312,9 +312,8 @@ namespace tfel::math {
       const tvector<3u, T>& vp,
       const rotation_matrix<T>& m,
       const T eps) requires((getSpaceDimension<ST2toST2Type>() == N) &&
-                            (isAssignableTo<
-                                BinaryOperationResult<T, T, OpDiv>,
-                                numeric_type<ST2toST2Type>>())) {
+                            (isAssignableTo<BinaryOperationResult<T, T, OpDiv>,
+                                            numeric_type<ST2toST2Type>>())) {
     tfel::math::internals::StensorComputeIsotropicFunctionDerivative<N>::exe2(
         d, f, df, vp, m, eps);
   }  // end of computeIsotropicFunctionDerivative
@@ -341,9 +340,8 @@ namespace tfel::math {
       const tvector<3u, T>& vp,
       const rotation_matrix<T>& m,
       const T eps) requires((getSpaceDimension<ST2toST2Type>() == N) &&
-                            (isAssignableTo<
-                                BinaryOperationResult<T, T, OpDiv>,
-                                numeric_type<ST2toST2Type>>())) {
+                            (isAssignableTo<BinaryOperationResult<T, T, OpDiv>,
+                                            numeric_type<ST2toST2Type>>())) {
     tfel::math::internals::StensorComputeIsotropicFunctionDerivative<N>::exe(
         d, f, df, vp, m, eps);
   }
@@ -409,6 +407,13 @@ namespace tfel::math {
       return {one, one, one, zero};
     }
     return {one, one, one, zero, zero, zero};
+  }  // end of stensor<N,T>::Id
+
+  template <unsigned short N, typename T>
+  TFEL_HOST_DEVICE constexpr base_type<T> stensor<N, T>::Id(
+      const typename stensor<N, T>::size_type i) noexcept {
+    using base = base_type<T>;
+    return (i < 3) ? base{1} : base{0};
   }  // end of stensor<N,T>::Id
 
   template <typename NumType, typename T>

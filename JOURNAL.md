@@ -8152,3 +8152,173 @@ Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
   `DirectSolverReuseAnalysisTestP3-cudss-cuda`). With pools of 4 GiB, the
   test now fails in one second with the message of Umpire. Not seen on
   Adastra, where each process has its own GPU.
+
+### 2026-11-20 and 21 (night), TFEL on the official master, statistics of the GPU backends, behaviour of the polycrystal and assembly on the GPU
+
+**TFEL rebased on the official master `753cd76da`.** The official master
+merged the reviewed version of the `generic-parallel` interface of the
+material properties (thelfer/tfel#1088 and #1415). The tree of the
+prototype was merged into it, the official version being the reference for
+the material properties, then split by subject into 12 patches instead of
+139 (`patches/tfel/README.md`): device code in TFEL, generated code and
+numerical type, runtime shared by the behaviours, the models and the
+material properties, interface of the behaviours and of the models, one
+patch per additional backend (Kokkos, RAJA, OpenMP, OpenACC, Arcane), CMake
+configurations, tests, documentation.
+
+**Statistics of the synchronous computations.** The atomic operations of
+the kernels are performed in device memory, never in host memory: on AMD
+GPUs connected by PCI Express without page migration, managed memory is
+fine-grained host memory, and PCI Express only provides the atomic
+addition, exchange and compare-and-swap (the minimum of the first failure
+was silently not performed); on Windows, the host cannot access managed
+memory while kernels run. A block of statistics (`StatisticsBlock`, taken
+from a pool per device) holds the statistics in device memory and a flag in
+pinned host memory, set by a plain store by the threads which update the
+statistics: without event, no copy and no additional synchronisation.
+Same design for the `cuda`, `hip`, `sycl`, `kokkos`, `raja` and `arcane`
+backends. Measurements: trivial kernel, 4.8 µs per call with the flag as
+without statistics, 8.8 µs with the copies of the official master
+(`reproducers/statistics-blocks`); elastic behaviour, 1000 points, 27.9 µs
+per call against 29.0 µs (managed memory, former prototype) and 32.6 µs
+(copies).
+
+**Arcane backend.** `RunQueue::deviceId()` (arcaneframework/framework#2859)
+and the atomic operations of the accelerators on `unsigned long long`
+(#2861) are used: no more atomic operations of the backend, stack size and
+pool of blocks of the device of the queue. They are only on the main
+branch of Arcane: Arccore is built from its commit `51b90b8`
+(`scripts/build-arccore.sh`), checked by the CMake of TFEL. Message to the
+developers of Arcane on the cause of the defect of the atomic operations of
+HIP in unified memory (`MESSAGE-DEVS-ARCANE.txt` of the FM directory).
+
+**Runtime of the behaviours on the GPU** (RTX 5080, single precision, used
+as a proxy of the professional GPUs; batch of 2^20 points of the grain law
+of the polycrystal, `scratch/night/poly`):
+
+- The function object passed to the CUDA kernel (fields, parameters, more
+  than a kilobyte) was copied in the stack of each thread at the beginning
+  of the kernel, its member functions taking its address: it is now
+  declared `__grid_constant__` (`reproducers/grid-constant`). Integration
+  of an elastic behaviour 7.13 → 5.08 ms, of the grain law 10.70 →
+  8.34 ms, same results to the bit. HIP reads the kernel parameters in
+  place (checked on the code generated for `gfx90a`).
+- Values of a point copied with all the reads before the writes: the
+  compiler could not assume that the fields and the local arrays do not
+  overlap, and each write waited for its read (copy of the outputs 31 →
+  18 % of the stall samples).
+- `TrivialGenTypeBase::set` builds the value in place instead of copying
+  the storage of the largest type.
+- Layout of the fields (point by point or component by component): no
+  measurable difference.
+
+**Grain law of the polycrystal** (mm-opera-hpc `5b4b104`, variants A and B
+of `cases/polycrystal/law-variants`): constants per family of slip
+systems, no division in the loop over the systems (in single precision, the
+tiny slip rates of the third family, denormal numbers, sent the division
+to a slow path called with the registers saved in the stack), factors 1/2
+written as divisions by an integer (the literal `0.5` made the products of
+matrices be computed in double precision in single precision builds),
+smaller matrices in the tangent operator. 15.7 → 8.3 ms (single
+precision), same results to the rounding errors (relative differences 7e-13
+on the stresses and 2e-13 on the tangent operators in double precision).
+In double precision, the gain is smaller (instructions -5 %, local loads
+-9 %): most of the gain in single precision comes from the double
+precision literals and the denormal numbers. The linear solver TDLS only
+gives 1.6 % more (8.31 → 8.18 ms, three alternate runs), and is only
+enabled in the TFEL of the workstation: not used. Its arrowhead solver
+does not apply: the only integration variable of the law is the elastic
+strain, the slips being eliminated explicitly (dense 6 × 6 jacobian).
+Variants A and B (predictor of the volumetric strain) integrate 1.6 times
+faster than the law (fewer local Newton iterations).
+Remaining: the stack (3.4 KB per thread in single precision, 8 to 10 KB
+in double precision), and the conversion of the tangent operator to
+`DPK1_DF` (16 % of the time; a direct conversion was slower than the
+existing chain and miscompiled by nvcc 13.0 in this kernel: abandoned).
+
+**Assembly of the stiffness matrices on the GPU** (mfem-mgis
+`ae412c89d6`; `cases/assembly` now also times the ordered assembly; P2
+tetrahedra, 196,608 elements, 4 points per element as the FM):
+
+| | before | after |
+|---|---|---|
+| single precision, entries searched | 15.5 ms | 7.1 ms |
+| single precision, positions of the entries | 13.6 ms | 4.7 ms |
+| single precision, ordered assembly | 20.3 ms | 10.4 ms |
+| double precision, entries searched | 57.9 ms | 23.7 ms |
+| double precision, positions | 57.8 ms | 19.0 ms |
+
+- nvcc 13.0 no longer unrolled the loops over the constant table of the
+  non-zero entries of `B` since the growth of the kernel (modification of
+  the tangent operator, 10/11): the entries were read from the constant
+  memory at each iteration (1.1 billion instructions more per launch).
+  `MFEM_MGIS_UNROLL` (CUDA and HIP) unrolls them.
+- One thread per node `b` of an element and per group of five nodes `a`:
+  the products `K B_b` are computed once for five blocks (two nodes: ×1.8,
+  five: ×2.2, ten: ×1.7).
+- The positions of the entries are also used on the GPU (×1.5 in single
+  precision): the measurement which had excluded them was made in double
+  precision on this GPU, where the kernel is bound by its few double
+  precision units.
+- Ordered assembly, single precision (10.5 ms, Nsight Systems): matrices
+  of the elements 1.5 ms, sums of the entries of the global matrix 6.3 ms,
+  settings to zero 1.1 ms. The sums read the matrices of the elements at
+  scattered places (stored column by column, a row of the global matrix
+  uses 4 bytes per sector of 32 bytes); storing them row by row would
+  change their public layout (the one of `mfem::DenseMatrix`, also used by
+  the F-bar and Faltus kernels): not done before the measurement on a
+  MI300A shows that the ordered assembly is useful there.
+- On the MI300A of Adastra (trace of the FM, 15/11), this kernel takes 186
+  ms per assembly, 86 % of `NS::getJacobian`, about five times more per
+  element than on the RTX 5080 in single precision, whereas the kernel of
+  the global matrix, without atomic operations, sums 438 million values in
+  4 ms. Hypothesis to check on Adastra: the atomic additions in double
+  precision with the scope of the device are slow on the MI300, and the
+  ordered assembly (`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`) would be
+  faster there. The ISA of CDNA3 performs the memory atomic operations in
+  the data fabric (backed by the Infinity Cache), not in the L2 cache of
+  the chiplet as CDNA2; Böhm et al. (arXiv:2609.21681) measure on MI300A
+  that atomic operations are 90 % of the L2 requests of a finite element
+  kernel, and that accumulating locally to issue fewer of them gains 27 %
+  there and loses 13 % on MI250X.
+
+**Defects found by the validation, fixed in the series of TFEL:**
+
+- the test of the material properties with the runtime checks disabled of
+  the `openmp-host-gcc` configuration had lost, in the rebase, the define
+  selecting the backend (`-DMFRONT_GPMP_TEST_BACKEND=openmp`): it included
+  the header of the `stlpar` backend (patch of the tests);
+- the generalised Gurson-Tvergaard-Needleman and Rousselier-Tanguy-Besson
+  stress criteria, added by the official master (thelfer/tfel#1428), threw
+  an exception in device code, which nvcc and clang refuse (8 files of the
+  compilation sweeps): the invalid value is returned in device code, as by
+  the criteria of 1982 and 2002; the first one also bounded an argument
+  with `std::clamp`, whose assertion calls a host function of the standard
+  library that clang refuses in device code: `std::min` and `std::max`, as
+  the criterion of 1982 (patch of the device code);
+- the definition of the overload of `DDIF2Base::cyl2cart` for the fourth
+  order tensors, added by the official master, was not annotated as its
+  declaration: clang refused it (12 files of the clang sweep since the
+  rebase of 09/11, which had not been noted).
+
+**Validation** (workstation, RTX 5080, TFEL reinstalled from the series):
+TFEL 7922 tests, MGIS 65, mfem-mgis 399, examples 25, mm-opera-hpc 21,
+cases 143, all green (`HypreMGRTestP-gpu` timed out while the matrix used
+the GPU, and passed alone); GPU suite of mfem-mgis with the kernels forced
+277 of 279, the two tests requiring the absence of a device failing as
+expected (`PETScSolversTestP` timed out once and passed alone); `-O3`
+matrix of the `generic-parallel` tests: the 43 configurations (22 of
+behaviours, 21 of material properties) pass
+(`results/generic-parallel-tests-2026-11-21-night-O3.txt`), two of them
+when run again (`...-night-reruns-O3.txt`): the behaviours of
+`hip-clang-nvidia-platform`, which failed while the GPU tests of
+mfem-mgis were running, at the rotation of the blocks of
+`OrthotropicTangentOperatorBlocksTest` (status -7), and the material
+properties of `openmp-host-gcc`, after the fix of their test;
+compilation sweeps with nvcc and clang, after the fixes: 596 OK each
+(588 and 576 before them; 584 and 572 on 10/11, 12 files having been
+added upstream), 65 INVALID, 4 FRAGMENT and 1 USER_CODE as before. After
+the fixes, the 7922 tests of TFEL pass again, then the 68 tests of the
+behaviours concerned after the last one. Each series of patches applies on
+its base and gives the tracked tree (`scripts/verify-patches.sh`).
+

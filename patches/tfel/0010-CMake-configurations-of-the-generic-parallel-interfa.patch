@@ -1,0 +1,736 @@
+From 345061303f6ad76ddbb2e835d95a764b3609ffd9 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 21 Nov 2026 07:19:05 +0100
+Subject: [PATCH] CMake: configurations of the generic-parallel interfaces
+
+Detection of the compilers and of the libraries of the configurations
+(Kokkos, RAJA, Arccore, nvc++, clang CUDA path), flags of the
+configuration files, components of tfel-check, legacy value of the
+enable-sanitize-options option.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt                                |   2 +
+ cmake/modules/sanitizers.cmake                |   9 +
+ cmake/modules/tfel.cmake                      | 407 +++++++++++++++++-
+ mfront/configuration-files/CMakeLists.txt     |  30 ++
+ .../config-cuda-clang.json                    |   8 +-
+ .../configuration-files/config-cuda-nvcc.json |   2 +-
+ .../config-hip-clang-nvidia-platform.json     |   6 +-
+ .../configuration-files/config-hip-hipcc.json |   2 +-
+ .../config-stlpar-parunseq-gcc.json           |   2 +-
+ .../config-stlpar-parunseq-icpx.json          |   2 +-
+ .../config-stlpar-parunseq-nvhpc-gpu.json     |   9 +-
+ .../config-sycl-default-acpp.json             |   3 +-
+ .../config-sycl-default-icpx.json             |   2 +-
+ 13 files changed, 452 insertions(+), 32 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7f4fee6cc..8267fc55c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -419,6 +419,8 @@ if(enable-tdls)
+   find_package(tdls REQUIRED)
+   option(enable-tdls-as-default-linear-system-solver-in-mfront
+          "use TDLS as the default linear system solver in MFront" OFF)
++  # tests of the test-suite requiring the TDLS linear system solver
++  list(APPEND tfel-check-components "mfront::linear_system_solver::tdls")
+ endif(enable-tdls)
+ 
+ # cadna
+diff --git a/cmake/modules/sanitizers.cmake b/cmake/modules/sanitizers.cmake
+index 82d38a646..b33681989 100644
+--- a/cmake/modules/sanitizers.cmake
++++ b/cmake/modules/sanitizers.cmake
+@@ -43,6 +43,15 @@ if((enable-sanitize-options STREQUAL "ON") OR
+     "'enable-<name>-sanitizer' option.")
+ endif()
+ 
++# legacy support: a false boolean value, kept in the cache of a build
++# directory configured with the former option, means no sanitizer
++if((enable-sanitize-options STREQUAL "OFF") OR
++   (enable-sanitize-options STREQUAL "FALSE") OR
++   (enable-sanitize-options STREQUAL "NO"))
++  set(enable-sanitize-options "" CACHE STRING
++      "list of the sanitizers to enable (e.g. address;undefined). Available sanitizers depend on the compiler"
++      FORCE)
++endif()
+ set(enable-sanitize-options "" CACHE STRING
+     "list of the sanitizers to enable (e.g. address;undefined). Available sanitizers depend on the compiler")
+ 
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index abfe6a1f6..390bb555f 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -560,7 +560,14 @@ set(_tfel-generic-parallel_supported_configurations
+ #    "stlpar-parunseq-acpp-generic"
+     "sycl-default-icpx"
+     "sycl-default-acpp"
+-    "sycl-gpu-acpp")
++    "sycl-gpu-acpp"
++    "kokkos"
++    "raja"
++    "arcane"
++    "openmp-host-gcc"
++    "openmp-offload-nvhpc-gpu"
++    "openacc-nvhpc-gpu"
++    "openacc-nvhpc-multicore")
+ 
+ foreach(conf ${generic-parallel-configurations})
+   if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
+@@ -571,6 +578,8 @@ foreach(conf ${generic-parallel-configurations})
+   if(NOT ${conf} STREQUAL "hip-clang")
+     list(APPEND tfel-check-components
+          "mfront::material_property::generic-parallel_interface::supported_configuration::${conf}")
++    list(APPEND tfel-check-components
++         "mfront::behaviour::generic-parallel_interface::supported_configuration::${conf}")
+   endif()
+ endforeach()
+ 
+@@ -604,15 +613,23 @@ if(TFEL_REQUIRES_HIP)
+  if(HIP_PLATFORM STREQUAL "nvidia")
+    set(TFEL_REQUIRES_CUDA ON)
+    # hipcc calls nvcc
+-   set(TFEL_HIPCC_FLAGS
+-       "-x cu --compiler-options=-fPIC --expt-relaxed-constexpr -diag-suppress 20012")
++   set(TFEL_HIPCC_FLAGS "-x cu -arch=native --compiler-options=-fPIC --expt-relaxed-constexpr -diag-suppress 20012,20208,2810,3189 -diag-error 20011,20014")
+    if("hip-clang" IN_LIST generic-parallel-configurations)
+     list(APPEND tfel-check-components
+-         "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
++         "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform"
++         "mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
+    endif("hip-clang" IN_LIST generic-parallel-configurations)
+  elseif(HIP_PLATFORM STREQUAL "amd")
+-   # hipcc calls clang
+-   set(TFEL_HIPCC_FLAGS "-fPIC")
++   # hipcc calls clang. The kernels of the generic-parallel interface are
++   # launched by blocks of 64 threads (number_of_threads_per_block of
++   # config-hip-hipcc.json). Without launch bounds, clang compiles them for
++   # blocks of up to 1024 threads, which limits the registers of each
++   # thread: the integrators of the behaviours with large states then spill
++   # most of them into the scratch memory (about 10 kB per thread for a
++   # single crystal behaviour with 24 slip systems, integrated 8.7 times
++   # slower on a MI300A). This bound must not be lower than the number of
++   # threads per block of the configuration.
++   set(TFEL_HIPCC_FLAGS "-fPIC --gpu-max-threads-per-block=64")
+    if("hip-clang" IN_LIST generic-parallel-configurations)
+      message(WARNING "the 'hip-clang' configuration only targets the NVIDIA "
+              "platform: on the AMD platform, it installs no configuration "
+@@ -623,6 +640,134 @@ if(TFEL_REQUIRES_HIP)
+  endif()
+ endif(TFEL_REQUIRES_HIP)
+ 
++# features of RAJA for the `raja` configuration, read in its configuration
++# header (`RAJA_ENABLE_CUDA`, `RAJA_ENABLE_HIP`, `RAJA_ENABLE_OPENMP`): the
++# generated libraries are compiled by nvcc if RAJA is built with CUDA
++if(_tfel-enable-generic-parallel-raja-configuration)
++  find_package(RAJA REQUIRED)
++  get_target_property(_raja_include_directories RAJA
++                      INTERFACE_INCLUDE_DIRECTORIES)
++  set(_raja_features)
++  foreach(_directory IN LISTS _raja_include_directories)
++    if(EXISTS "${_directory}/RAJA/config.hpp")
++      file(STRINGS "${_directory}/RAJA/config.hpp" _raja_directory_features
++           REGEX "^#define RAJA_ENABLE_(CUDA|CLANG_CUDA|HIP|OPENMP) *$")
++      list(APPEND _raja_features ${_raja_directory_features})
++    endif()
++  endforeach()
++  string(REGEX REPLACE "#define RAJA_ENABLE_([A-Z_]+) *" "\\1"
++         _raja_features "${_raja_features}")
++  list(REMOVE_DUPLICATES _raja_features)
++  if(("HIP" IN_LIST _raja_features) OR ("CLANG_CUDA" IN_LIST _raja_features))
++    message(FATAL_ERROR "the 'raja' configuration does not support a RAJA "
++            "built with HIP or with clang as CUDA compiler")
++  endif()
++  if("CUDA" IN_LIST _raja_features)
++    set(TFEL_REQUIRES_CUDA ON)
++  endif()
++  message(STATUS "RAJA features: ${_raja_features}")
++endif()
++
++# Arccore, the core component of the Arcane framework, for the `arcane`
++# configuration. Arccore is not found by `find_package`, since its
++# configuration file enables the CUDA language in the calling project: its
++# headers and its libraries are searched in `Arccore_ROOT`, and its
++# accelerator mode is read in its configuration header: with CUDA, the
++# generated libraries are compiled by clang as a CUDA compiler; with HIP, by
++# hipcc on the AMD platform; with SYCL, by the SYCL compiler that built
++# Arccore (`TFEL_ARCANE_SYCL_COMPILER`: AdaptiveCpp or the compiler of
++# oneAPI). The kernels of Arccore are only compiled for HIP by the HIP
++# language of clang (`__HIP__`), which only targets AMD GPUs: an Arccore
++# built with HIP on the NVIDIA platform is not supported. With CUDA and HIP,
++# the code is compiled for the GPU architectures given by
++# `TFEL_ARCANE_GPU_ARCHITECTURES`: `native` (the GPU of the machine) by
++# default, to be given on a machine without GPU (for instance `sm_90` or
++# `gfx90a`).
++if(_tfel-enable-generic-parallel-arcane-configuration)
++  find_path(TFEL_ARCCORE_INCLUDE_DIR NAMES arccore/arccore_config.h
++            HINTS "${Arccore_ROOT}" "$ENV{Arccore_ROOT}"
++            PATH_SUFFIXES include REQUIRED)
++  find_library(TFEL_ARCCORE_ACCELERATOR_LIBRARY NAMES arccore_accelerator
++               HINTS "${Arccore_ROOT}" "$ENV{Arccore_ROOT}"
++               PATH_SUFFIXES lib lib64 REQUIRED)
++  file(STRINGS "${TFEL_ARCCORE_INCLUDE_DIR}/arccore/arccore_config.h"
++       _arccore_accelerator REGEX "^#define ARCCORE_HAS_(CUDA|HIP|SYCL) *$")
++  string(REGEX REPLACE "#define ARCCORE_HAS_([A-Z]+) *" "\\1"
++         TFEL_ARCCORE_ACCELERATOR "${_arccore_accelerator}")
++  if(NOT TFEL_ARCCORE_ACCELERATOR MATCHES "^(CUDA|HIP|SYCL)$")
++    message(FATAL_ERROR "the 'arcane' configuration requires Arccore built "
++            "with CUDA, HIP or SYCL")
++  endif()
++  # the generated libraries and the calling code share the same instance of
++  # Arccore (runtimes and allocators registered in global variables)
++  if(NOT TFEL_ARCCORE_ACCELERATOR_LIBRARY MATCHES "\\.(so|dylib)$")
++    message(FATAL_ERROR "the 'arcane' configuration requires Arccore built "
++            "as shared libraries")
++  endif()
++  # version of Arccore, read in its version header: the backend is tested
++  # with the Arccore 2.8.0 of the main branch of Arcane (commit 51b90b8)
++  set(_arccore_version_header "${TFEL_ARCCORE_INCLUDE_DIR}/arccore_version.h")
++  if(NOT EXISTS "${_arccore_version_header}")
++    message(FATAL_ERROR "the version header of Arccore "
++            "'${_arccore_version_header}' is missing")
++  endif()
++  file(STRINGS "${_arccore_version_header}" _arccore_version_lines
++       REGEX "^#define ARCCORE_VERSION_(MAJOR|MINOR|RELEASE) +[0-9]+")
++  set(TFEL_ARCCORE_VERSION "")
++  foreach(_arccore_component MAJOR MINOR RELEASE)
++    string(REGEX MATCH "ARCCORE_VERSION_${_arccore_component} +([0-9]+)"
++           _arccore_match "${_arccore_version_lines}")
++    if(NOT _arccore_match)
++      message(FATAL_ERROR "unable to read the version of Arccore in "
++              "'${_arccore_version_header}'")
++    endif()
++    list(APPEND TFEL_ARCCORE_VERSION "${CMAKE_MATCH_1}")
++  endforeach()
++  list(JOIN TFEL_ARCCORE_VERSION "." TFEL_ARCCORE_VERSION)
++  if(TFEL_ARCCORE_VERSION VERSION_LESS "2.8.0")
++    message(FATAL_ERROR "the 'arcane' configuration requires Arccore 2.8.0 "
++            "or later (Arcane 4.1.16), found ${TFEL_ARCCORE_VERSION}")
++  endif()
++  # `RunQueue::deviceId()` (PR #2859 of Arcane) and the atomic operations of
++  # the accelerators on `unsigned long long` (PR #2861) are required. They
++  # are in the main branch of Arcane since 16/11/2026, without a new version
++  # number: their declarations are looked for in the headers of Arccore
++  file(STRINGS
++       "${TFEL_ARCCORE_INCLUDE_DIR}/arccore/common/accelerator/RunQueue.h"
++       _arccore_device_id REGEX "DeviceId deviceId\\(\\) const")
++  file(STRINGS "${TFEL_ARCCORE_INCLUDE_DIR}/arccore/accelerator/Atomic.h"
++       _arccore_atomic REGEX "std::same_as<T, unsigned long long>")
++  if((NOT _arccore_device_id) OR (NOT _arccore_atomic))
++    message(FATAL_ERROR "the 'arcane' configuration requires an Arccore "
++            "providing RunQueue::deviceId() and the atomic operations of the "
++            "accelerators on unsigned long long (main branch of Arcane from "
++            "commit 51b90b8, 16/11/2026)")
++  endif()
++  message(STATUS "Arccore version: ${TFEL_ARCCORE_VERSION} "
++          "(${TFEL_ARCCORE_ACCELERATOR})")
++  set(TFEL_ARCANE_GPU_ARCHITECTURES "native" CACHE STRING
++      "GPU architectures of the 'arcane' configuration with CUDA or HIP")
++  if(TFEL_ARCCORE_ACCELERATOR STREQUAL "CUDA")
++    set(TFEL_REQUIRES_CUDA ON)
++    define_tfel_cxx_compiler("clang++")
++  elseif(TFEL_ARCCORE_ACCELERATOR STREQUAL "HIP")
++    if(NOT HIP_PLATFORM)
++      set(HIP_PLATFORM "$ENV{HIP_PLATFORM}")
++    endif()
++    if(HIP_PLATFORM STREQUAL "nvidia")
++      message(FATAL_ERROR "the 'arcane' configuration does not support HIP "
++              "on the NVIDIA platform (HIP_PLATFORM=nvidia)")
++    endif()
++    if(NOT TFEL_HIPCC_COMPILER)
++      find_program(TFEL_HIPCC_COMPILER NAMES "hipcc" REQUIRED)
++    endif()
++  else()
++    if(NOT TFEL_ARCANE_SYCL_COMPILER)
++      find_program(TFEL_ARCANE_SYCL_COMPILER NAMES "acpp" "icpx" REQUIRED)
++    endif()
++  endif()
++endif()
++
+ if(TFEL_REQUIRES_CUDA)
+   find_package(CUDAToolkit REQUIRED)
+   if(NOT CMAKE_CUDA_COMPILER)
+@@ -638,18 +783,105 @@ if(TFEL_REQUIRES_CUDA)
+   endif(CUDAToolkit_LIBRARY_ROOT)  
+   add_tfel_substitution(TFEL_CUDA_PATH "${TFEL_CUDA_PATH}")
+   add_tfel_substitution(TFEL_CUDA_LIBRARY_DIR "${CUDAToolkit_LIBRARY_DIR}")
++  # CUDA used by clang (`cuda-clang` and `hip-clang` configurations): clang
++  # only supports the versions of CUDA released before it, so that another
++  # CUDA than the one of nvcc may be required.
++  set(TFEL_CLANG_CUDA_PATH "${TFEL_CUDA_PATH}" CACHE PATH
++      "CUDA used by clang in the cuda-clang and hip-clang configurations")
++  if(TFEL_CLANG_CUDA_PATH STREQUAL TFEL_CUDA_PATH)
++    set(_tfel_clang_cuda_library_dir "${CUDAToolkit_LIBRARY_DIR}")
++  else()
++    set(_tfel_clang_cuda_library_dir "${TFEL_CLANG_CUDA_PATH}/lib64")
++  endif()
++  add_tfel_substitution(TFEL_CLANG_CUDA_PATH "${TFEL_CLANG_CUDA_PATH}")
++  add_tfel_substitution(TFEL_CLANG_CUDA_LIBRARY_DIR
++                        "${_tfel_clang_cuda_library_dir}")
++endif()
++
++if(_tfel-enable-generic-parallel-arcane-configuration)
++  # the generated sources are compiled by clang as a CUDA compiler, with
++  # the CUDA of the `cuda-clang` configuration, and the libraries linked
++  # with the shared libraries of Arccore and with the shared CUDA runtime,
++  # as Arccore; or by hipcc as HIP sources (`-x hip`), hipcc linking the HIP
++  # runtime; or by the SYCL compiler as C++ sources (`-x c++`, the generated
++  # source being a `.cu` file), the compiler linking the SYCL runtime. The
++  # code of the behaviours is also executed on the host by the `Thread` and
++  # `Sequential` queues: with CUDA and HIP, the device functions are
++  # excluded from the overloads in the compilation for the host, so that an
++  # unqualified call to `max` or `min` in the code of a behaviour (`using
++  # namespace std`) is resolved to the function of the standard library. The
++  # compilation for the device keeps the default resolution: otherwise, the
++  # constant expressions of `<format>` would select deleted functions. The
++  # headers of Arccore are system headers: their deprecation warnings are
++  # ignored.
++  get_filename_component(_arccore_library_directory
++                         "${TFEL_ARCCORE_ACCELERATOR_LIBRARY}" DIRECTORY)
++  if(TFEL_ARCCORE_ACCELERATOR STREQUAL "CUDA")
++    set(TFEL_ARCANE_CXX_COMPILER "${TFEL_CLANGXX_COMPILER}")
++    set(_arcane_flags "-x" "cuda" "--cuda-compile-host-device"
++        "--cuda-path=${TFEL_CLANG_CUDA_PATH}")
++    foreach(_arcane_architecture IN LISTS TFEL_ARCANE_GPU_ARCHITECTURES)
++      list(APPEND _arcane_flags "--cuda-gpu-arch=${_arcane_architecture}")
++    endforeach()
++    set(_arcane_runtime_flags
++        "-L${_tfel_clang_cuda_library_dir}"
++        "-Wl,-rpath,${_tfel_clang_cuda_library_dir}" "-lcudart")
++  elseif(TFEL_ARCCORE_ACCELERATOR STREQUAL "HIP")
++    set(TFEL_ARCANE_CXX_COMPILER "${TFEL_HIPCC_COMPILER}")
++    set(_arcane_flags "-x" "hip")
++    foreach(_arcane_architecture IN LISTS TFEL_ARCANE_GPU_ARCHITECTURES)
++      list(APPEND _arcane_flags "--offload-arch=${_arcane_architecture}")
++    endforeach()
++    set(_arcane_runtime_flags)
++  else()
++    set(TFEL_ARCANE_CXX_COMPILER "${TFEL_ARCANE_SYCL_COMPILER}")
++    set(_arcane_flags "-x" "c++")
++    set(_arcane_runtime_flags)
++    get_filename_component(_arcane_sycl_compiler_name
++                           "${TFEL_ARCANE_SYCL_COMPILER}" NAME)
++    if(_arcane_sycl_compiler_name STREQUAL "icpx")
++      list(APPEND _arcane_flags "-fsycl")
++      list(APPEND _arcane_runtime_flags "-fsycl")
++    endif()
++  endif()
++  if(NOT TFEL_ARCCORE_ACCELERATOR STREQUAL "SYCL")
++    list(APPEND _arcane_flags
++         "-Xarch_host" "-fgpu-exclude-wrong-side-overloads")
++  endif()
++  list(APPEND _arcane_flags "-fPIC")
++  # a standard system directory is not given (`-isystem /usr/include` would
++  # break the `#include_next` directives of the standard library, see HIP)
++  if(NOT "${TFEL_ARCCORE_INCLUDE_DIR}" IN_LIST
++     CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES)
++    list(APPEND _arcane_flags "-isystem" "${TFEL_ARCCORE_INCLUDE_DIR}")
++  endif()
++  set(_arcane_linker_flags
++      "-L${_arccore_library_directory}"
++      "-Wl,-rpath,${_arccore_library_directory}"
++      "-larccore_accelerator" "-larccore_concurrency" "-larccore_common"
++      "-larccore_trace" "-larccore_base" ${_arcane_runtime_flags})
++  list(JOIN _arcane_flags " " TFEL_ARCANE_CXX_FLAGS)
++  list(JOIN _arcane_linker_flags " " TFEL_ARCANE_LINKER_FLAGS)
++  add_tfel_substitution(TFEL_ARCANE_CXX_COMPILER "${TFEL_ARCANE_CXX_COMPILER}")
++  add_tfel_substitution(TFEL_ARCANE_CXX_FLAGS "${TFEL_ARCANE_CXX_FLAGS}")
++  add_tfel_substitution(TFEL_ARCANE_LINKER_FLAGS "${TFEL_ARCANE_LINKER_FLAGS}")
++  message(STATUS "Arcane flags: ${TFEL_ARCANE_CXX_FLAGS}")
++  message(STATUS "Arcane linker flags: ${TFEL_ARCANE_LINKER_FLAGS}")
+ endif()
+ 
+ if(TFEL_REQUIRES_HIP)
+   find_package(hip REQUIRED)
+   set(TFEL_HIP_INCLUDES "${HIP_INCLUDE_DIR}")
+   add_tfel_substitution(TFEL_HIP_INCLUDE_DIR "${TFEL_HIP_INCLUDES}")
+-  # The headers of HIP are given with `-I`, not `-isystem`: when HIP is
+-  # installed in `/usr`, `-isystem /usr/include` would place `/usr/include`
+-  # before the headers of the C++ standard library and break their
+-  # `#include_next` directives.
++  # The configurations based on clang give this directory with `-I`, not
++  # `-isystem`. When HIP is installed in `/usr`, `-isystem /usr/include`
++  # would place `/usr/include` before the headers of the C++ standard
++  # library and break their `#include_next` directives, whereas the
++  # compilers ignore `-I` for a standard system directory.
+   if(HIP_PLATFORM STREQUAL "nvidia")
+-    # hipcc does not give the headers of HIP to nvcc
++    # On the NVIDIA platform, hipcc does not give the headers of HIP to
++    # nvcc: they must be given if they are not in a directory searched by
++    # default (HIP installed by spack, for instance).
+     if(NOT "${HIP_INCLUDE_DIR}" IN_LIST CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES)
+       string(APPEND TFEL_HIPCC_FLAGS " -I${HIP_INCLUDE_DIR}")
+     endif()
+@@ -663,13 +895,17 @@ if((_tfel-enable-generic-parallel-cuda-clang-configuration) OR
+   define_tfel_cxx_compiler("clang++")
+ endif()
+ 
+-if(_tfel-enable-generic-parallel-stlpar-parunseq-gcc-configuration)
++if((_tfel-enable-generic-parallel-stlpar-parunseq-gcc-configuration) OR
++   (_tfel-enable-generic-parallel-openmp-host-gcc-configuration))
+   define_tfel_cxx_compiler("g++")
+-endif(_tfel-enable-generic-parallel-stlpar-parunseq-gcc-configuration)
++endif()
+ 
+-if(_tfel-enable-generic-parallel-stlpar-parunseq-nvhpc-gpu-configuration)
++if((_tfel-enable-generic-parallel-stlpar-parunseq-nvhpc-gpu-configuration) OR
++   (_tfel-enable-generic-parallel-openmp-offload-nvhpc-gpu-configuration) OR
++   (_tfel-enable-generic-parallel-openacc-nvhpc-gpu-configuration) OR
++   (_tfel-enable-generic-parallel-openacc-nvhpc-multicore-configuration))
+   define_tfel_cxx_compiler("nvhpc")
+-endif(_tfel-enable-generic-parallel-stlpar-parunseq-nvhpc-gpu-configuration)
++endif()
+ 
+ if((_tfel-enable-generic-parallel-stlpar-parunseq-icpx-configuration) OR
+    (_tfel-enable-generic-parallel-sycl-default-icpx-configuration))
+@@ -681,3 +917,144 @@ if((_tfel-enable-generic-parallel-stlpar-parunseq-acpp-generic-configuration) OR
+    (_tfel-enable-generic-parallel-sycl-gpu-acpp-configuration))
+   define_tfel_cxx_compiler("acpp")
+ endif()
++
++if(_tfel-enable-generic-parallel-kokkos-configuration)
++  # the generated libraries are compiled with the compiler and the flags
++  # used to build Kokkos, extracted from the imported targets. Kokkos
++  # must be built as a shared library, without relocatable device code.
++  # The `separable_compilation` component prevents Kokkos from redirecting
++  # the compilation of TFEL to its compiler.
++  find_package(Kokkos REQUIRED COMPONENTS separable_compilation)
++  get_target_property(_kokkos_compile_options Kokkos::kokkoscore
++                      INTERFACE_COMPILE_OPTIONS)
++  get_target_property(_kokkos_link_options Kokkos::kokkoscore
++                      INTERFACE_LINK_OPTIONS)
++  get_target_property(_kokkos_include_directories Kokkos::kokkoscore
++                      INTERFACE_INCLUDE_DIRECTORIES)
++  get_target_property(_kokkos_library Kokkos::kokkoscore LOCATION)
++  # the options are given by generator expressions selecting the C++
++  # language, which may contain several options separated by semicolons
++  string(REGEX REPLACE "\\$<\\$<COMPILE_LANGUAGE:CXX>:([^>]*)>" "\\1"
++         _kokkos_flags "${_kokkos_compile_options}")
++  string(REGEX REPLACE "\\$<\\$<LINK_LANGUAGE:CXX>:([^>]*)>" "\\1"
++         _kokkos_linker_flags "${_kokkos_link_options}")
++  list(REMOVE_ITEM _kokkos_flags "")
++  list(REMOVE_ITEM _kokkos_linker_flags "")
++  foreach(_directory IN LISTS _kokkos_include_directories)
++    list(APPEND _kokkos_flags "-I${_directory}")
++  endforeach()
++  if(Kokkos_ENABLE_OPENMP)
++    find_package(OpenMP REQUIRED COMPONENTS CXX)
++    list(APPEND _kokkos_flags ${OpenMP_CXX_FLAGS})
++    list(APPEND _kokkos_linker_flags ${OpenMP_CXX_FLAGS})
++  endif()
++  if(Kokkos_CXX_COMPILER MATCHES "nvcc_wrapper$")
++    # same host compiler as TFEL
++    list(APPEND _kokkos_flags "-ccbin" "${CMAKE_CXX_COMPILER}")
++    list(APPEND _kokkos_linker_flags "-ccbin" "${CMAKE_CXX_COMPILER}")
++  endif()
++  if(Kokkos_ENABLE_CUDA)
++    # Kokkos uses the shared CUDA runtime: the generated libraries and the
++    # calling code must use the same one
++    list(APPEND _kokkos_linker_flags "-cudart" "shared"
++         "-L${CUDAToolkit_LIBRARY_DIR}" "-Wl,-rpath,${CUDAToolkit_LIBRARY_DIR}")
++  endif()
++  get_filename_component(_kokkos_library_directory "${_kokkos_library}" DIRECTORY)
++  list(APPEND _kokkos_linker_flags
++       "-L${_kokkos_library_directory}" "-Wl,-rpath,${_kokkos_library_directory}"
++       "-lkokkoscore")
++  list(JOIN _kokkos_flags " " TFEL_KOKKOS_CXX_FLAGS)
++  list(JOIN _kokkos_linker_flags " " TFEL_KOKKOS_LINKER_FLAGS)
++  add_tfel_substitution(TFEL_KOKKOS_CXX_COMPILER "${Kokkos_CXX_COMPILER}")
++  add_tfel_substitution(TFEL_KOKKOS_CXX_FLAGS "${TFEL_KOKKOS_CXX_FLAGS}")
++  add_tfel_substitution(TFEL_KOKKOS_LINKER_FLAGS "${TFEL_KOKKOS_LINKER_FLAGS}")
++  message(STATUS "Kokkos compiler: ${Kokkos_CXX_COMPILER}")
++  message(STATUS "Kokkos flags: ${TFEL_KOKKOS_CXX_FLAGS}")
++  message(STATUS "Kokkos linker flags: ${TFEL_KOKKOS_LINKER_FLAGS}")
++endif()
++
++if(_tfel-enable-generic-parallel-raja-configuration)
++  # the generated libraries are compiled by nvcc if RAJA is built with CUDA
++  # (extended lambdas, same host compiler as TFEL, shared CUDA runtime, as
++  # the calling code), by the C++ compiler of TFEL otherwise, with the
++  # include directories of RAJA and camp. They are linked with the shared
++  # library of RAJA, and with the one of camp if camp is a shared library
++  # (a static camp, the default, is included in the library of RAJA).
++  get_target_property(_camp_include_directories camp
++                      INTERFACE_INCLUDE_DIRECTORIES)
++  # the generated libraries and the calling code share the same instance of
++  # RAJA, as for Kokkos
++  get_target_property(_raja_type RAJA TYPE)
++  if(NOT _raja_type STREQUAL "SHARED_LIBRARY")
++    message(FATAL_ERROR "the 'raja' configuration requires RAJA built as a "
++            "shared library")
++  endif()
++  get_target_property(_raja_library RAJA LOCATION)
++  get_filename_component(_raja_library_directory "${_raja_library}"
++                         DIRECTORY)
++  set(_raja_flags)
++  set(_raja_linker_flags)
++  if("CUDA" IN_LIST _raja_features)
++    # MFront gives `-fPIC` to the compiler of the C++ sources: nvcc forwards
++    # the options it does not know to the host compiler, as with CMake. The
++    # sources shared with the `generic` interface are also compiled by nvcc:
++    # the calls to host functions from host and device functions are not
++    # errors (`-diag-error 20011,20014` of the `cuda-nvcc` configuration), as
++    # with Kokkos.
++    set(TFEL_RAJA_CXX_COMPILER "${TFEL_NVCC_COMPILER}")
++    list(APPEND _raja_flags "-forward-unknown-to-host-compiler"
++         "-x" "cu" "-arch=native" "--extended-lambda"
++         "--expt-relaxed-constexpr" "-diag-suppress" "20012,20208,2810,3189"
++         "-ccbin" "${CMAKE_CXX_COMPILER}")
++    list(APPEND _raja_linker_flags "-ccbin" "${CMAKE_CXX_COMPILER}"
++         "-cudart" "shared" "-L${CUDAToolkit_LIBRARY_DIR}"
++         "-Xlinker" "-rpath,${CUDAToolkit_LIBRARY_DIR}"
++         "-L${_raja_library_directory}"
++         "-Xlinker" "-rpath,${_raja_library_directory}")
++  else()
++    set(TFEL_RAJA_CXX_COMPILER "${CMAKE_CXX_COMPILER}")
++    list(APPEND _raja_flags "-fPIC")
++    list(APPEND _raja_linker_flags "-L${_raja_library_directory}"
++         "-Wl,-rpath,${_raja_library_directory}")
++  endif()
++  if("OPENMP" IN_LIST _raja_features)
++    find_package(OpenMP REQUIRED COMPONENTS CXX)
++    separate_arguments(_raja_openmp_flags UNIX_COMMAND "${OpenMP_CXX_FLAGS}")
++    foreach(_flag IN LISTS _raja_openmp_flags)
++      if("CUDA" IN_LIST _raja_features)
++        list(APPEND _raja_flags "-Xcompiler=${_flag}")
++        list(APPEND _raja_linker_flags "-Xcompiler=${_flag}")
++      else()
++        list(APPEND _raja_flags "${_flag}")
++        list(APPEND _raja_linker_flags "${_flag}")
++      endif()
++    endforeach()
++  endif()
++  foreach(_directory IN LISTS _raja_include_directories
++                              _camp_include_directories)
++    list(APPEND _raja_flags "-I${_directory}")
++  endforeach()
++  list(REMOVE_DUPLICATES _raja_flags)
++  list(APPEND _raja_linker_flags "-lRAJA")
++  get_target_property(_camp_type camp TYPE)
++  if(_camp_type STREQUAL "SHARED_LIBRARY")
++    get_target_property(_camp_library camp LOCATION)
++    get_filename_component(_camp_library_directory "${_camp_library}"
++                           DIRECTORY)
++    if("CUDA" IN_LIST _raja_features)
++      list(APPEND _raja_linker_flags "-L${_camp_library_directory}"
++           "-Xlinker" "-rpath,${_camp_library_directory}" "-lcamp")
++    else()
++      list(APPEND _raja_linker_flags "-L${_camp_library_directory}"
++           "-Wl,-rpath,${_camp_library_directory}" "-lcamp")
++    endif()
++  endif()
++  list(JOIN _raja_flags " " TFEL_RAJA_CXX_FLAGS)
++  list(JOIN _raja_linker_flags " " TFEL_RAJA_LINKER_FLAGS)
++  add_tfel_substitution(TFEL_RAJA_CXX_COMPILER "${TFEL_RAJA_CXX_COMPILER}")
++  add_tfel_substitution(TFEL_RAJA_CXX_FLAGS "${TFEL_RAJA_CXX_FLAGS}")
++  add_tfel_substitution(TFEL_RAJA_LINKER_FLAGS "${TFEL_RAJA_LINKER_FLAGS}")
++  message(STATUS "RAJA compiler: ${TFEL_RAJA_CXX_COMPILER}")
++  message(STATUS "RAJA flags: ${TFEL_RAJA_CXX_FLAGS}")
++  message(STATUS "RAJA linker flags: ${TFEL_RAJA_LINKER_FLAGS}")
++endif()
+diff --git a/mfront/configuration-files/CMakeLists.txt b/mfront/configuration-files/CMakeLists.txt
+index cf2134e5b..5b049a917 100644
+--- a/mfront/configuration-files/CMakeLists.txt
++++ b/mfront/configuration-files/CMakeLists.txt
+@@ -37,6 +37,22 @@ if(_tfel-enable-generic-parallel-stlpar-parunseq-nvhpc-gpu-configuration)
+   install_configuration_file(config-stlpar-parunseq-nvhpc-gpu.json)
+ endif(_tfel-enable-generic-parallel-stlpar-parunseq-nvhpc-gpu-configuration)
+ 
++if(_tfel-enable-generic-parallel-openmp-host-gcc-configuration)
++  install_configuration_file(config-openmp-host-gcc.json)
++endif(_tfel-enable-generic-parallel-openmp-host-gcc-configuration)
++
++if(_tfel-enable-generic-parallel-openmp-offload-nvhpc-gpu-configuration)
++  install_configuration_file(config-openmp-offload-nvhpc-gpu.json)
++endif(_tfel-enable-generic-parallel-openmp-offload-nvhpc-gpu-configuration)
++
++if(_tfel-enable-generic-parallel-openacc-nvhpc-gpu-configuration)
++  install_configuration_file(config-openacc-nvhpc-gpu.json)
++endif(_tfel-enable-generic-parallel-openacc-nvhpc-gpu-configuration)
++
++if(_tfel-enable-generic-parallel-openacc-nvhpc-multicore-configuration)
++  install_configuration_file(config-openacc-nvhpc-multicore.json)
++endif(_tfel-enable-generic-parallel-openacc-nvhpc-multicore-configuration)
++
+ if(_tfel-enable-generic-parallel-stlpar-parunseq-icpx-configuration)
+   install_configuration_file(config-stlpar-parunseq-icpx.json)
+ endif(_tfel-enable-generic-parallel-stlpar-parunseq-icpx-configuration)
+@@ -56,3 +72,17 @@ endif()
+ # if(_tfel-enable-generic-parallel-stlpar-parunseq-acpp-generic-configuration)
+ #   install_configuration_file(config-stlpar-parunseq-acpp-generic.json)
+ # endif(_tfel-enable-generic-parallel-stlpar-parunseq-acpp-generic-configuration)
++
++if(_tfel-enable-generic-parallel-kokkos-configuration)
++  install_configuration_file(config-kokkos.json)
++  install_configuration_file(config-kokkos-host.json)
++endif(_tfel-enable-generic-parallel-kokkos-configuration)
++
++if(_tfel-enable-generic-parallel-raja-configuration)
++  install_configuration_file(config-raja.json)
++  install_configuration_file(config-raja-host.json)
++endif(_tfel-enable-generic-parallel-raja-configuration)
++
++if(_tfel-enable-generic-parallel-arcane-configuration)
++  install_configuration_file(config-arcane.json)
++endif(_tfel-enable-generic-parallel-arcane-configuration)
+diff --git a/mfront/configuration-files/config-cuda-clang.json b/mfront/configuration-files/config-cuda-clang.json
+index 427fd48c4..eb868ba0b 100644
+--- a/mfront/configuration-files/config-cuda-clang.json
++++ b/mfront/configuration-files/config-cuda-clang.json
+@@ -9,15 +9,15 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_CLANGXX_COMPILER@",
+-    compilation_flags: "-std=c++@TFEL_CXX_STANDARD@ -O3 -march=native" 
++    compilation_flags: "-std=c++@TFEL_CXX_STANDARD@ -O2 -march=native" 
+   },
+   cuda : {
+     compiler: "@TFEL_CLANGXX_COMPILER@",
+-    compilation_flags: {"-O3 -std=c++@TFEL_CXX_STANDARD@ -march=native",
++    compilation_flags: {"-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native",
+       "-x cuda --cuda-compile-host-device --cuda-gpu-arch=native",
+-      "--cuda-path=@TFEL_CUDA_PATH@ -fPIC -DPIC"}
++      "--cuda-path=@TFEL_CLANG_CUDA_PATH@ -fPIC -DPIC"}
+   }
+ },
+ linking_options: {
+-  linker_flags: "-L@TFEL_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread"
++  linker_flags: "-L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread"
+ }
+\ No newline at end of file
+diff --git a/mfront/configuration-files/config-cuda-nvcc.json b/mfront/configuration-files/config-cuda-nvcc.json
+index 8c194d88e..6e5c0b346 100644
+--- a/mfront/configuration-files/config-cuda-nvcc.json
++++ b/mfront/configuration-files/config-cuda-nvcc.json
+@@ -12,6 +12,6 @@ interfaces_options: {
+ compilation_options : {
+   cuda : {
+     compiler: "@TFEL_NVCC_COMPILER@",
+-    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -diag-suppress 20012 -Xcompiler -fPIC --expt-relaxed-constexpr"
++    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -arch=native -diag-suppress 20012,20208,2810,3189 -diag-error 20011,20014 -Xcompiler -fPIC --expt-relaxed-constexpr"
+   }
+ }
+\ No newline at end of file
+diff --git a/mfront/configuration-files/config-hip-clang-nvidia-platform.json b/mfront/configuration-files/config-hip-clang-nvidia-platform.json
+index f35c8d944..9cc137f11 100644
+--- a/mfront/configuration-files/config-hip-clang-nvidia-platform.json
++++ b/mfront/configuration-files/config-hip-clang-nvidia-platform.json
+@@ -9,16 +9,16 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_CLANGXX_COMPILER@",
+-    compilation_flags: "-std=c++@TFEL_CXX_STANDARD@ -O3 -march=native" 
++    compilation_flags: "-std=c++@TFEL_CXX_STANDARD@ -O2 -march=native" 
+   },
+   hip : {
+     compiler: "@TFEL_CLANGXX_COMPILER@",
+     compilation_flags: {"-O3 -std=c++@TFEL_CXX_STANDARD@ -march=native",
+       "-x cuda -I@TFEL_HIP_INCLUDE_DIR@",
+       "--cuda-compile-host-device --cuda-gpu-arch=native",
+-      "-D__HIP_PLATFORM_NVIDIA__", "--cuda-path=@TFEL_CUDA_PATH@ -fPIC -DPIC"}
++      "-D__HIP_PLATFORM_NVIDIA__", "--cuda-path=@TFEL_CLANG_CUDA_PATH@ -fPIC -DPIC"}
+   }
+ },
+ linking_options: {
+-  linker_flags: "-L@TFEL_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread"
++  linker_flags: "-L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread"
+ }
+\ No newline at end of file
+diff --git a/mfront/configuration-files/config-hip-hipcc.json b/mfront/configuration-files/config-hip-hipcc.json
+index e71798328..973c7c913 100644
+--- a/mfront/configuration-files/config-hip-hipcc.json
++++ b/mfront/configuration-files/config-hip-hipcc.json
+@@ -12,6 +12,6 @@ interfaces_options: {
+ compilation_options : {
+   hip: {
+     compiler: "@TFEL_HIPCC_COMPILER@",
+-    compilation_flags: "@TFEL_HIPCC_FLAGS@ --std=c++@TFEL_CXX_STANDARD@"
++    compilation_flags: "@TFEL_HIPCC_FLAGS@ -O2 --std=c++@TFEL_CXX_STANDARD@"
+   }
+ }
+\ No newline at end of file
+diff --git a/mfront/configuration-files/config-stlpar-parunseq-gcc.json b/mfront/configuration-files/config-stlpar-parunseq-gcc.json
+index 3eba47a6c..b49449ccc 100644
+--- a/mfront/configuration-files/config-stlpar-parunseq-gcc.json
++++ b/mfront/configuration-files/config-stlpar-parunseq-gcc.json
+@@ -9,7 +9,7 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_GXX_COMPILER@",
+-    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native" 
++    compilation_flags: "-O2 -ftree-vectorize -DNDEBUG -DTFEL_NO_RUNTIME_CHECK_BOUNDS -std=c++@TFEL_CXX_STANDARD@ -march=native" 
+   }
+ },
+ linking_options : {
+diff --git a/mfront/configuration-files/config-stlpar-parunseq-icpx.json b/mfront/configuration-files/config-stlpar-parunseq-icpx.json
+index eed471506..12a363a72 100644
+--- a/mfront/configuration-files/config-stlpar-parunseq-icpx.json
++++ b/mfront/configuration-files/config-stlpar-parunseq-icpx.json
+@@ -9,7 +9,7 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_ICPX_COMPILER@",
+-    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native" 
++    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native -fp-model=precise" 
+   }
+ },
+ linking_options : {
+diff --git a/mfront/configuration-files/config-stlpar-parunseq-nvhpc-gpu.json b/mfront/configuration-files/config-stlpar-parunseq-nvhpc-gpu.json
+index 3ea57de87..73ff15b41 100644
+--- a/mfront/configuration-files/config-stlpar-parunseq-nvhpc-gpu.json
++++ b/mfront/configuration-files/config-stlpar-parunseq-nvhpc-gpu.json
+@@ -4,7 +4,8 @@ dsl_options: {
+ interfaces_options: {
+   generic-parallel: {
+     backend: {stlpar: {
+-        execution_policy: "parallel_unsequenced_policy"
++        execution_policy: "parallel_unsequenced_policy",
++        device_stack_size: 16384
+       }
+     }
+   }
+@@ -12,9 +13,9 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_NVHPC_COMPILER@",
+-    compilation_flags: "-O2 -stdpar=gpu -std=c++@TFEL_CXX_STANDARD@ -march=native" 
++    compilation_flags: "-O2 -stdpar=gpu -gpu=mem:managed,nordc -std=c++@TFEL_CXX_STANDARD@ -march=native" 
+   }
+ },
+ linking_options : {
+-  linker_flags: "-stdpar=gpu"
+-}
+\ No newline at end of file
++  linker_flags: "-stdpar=gpu -gpu=mem:managed,nordc"
++}
+diff --git a/mfront/configuration-files/config-sycl-default-acpp.json b/mfront/configuration-files/config-sycl-default-acpp.json
+index 96e4cf211..68a6c5475 100644
+--- a/mfront/configuration-files/config-sycl-default-acpp.json
++++ b/mfront/configuration-files/config-sycl-default-acpp.json
+@@ -1,7 +1,8 @@
+ interfaces_options: {
+   generic-parallel: {
+     backend: sycl {
+-     data_transfer_policy: "auto"
++     data_transfer_policy: "auto",
++     device_stack_size: 8192
+     }
+   }
+ },
+diff --git a/mfront/configuration-files/config-sycl-default-icpx.json b/mfront/configuration-files/config-sycl-default-icpx.json
+index c7dd28e62..dcecd683c 100644
+--- a/mfront/configuration-files/config-sycl-default-icpx.json
++++ b/mfront/configuration-files/config-sycl-default-icpx.json
+@@ -8,7 +8,7 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_ICPX_COMPILER@",
+-    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native -fsycl" 
++    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native -fp-model=precise -fsycl" 
+   }
+ },
+ linking_options : {
+-- 
+2.43.0
+

@@ -1,0 +1,640 @@
+From 0718aa888668cf74040b82654f456d68a2594893 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 21 Nov 2026 07:19:05 +0100
+Subject: [PATCH] generic-parallel: OpenACC backend
+
+parallel loop construct on the device selected by the compiler
+(configurations openacc-nvhpc-gpu and openacc-nvhpc-multicore).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../config-openacc-nvhpc-gpu.json             |  20 +++
+ .../config-openacc-nvhpc-multicore.json       |  14 ++
+ mfront/include/CMakeLists.txt                 |   6 +
+ .../MFront/GenericParallel/OpenACC.hxx        | 143 ++++++++++++++++++
+ .../MFront/GenericParallel/OpenACCBackend.hxx |  65 ++++++++
+ .../OpenACCBackendExecutionPolicy.hxx         |  49 ++++++
+ .../GenericParallel/OpenACCStackSize.hxx      | 110 ++++++++++++++
+ .../GenericParallelBehaviour/OpenACC.hxx      |  62 ++++++++
+ mfront/src/CMakeLists.txt                     |   1 +
+ mfront/src/GenericParallel/OpenACCBackend.cxx |  67 ++++++++
+ 10 files changed, 537 insertions(+)
+ create mode 100644 mfront/configuration-files/config-openacc-nvhpc-gpu.json
+ create mode 100644 mfront/configuration-files/config-openacc-nvhpc-multicore.json
+ create mode 100644 mfront/include/MFront/GenericParallel/OpenACC.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/OpenACCBackend.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/OpenACCBackendExecutionPolicy.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/OpenACCStackSize.hxx
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
+ create mode 100644 mfront/src/GenericParallel/OpenACCBackend.cxx
+
+diff --git a/mfront/configuration-files/config-openacc-nvhpc-gpu.json b/mfront/configuration-files/config-openacc-nvhpc-gpu.json
+new file mode 100644
+index 000000000..20bc0c68e
+--- /dev/null
++++ b/mfront/configuration-files/config-openacc-nvhpc-gpu.json
+@@ -0,0 +1,20 @@
++dsl_options: {
++  disable_runtime_checks: false
++},
++interfaces_options: {
++  generic-parallel: {
++    backend: {openacc: {
++        device_stack_size: 16384
++      }
++    }
++  }
++},
++compilation_options : {
++  cxx : {
++    compiler: "@TFEL_NVHPC_COMPILER@",
++    compilation_flags: "-O2 -acc=gpu -gpu=mem:unified -std=c++@TFEL_CXX_STANDARD@ -march=native"
++  }
++},
++linking_options : {
++  linker_flags: "-acc=gpu -gpu=mem:unified"
++}
+diff --git a/mfront/configuration-files/config-openacc-nvhpc-multicore.json b/mfront/configuration-files/config-openacc-nvhpc-multicore.json
+new file mode 100644
+index 000000000..995c221ca
+--- /dev/null
++++ b/mfront/configuration-files/config-openacc-nvhpc-multicore.json
+@@ -0,0 +1,14 @@
++interfaces_options: {
++  generic-parallel: {
++    backend: "openacc"
++  }
++},
++compilation_options : {
++  cxx : {
++    compiler: "@TFEL_NVHPC_COMPILER@",
++    compilation_flags: "-O2 -acc=multicore -std=c++@TFEL_CXX_STANDARD@ -march=native"
++  }
++},
++linking_options : {
++  linker_flags: "-acc=multicore"
++}
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index d84d63061..dc18496f3 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -176,6 +176,12 @@ install_mfront_header(MFront/GenericParallel RAJA.hxx)
+ install_mfront_header(MFront/GenericParallel OpenMPBackendExecutionPolicy.hxx)
+ install_mfront_header(MFront/GenericParallel OpenMPBackend.hxx)
+ install_mfront_header(MFront/GenericParallel OpenMP.hxx)
++# OpenACC backend
++install_mfront_header(MFront/GenericParallel OpenACCStackSize.hxx)
++install_mfront_header(MFront/GenericParallel OpenACCBackendExecutionPolicy.hxx)
++install_mfront_header(MFront/GenericParallel OpenACCBackend.hxx)
++install_mfront_header(MFront/GenericParallelBehaviour OpenACC.hxx)
++install_mfront_header(MFront/GenericParallel OpenACC.hxx)
+ install_mfront_header(MFront GenericBehaviourInterface.hxx)
+ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
+ install_mfront_header(MFront GenericModelInterface.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/OpenACC.hxx b/mfront/include/MFront/GenericParallel/OpenACC.hxx
+new file mode 100644
+index 000000000..44dfbfcda
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/OpenACC.hxx
+@@ -0,0 +1,143 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/OpenACC.hxx
++ * \brief  This file declares the primitive of the `openacc` backend of the
++ * `generic-parallel` interfaces.
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_OPENACC_HXX
++#define LIB_MFRONT_GENERICPARALLEL_OPENACC_HXX
++
++#include <cstddef>
++#include <openacc.h>
++#include "MFront/GenericParallel/Batch.hxx"
++#include "MFront/GenericParallel/DeviceStackSize.hxx"
++#include "MFront/GenericParallel/OpenACCStackSize.hxx"
++#include "MFront/GenericParallel/OpenACCBackendExecutionPolicy.hxx"
++
++namespace mfront::generic_parallel::openacc {
++
++  /*!
++   * \brief apply a function at the points of a batch and report the
++   * statistics of the batch.
++   *
++   * The points are processed by a `parallel loop` construct of OpenACC, on
++   * the device selected by the compiler and the OpenACC runtime (for
++   * instance, a GPU with `nvc++ -acc=gpu`, the cores of the host with
++   * `nvc++ -acc=multicore`). If the computations are performed by a GPU,
++   * the fields of the batch must be accessible from it, for instance
++   * allocated in unified or managed memory (`nvc++ -gpu=mem:managed`). This
++   * function waits for the completion of the computations. The statistics
++   * of the points are merged by a reduction, and the statistics given by the
++   * calling code, if any, are accumulated on the host. If the function never
++   * reports an event (see the `hasEvents` method of the handler), the
++   * statistics are neither combined nor reported.
++   *
++   * \tparam device_stack_size: minimal stack size, in bytes, of the threads
++   * of the device when the computations are performed by an NVIDIA GPU (see
++   * `setMinimalStackSize`). The stack size is not modified if this value is
++   * null. This value is a template argument, as for the `stlpar` backend.
++   * \tparam StatisticsHandler: handler of the statistics (see
++   * `MFront/GenericParallel/Batch.hxx`)
++   * \tparam PointFunction: function object taking the index of a point and
++   * returning the statistics associated with this point
++   * \param[in,out] s: output status, which must have been initialized
++   * \param[in] n: number of points
++   * \param[in] e: execution of the batch. The policy is a
++   * `OpenACCBackendExecutionPolicy`, or null for the default policy: only its
++   * common options are used, the computations being synchronous.
++   * \param[in] h: handler of the statistics
++   * \param[in] f: function
++   * \return the status
++   */
++  template <std::size_t device_stack_size,
++            typename StatisticsHandler,
++            typename PointFunction>
++  int apply(typename StatisticsHandler::OutputStatus& s,
++            const size_type n,
++            const BatchExecution<typename StatisticsHandler::Statistics>& e,
++            const StatisticsHandler& h,
++            const PointFunction& f) {
++    if (n == 0) {
++      return s.status;
++    }
++    const auto p = checkBackendExecutionPolicy<OpenACCBackendExecutionPolicy>(
++        e.policy, e.statistics != nullptr);
++    if (p.error != nullptr) {
++      return report(s, -5, p.error);
++    }
++    if constexpr (device_stack_size != 0) {
++      if (!setMinimalStackSize(device_stack_size,
++                               p.common_options.preserve_stack_size)) {
++        return report(s, -7, stack_size_error_message);
++      }
++    }
++    if (!h.hasEvents()) {
++      // the statistics are neither combined nor reported
++#pragma acc parallel loop copyin(f)
++      for (size_type i = 0; i < n; ++i) {
++        static_cast<void>(f(i));
++      }
++      return s.status;
++    }
++    // the statistics are reduced member by member. The minimum reductions
++    // of the keys of the first failure and of the first unreliable result
++    // are performed on `size_type`, an alias of `size_t` of 64 bits: the
++    // minimum reductions on `unsigned long long` are wrong on NVIDIA GPUs
++    // with `nvc++` 25.11.
++    static_assert(sizeof(size_type) == sizeof(unsigned long long));
++    const auto r0 = h.initial();
++    auto number_of_failures = r0.number_of_failures;
++    auto first_failure = static_cast<size_type>(r0.first_failure);
++    auto number_of_unreliable_results = r0.number_of_unreliable_results;
++    auto first_unreliable_result =
++        static_cast<size_type>(r0.first_unreliable_result);
++    auto rdt = r0.rdt;
++#pragma acc parallel loop copyin(f)                                 \
++    reduction(+ : number_of_failures, number_of_unreliable_results) \
++        reduction(min : first_failure, first_unreliable_result, rdt)
++    for (size_type i = 0; i < n; ++i) {
++      const auto r = f(i);
++      const auto ff = static_cast<size_type>(r.first_failure);
++      const auto fu = static_cast<size_type>(r.first_unreliable_result);
++      number_of_failures += r.number_of_failures;
++      first_failure = ff < first_failure ? ff : first_failure;
++      number_of_unreliable_results += r.number_of_unreliable_results;
++      first_unreliable_result =
++          fu < first_unreliable_result ? fu : first_unreliable_result;
++      rdt = r.rdt < rdt ? r.rdt : rdt;
++    }
++    return h.report(
++        s, e.statistics,
++        decltype(r0){
++            .number_of_failures = number_of_failures,
++            .first_failure = static_cast<unsigned long long>(first_failure),
++            .number_of_unreliable_results = number_of_unreliable_results,
++            .first_unreliable_result =
++                static_cast<unsigned long long>(first_unreliable_result),
++            .rdt = rdt});
++  }  // end of apply
++
++  /*!
++   * \return the primitive of the backend, called by the functions of the
++   * interfaces (see for instance `mfront::gpb::integrateBatch`)
++   * \tparam device_stack_size: minimal stack size of the threads of the
++   * device (see `apply`)
++   */
++  template <std::size_t device_stack_size = 0>
++  auto makeApply() {
++    return [](auto& s, const size_type n, const auto& e, const auto& h,
++              const auto& f) {
++      return openacc::apply<device_stack_size>(s, n, e, h, f);
++    };
++  }  // end of makeApply
++
++}  // end of namespace mfront::generic_parallel::openacc
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_OPENACC_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/OpenACCBackend.hxx b/mfront/include/MFront/GenericParallel/OpenACCBackend.hxx
+new file mode 100644
+index 000000000..348cbb4c4
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/OpenACCBackend.hxx
+@@ -0,0 +1,65 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/OpenACCBackend.hxx
++ * \brief  This file declares the backend of the `generic-parallel` interfaces
++ * based on OpenACC
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_OPENACCBACKEND_HXX
++#define LIB_MFRONT_GENERICPARALLEL_OPENACCBACKEND_HXX
++
++#include "TFEL/Utilities/Data.hxx"
++#include "MFront/MFrontConfig.hxx"
++#include "MFront/GenericParallel/AbstractBackend.hxx"
++
++namespace mfront::generic_parallel {
++
++  /*!
++   * \brief backend based on OpenACC.
++   *
++   * The points are processed by a `parallel loop` construct, on the device
++   * selected by the compiler and the OpenACC runtime (a GPU with
++   * `nvc++ -acc=gpu`, the cores of the host with `nvc++ -acc=multicore`).
++   * The memory space of the library is deduced from the compilation options
++   * (see `mfront::generic_parallel::getOpenACCMemorySpace`).
++   *
++   * Options:
++   *
++   * - `device_stack_size`: minimal stack size, in bytes, of the threads of the
++   *   device when the computations are performed by an NVIDIA GPU (ignored
++   *   otherwise).
++   */
++  struct MFRONT_VISIBILITY_EXPORT OpenACCBackend final : AbstractBackend {
++    //! \brief default constructor
++    OpenACCBackend();
++    /*!
++     * \brief constructor
++     * \param[in] opts: options
++     */
++    OpenACCBackend(const tfel::utilities::DataMap&);
++    //
++    [[nodiscard]] std::string getName() const override;
++    [[nodiscard]] std::string getSourceFileExtension() const override;
++    void writeSpecificIncludes(std::ostream&, const Runtime) const override;
++    [[nodiscard]] std::string getSharedDataCopy(
++        std::string_view, std::string_view) const override;
++    [[nodiscard]] std::string getApply() const override;
++    [[nodiscard]] std::string getMemorySpace() const override;
++    [[nodiscard]] std::string getExecutionPolicyType() const override;
++    //! \brief destructor
++    ~OpenACCBackend() noexcept override;
++
++   private:
++    //! \brief stack size of the threads of the device (0 if not specified)
++    int device_stack_size = 0;
++  };  // end of OpenACCBackend
++
++}  // end of namespace mfront::generic_parallel
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_OPENACCBACKEND_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/OpenACCBackendExecutionPolicy.hxx b/mfront/include/MFront/GenericParallel/OpenACCBackendExecutionPolicy.hxx
+new file mode 100644
+index 000000000..9890e87da
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/OpenACCBackendExecutionPolicy.hxx
+@@ -0,0 +1,49 @@
++/*!
++ * \file mfront/include/MFront/GenericParallel/OpenACCBackendExecutionPolicy.hxx
++ * \brief  This file declares the execution policy of the `openacc` backend
++ * of the `generic-parallel` interfaces.
++ * \date   22/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_OPENACCBACKENDEXECUTIONPOLICY_HXX
++#define LIB_MFRONT_GENERICPARALLEL_OPENACCBACKENDEXECUTIONPOLICY_HXX
++
++#include "MFront/GenericParallel/BackendExecutionPolicyBase.hxx"
++
++namespace mfront::generic_parallel {
++
++  /*!
++   * \brief execution policy of the `openacc` backend: the computations are
++   * performed synchronously, and only the common options are used
++   */
++  struct OpenACCBackendExecutionPolicy final : BackendExecutionPolicyBase {
++    //! \return the identifier of the policy
++    static constexpr const char* identifier() noexcept { return "openacc"; }
++    /*!
++     * \brief constructor
++     * \param[in] opts: common options
++     */
++    explicit OpenACCBackendExecutionPolicy(
++        const BackendExecutionCommonPolicy& opts = {}) noexcept
++        : BackendExecutionPolicyBase(opts) {}
++    const char* getIdentifier() const noexcept override { return identifier(); }
++  };  // end of struct OpenACCBackendExecutionPolicy
++
++  /*!
++   * \return an execution policy of the `openacc` backend
++   * \param[in] opts: common options
++   */
++  inline OpenACCBackendExecutionPolicy makeOpenACCBackendExecutionPolicy(
++      const BackendExecutionCommonPolicy& opts = {}) noexcept {
++    return OpenACCBackendExecutionPolicy{opts};
++  }  // end of makeOpenACCBackendExecutionPolicy
++
++}  // end of namespace mfront::generic_parallel
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_OPENACCBACKENDEXECUTIONPOLICY_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/OpenACCStackSize.hxx b/mfront/include/MFront/GenericParallel/OpenACCStackSize.hxx
+new file mode 100644
+index 000000000..61e529f01
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/OpenACCStackSize.hxx
+@@ -0,0 +1,110 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/OpenACCStackSize.hxx
++ * \brief  This file declares a function increasing the stack size of the
++ * threads of the NVIDIA GPU used by OpenACC, shared by the openacc backends
++ * of the `generic-parallel` interfaces.
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_OPENACCSTACKSIZE_HXX
++#define LIB_MFRONT_GENERICPARALLEL_OPENACCSTACKSIZE_HXX
++
++#include <cstddef>
++#if defined(__NVCOMPILER_OPENACC_GPU)
++#include <mutex>
++#include <dlfcn.h>
++#include <openacc.h>
++#include "MFront/GenericParallel/DeviceStackSize.hxx"
++#endif /* defined(__NVCOMPILER_OPENACC_GPU) */
++
++namespace mfront::generic_parallel::openacc {
++
++  /*!
++   * \brief increase the stack size of the threads of the current NVIDIA GPU
++   * of OpenACC, if the code is compiled by `nvc++` for a GPU and if the
++   * current device type of OpenACC is an NVIDIA GPU. Nothing is done
++   * otherwise.
++   *
++   * The OpenACC runtime of `nvc++` uses the CUDA driver without the CUDA
++   * runtime: the stack size is set through the driver, on the CUDA context
++   * of OpenACC (`acc_get_current_cuda_context`), the device being
++   * initialized if needed. The driver is looked up among the loaded
++   * libraries, so that this function does not require the CUDA headers.
++   * The `NV_ACC_CUDA_STACKSIZE` environment variable of `nvc++` only sets
++   * the stack size when the device is initialized.
++   *
++   * \return true on success, false if the stack size could not be set or
++   * is too small and must be preserved
++   * \param[in] stack_size: minimal stack size, in bytes. Nothing is done if
++   * null.
++   * \param[in] preserve: if true, the stack size is only checked
++   */
++  inline bool setMinimalStackSize(const std::size_t stack_size,
++                                  const bool preserve = false) noexcept {
++#if defined(__NVCOMPILER_OPENACC_GPU)
++    // `CU_LIMIT_STACK_SIZE` in `CUlimit` and `CUDA_SUCCESS` in `CUresult`
++    constexpr int stack_size_limit = 0;
++    constexpr int success = 0;
++    using PushCurrent = int (*)(void*);
++    using PopCurrent = int (*)(void**);
++    using GetLimit = int (*)(std::size_t*, int);
++    using SetLimit = int (*)(int, std::size_t);
++    if ((stack_size == 0) || (acc_get_device_type() != acc_device_nvidia)) {
++      return true;
++    }
++    auto* context = acc_get_current_cuda_context();
++    if (context == nullptr) {
++      // initialization of the current device of OpenACC
++      acc_set_device_num(acc_get_device_num(acc_device_nvidia),
++                         acc_device_nvidia);
++      context = acc_get_current_cuda_context();
++    }
++    auto* const h = ::dlopen("libcuda.so.1", RTLD_LAZY | RTLD_NOLOAD);
++    if ((context == nullptr) || (h == nullptr)) {
++      if (h != nullptr) {
++        ::dlclose(h);
++      }
++      return false;
++    }
++    const auto push =
++        reinterpret_cast<PushCurrent>(::dlsym(h, "cuCtxPushCurrent_v2"));
++    const auto pop =
++        reinterpret_cast<PopCurrent>(::dlsym(h, "cuCtxPopCurrent_v2"));
++    const auto get_limit =
++        reinterpret_cast<GetLimit>(::dlsym(h, "cuCtxGetLimit"));
++    const auto set_limit =
++        reinterpret_cast<SetLimit>(::dlsym(h, "cuCtxSetLimit"));
++    auto r = (push != nullptr) && (pop != nullptr) &&  //
++             (get_limit != nullptr) && (set_limit != nullptr);
++    if (r) {
++      auto lock = std::lock_guard<std::mutex>{getStackSizeMutex()};
++      r = push(context) == success;
++      if (r) {
++        auto current = std::size_t{};
++        r = get_limit(&current, stack_size_limit) == success;
++        if ((r) && (current < stack_size)) {
++          r = (!preserve) &&
++              (set_limit(stack_size_limit, stack_size) == success);
++        }
++        void* previous = nullptr;
++        r = (pop(&previous) == success) && r;
++      }
++    }
++    ::dlclose(h);
++    return r;
++#else
++    static_cast<void>(stack_size);
++    static_cast<void>(preserve);
++    return true;
++#endif
++  }  // end of setMinimalStackSize
++
++}  // end of namespace mfront::generic_parallel::openacc
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_OPENACCSTACKSIZE_HXX */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx b/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
+new file mode 100644
+index 000000000..74beef20b
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
+@@ -0,0 +1,62 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
++ * \brief  This file declares the functions of the `openacc` backend of the
++ * `generic-parallel` behaviour interface which are specific to the
++ * behaviours. The primitive of the backend is declared in
++ * `MFront/GenericParallel/OpenACC.hxx`.
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_OPENACC_HXX
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_OPENACC_HXX
++
++#include <utility>
++#include <stdexcept>
++#include <type_traits>
++#include <openacc.h>
++#include "MFront/GenericParallel/OpenACC.hxx"
++#include "MFront/GenericParallelBehaviour/Integrate.hxx"
++
++namespace mfront::gpb::openacc {
++
++  /*!
++   * \return a copy of a data shared by all the integration points (see the
++   * `@SharedData` keyword) in the memory of the current device of OpenACC
++   * (`acc_malloc`), which is also accessible when the memory of the device
++   * is not unified with the one of the host. A copy is made at the first
++   * call on each device and is never freed, as with the `cuda` and `hip`
++   * backends.
++   * \tparam get_shared_data: function returning the data
++   */
++  template <auto get_shared_data>
++  const auto* getSharedDataCopy() {
++    using T = std::remove_cvref_t<decltype(get_shared_data())>;
++    static_assert(std::is_trivially_copyable_v<T>,
++                  "the shared data must be trivially copyable");
++    // device type and number of the current device
++    using Device = std::pair<int, int>;
++    static auto copies = SharedDataCopies<T, Device>{};
++    const auto type = acc_get_device_type();
++    const auto device =
++        Device{static_cast<int>(type), acc_get_device_num(type)};
++    return copies.get(device, [] {
++      auto v = get_shared_data();
++      auto* const p = static_cast<T*>(acc_malloc(sizeof(T)));
++      if (p == nullptr) {
++        throw std::runtime_error(
++            "mfront::gpb::openacc::getSharedDataCopy: allocation failed");
++      }
++      acc_memcpy_to_device(p, &v, sizeof(T));
++      return static_cast<const T*>(p);
++    });
++  }  // end of getSharedDataCopy
++
++}  // end of namespace mfront::gpb::openacc
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_OPENACC_HXX */
+diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
+index f50dfe7ec..b2dae481a 100644
+--- a/mfront/src/CMakeLists.txt
++++ b/mfront/src/CMakeLists.txt
+@@ -240,6 +240,7 @@ set(TFELMFront_SOURCES
+     GenericParallel/BackendFactory.cxx
+     GenericParallel/GPUBackend.cxx
+     GenericParallel/KokkosBackend.cxx
++    GenericParallel/OpenACCBackend.cxx
+     GenericParallel/OpenMPBackend.cxx
+     GenericParallel/ParallelSTLBackend.cxx
+     GenericParallel/RAJABackend.cxx
+diff --git a/mfront/src/GenericParallel/OpenACCBackend.cxx b/mfront/src/GenericParallel/OpenACCBackend.cxx
+new file mode 100644
+index 000000000..42665131a
+--- /dev/null
++++ b/mfront/src/GenericParallel/OpenACCBackend.cxx
+@@ -0,0 +1,67 @@
++/*!
++ * \file   mfront/src/GenericParallel/OpenACCBackend.cxx
++ * \brief  This file implements the backend of the `generic-parallel`
++ * interfaces based on OpenACC
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <ostream>
++#include "MFront/GenericParallel/BackendOptions.hxx"
++#include "MFront/GenericParallel/OpenACCBackend.hxx"
++
++namespace mfront::generic_parallel {
++
++  OpenACCBackend::OpenACCBackend() = default;
++
++  OpenACCBackend::OpenACCBackend(const tfel::utilities::DataMap& opts) {
++    auto validator = tfel::utilities::DataMapValidator{};
++    declareDeviceStackSizeOption(validator);
++    validator.validate(opts);
++    this->device_stack_size = getDeviceStackSize(opts);
++  }  // end of OpenACCBackend
++
++  std::string OpenACCBackend::getName() const { return "openacc"; }
++
++  std::string OpenACCBackend::getSourceFileExtension() const {
++    return "cxx";
++  }  // end of getSourceFileExtension
++
++  void OpenACCBackend::writeSpecificIncludes(std::ostream& os,
++                                             const Runtime r) const {
++    os << "#include \"MFront/GenericParallel/OpenACC.hxx\"\n";
++    if (r == Runtime::BEHAVIOURS) {
++      // copies of the shared data
++      os << "#include \"MFront/GenericParallelBehaviour/OpenACC.hxx\"\n";
++    }
++  }  // end of writeSpecificIncludes
++
++  std::string OpenACCBackend::getSharedDataCopy(const std::string_view getter,
++                                                const std::string_view) const {
++    // copy in the memory of the current device of OpenACC
++    return "mfront::gpb::openacc::getSharedDataCopy<" + std::string{getter} +
++           ">()";
++  }  // end of getSharedDataCopy
++
++  std::string OpenACCBackend::getApply() const {
++    // the stack size is a template argument, as for the `stlpar` backend
++    return "mfront::generic_parallel::openacc::makeApply<" +
++           std::to_string(this->device_stack_size) + ">()";
++  }  // end of getApply
++
++  std::string OpenACCBackend::getMemorySpace() const {
++    return "mfront::generic_parallel::getOpenACCMemorySpace()";
++  }  // end of getMemorySpace
++
++  std::string OpenACCBackend::getExecutionPolicyType() const {
++    return "::mfront::generic_parallel::OpenACCBackendExecutionPolicy";
++  }  // end of getExecutionPolicyType
++
++  OpenACCBackend::~OpenACCBackend() noexcept = default;
++
++}  // end of namespace mfront::generic_parallel
+-- 
+2.43.0
+

@@ -19,8 +19,10 @@
 #ifndef LIB_MFRONT_GENERICPARALLEL_GPU_HXX
 #define LIB_MFRONT_GENERICPARALLEL_GPU_HXX
 
+#include <new>
 #include <limits>
 #include <string>
+#include <cstdint>
 #include "MFront/GenericParallel/GPUStackSize.hxx"
 #include "MFront/GenericParallel/Batch.hxx"
 #include "MFront/GenericParallel/StatusBlockPool.hxx"
@@ -28,6 +30,23 @@
 #include "MFront/GenericParallel/HIPBackendExecutionPolicy.hxx"
 #else
 #include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
+#endif
+
+/*!
+ * \brief qualifier of the function object passed by value to the kernels.
+ *
+ * The member functions of this object take its address. The CUDA compilers
+ * then copy it in the stack of each thread (local memory), i.e. more than a
+ * kilobyte per thread for a behaviour, unless the parameter is declared
+ * `__grid_constant__` (compute capability 7.0 or later): the threads then
+ * read it in place. The HIP compilers for AMD GPUs always read the kernel
+ * parameters in place.
+ */
+#if (!defined(__HIP_PLATFORM_AMD__)) && \
+    ((!defined(__CUDA_ARCH__)) || (__CUDA_ARCH__ >= 700))
+#define MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT __grid_constant__
+#else
+#define MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT
 #endif
 
 namespace mfront::generic_parallel::gpu {
@@ -109,7 +128,7 @@ namespace mfront::generic_parallel::gpu {
     }  // end of warpAny
 
     //! \brief minimum of the values of a warp, in the first thread of the warp
-    __device__ inline unsigned long long warpMin(unsigned long long v) {
+    __device__ inline atomic_size_type warpMin(atomic_size_type v) {
       for (int o = warpSize / 2; o > 0; o /= 2) {
 #if defined(__HIP_PLATFORM_AMD__)
         const auto w = __shfl_down(v, o);
@@ -126,16 +145,21 @@ namespace mfront::generic_parallel::gpu {
      * point, and update the statistics of the batch. The number of threads
      * per block must be a multiple of the warp size.
      *
-     * \param[in] f: function
+     * \param[in] f: function (see `MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT`)
      * \param[in] n: number of points
-     * \param[out] s: statistics
+     * \param[out] s: statistics, or null if the function never reports an
+     * event (see the `hasEvents` method of the handlers of the statistics)
+     * \param[out] events: flag set when the statistics are updated (see
+     * `StatisticsBlock`), or null
      * \param[in] rdt0: ordered key of the initial time step scaling factor
      */
     template <typename Statistics, typename PointFunction>
-    __global__ void apply(const PointFunction f,
-                          const size_type n,
-                          Statistics* const s,
-                          const unsigned long long rdt0) {
+    __global__ void apply(
+        const MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT PointFunction f,
+        const size_type n,
+        Statistics* const s,
+        int* const events,
+        const atomic_size_type rdt0) {
       const auto i = static_cast<size_type>(blockIdx.x) * blockDim.x +
                      static_cast<size_type>(threadIdx.x);
       auto failures = 0u;
@@ -167,12 +191,12 @@ namespace mfront::generic_parallel::gpu {
       if (threadIdx.x % warpSize == 0) {
         if (failures != 0) {
           atomicAdd(&(s->number_of_failures),
-                    static_cast<unsigned long long>(failures));
+                    static_cast<atomic_size_type>(failures));
           atomicMin(&(s->first_failure), first_failure);
         }
         if (unreliable_results != 0) {
           atomicAdd(&(s->number_of_unreliable_results),
-                    static_cast<unsigned long long>(unreliable_results));
+                    static_cast<atomic_size_type>(unreliable_results));
           atomicMin(&(s->first_unreliable_result), first_unreliable_result);
         }
         if constexpr (hasTimeStepScalingFactor<Statistics>) {
@@ -180,18 +204,57 @@ namespace mfront::generic_parallel::gpu {
             atomicMin(&(s->rdt), rdt);
           }
         }
+        signalEvents(events);
       }
     }  // end of apply
 
     /*!
-     * \return the pool of blocks of managed memory holding the statistics
-     * of the synchronous computations, shared by all the functions of the
-     * library
+     * \return a block of statistics (see `StatisticsBlock`), allocated in
+     * pinned host memory, the statistics being allocated in the memory of the
+     * current device, or a null pointer if an allocation failed. The block is
+     * reset before its first use.
      * \tparam Statistics: statistics updated by the devices
      */
     template <typename Statistics>
+    StatisticsBlock<Statistics>* allocateStatisticsBlock() noexcept {
+      void* statistics = nullptr;
+      if (MFRONT_GENERIC_PARALLEL_GPU_API(Malloc)(&statistics,
+                                                  sizeof(Statistics)) !=
+          MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
+        return nullptr;
+      }
+      // portable and mapped: accessible by all the devices
+      void* block = nullptr;
+      if (MFRONT_GENERIC_PARALLEL_GPU_API(HostAlloc)(
+              &block, sizeof(StatisticsBlock<Statistics>),
+              MFRONT_GENERIC_PARALLEL_GPU_API(HostAllocPortable) |
+                  MFRONT_GENERIC_PARALLEL_GPU_API(HostAllocMapped)) !=
+          MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
+        static_cast<void>(MFRONT_GENERIC_PARALLEL_GPU_API(Free)(statistics));
+        return nullptr;
+      }
+      return ::new (block) StatisticsBlock<Statistics>{
+          .statistics = static_cast<Statistics*>(statistics), .events = 1};
+    }  // end of allocateStatisticsBlock
+
+    /*!
+     * \return the pool of blocks holding the statistics of the synchronous
+     * computations of a function of the generated library (see
+     * `StatisticsBlock`)
+     * \tparam Statistics: statistics updated by the devices
+     * \tparam PointFunction: function applied at the points, which is
+     * specific to a generated function
+     *
+     * The pool depends on the function applied at the points, whose type is
+     * declared in an anonymous namespace by the generated code: each
+     * generated function, and thus each generated library, has its own pool.
+     * A pool shared by several libraries through the dynamic linker would be
+     * destroyed when the library which initialized it is unloaded, even if
+     * another library still uses it.
+     */
+    template <typename Statistics, typename PointFunction>
     auto& getStatisticsBlocks() noexcept {
-      using Pool = StatusBlockPool<Statistics, int>;
+      using Pool = StatusBlockPool<StatisticsBlock<Statistics>, int>;
       static auto pool = Pool{};
       return pool;
     }  // end of getStatisticsBlocks
@@ -205,6 +268,17 @@ namespace mfront::generic_parallel::gpu {
    * The kernel is launched on the stream given by the execution policy. If
    * the computations are asynchronous, this function returns once the
    * kernel is launched. Otherwise, it waits for its completion.
+   *
+   * Without statistics given by the calling code, the statistics are held by
+   * a block of a pool (see `StatisticsBlock` and `StatusBlockPool`): no
+   * memory is allocated per call. The device only accesses the statistics,
+   * in device memory, if an event occurs at a point, and then signals it to
+   * the host: a call without event performs neither copy nor additional
+   * synchronization.
+   *
+   * If the function never reports an event (see the `hasEvents` method of
+   * the handler), the statistics are neither combined nor reported, and no
+   * block of the pool is used.
    *
    * \tparam StatisticsHandler: handler of the statistics (see
    * `MFront/GenericParallel/Batch.hxx`)
@@ -239,17 +313,15 @@ namespace mfront::generic_parallel::gpu {
     if (p.error != nullptr) {
       return report(s, -5, p.error);
     }
-    constexpr auto k = internals::apply<Statistics, PointFunction>;
-    if (!internals::ensureStackSize<k>(s,
-                                       p.common_options.preserve_stack_size)) {
-      return s.status;
-    }
     auto device = 0;
     auto warp_size = 0;
-    if (failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(GetDevice)(&device)) ||
-        failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(DeviceGetAttribute)(
-                      &warp_size, internals::warp_size_attribute, device))) {
+    if (failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(GetDevice)(&device))) {
       return s.status;
+    }
+    if (MFRONT_GENERIC_PARALLEL_GPU_API(DeviceGetAttribute)(
+            &warp_size, internals::warp_size_attribute, device) !=
+        MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
+      return report(s, -7, "unable to get the warp size of the device");
     }
     const auto ws = static_cast<unsigned int>(warp_size);
     const auto nthreads = ((threads_per_block + ws - 1) / ws) * ws;
@@ -261,46 +333,91 @@ namespace mfront::generic_parallel::gpu {
                     "too many points for the grid of the device (" +
                         std::to_string(n) + " given)");
     }
+#if defined(__HIP_PLATFORM_AMD__)
+    // the AMD devices also limit the number of work-items of a launch to
+    // 2^32 - 1
+    if (nblocks * nthreads > std::numeric_limits<std::uint32_t>::max()) {
+      return report(s, -5,
+                    "too many points for the grid of the device (" +
+                        std::to_string(n) + " given)");
+    }
+#endif /* defined(__HIP_PLATFORM_AMD__) */
+    constexpr auto k = internals::apply<Statistics, PointFunction>;
+    if (!internals::ensureStackSize<k>(s,
+                                       p.common_options.preserve_stack_size)) {
+      return s.status;
+    }
     const auto stream = p.policy == nullptr ? Stream{} : p.policy->stream;
     const auto rdt0 = toOrderedKey(h.initial().rdt);
-    if (e.statistics != nullptr) {
+    // launch the kernel and return the error of the launch
+    auto launch = [&k, &f, n, nblocks, nthreads, stream, rdt0](
+                      Statistics* const statistics, int* const events) {
+      // an error left by a previous call of the calling code must not be
+      // taken for an error of the launch
+      static_cast<void>(MFRONT_GENERIC_PARALLEL_GPU_API(GetLastError)());
+      k<<<static_cast<unsigned int>(nblocks), nthreads, 0, stream>>>(
+          f, n, statistics, events, rdt0);
+      return MFRONT_GENERIC_PARALLEL_GPU_API(GetLastError)();
+    };
+    if ((e.statistics != nullptr) || (!h.hasEvents())) {
       // statistics given by the calling code: the result is given by the
-      // report function of the library
-      k<<<nblocks, nthreads, 0, stream>>>(f, n, e.statistics, rdt0);
-      if (failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(GetLastError)()) ||
+      // report function of the library. Without event, the statistics, if
+      // any, are not accessed by the kernel
+      if (failed(s, launch(e.statistics, nullptr)) ||
           p.common_options.asynchronous) {
         return s.status;
       }
       failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream));
       return s.status;
     }
-    // synchronous computations: the statistics are held by a block of
-    // managed memory, initialized and read by the host. The device only
-    // accesses this block if an event occurs (see internals::apply): no
-    // data is transferred otherwise.
+    // synchronous computations: block of statistics of the pool (see
+    // `StatisticsBlock`)
     const auto block =
-        internals::getStatisticsBlocks<Statistics>().acquire(device, [] {
-          Statistics* p = nullptr;
-          const auto r = MFRONT_GENERIC_PARALLEL_GPU_API(MallocManaged)(
-              reinterpret_cast<void**>(&p), sizeof(Statistics));
-          return r == MFRONT_GENERIC_PARALLEL_GPU_API(Success) ? p : nullptr;
-        });
-    auto* const statistics = block.get();
-    if (statistics == nullptr) {
-      return report(s, -7, "unable to allocate the statistics of the batch");
+        internals::getStatisticsBlocks<Statistics, PointFunction>().acquire(
+            device, internals::allocateStatisticsBlock<Statistics>);
+    auto* const b = block.get();
+    if (b == nullptr) {
+      return report(s, -7,
+                    "unable to allocate the statistics of the evaluation");
     }
-    h.initialize(*statistics);
-    k<<<nblocks, nthreads, 0, stream>>>(f, n, statistics, rdt0);
-    if (failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(GetLastError)()) ||
+    auto statistics = Statistics{};
+    h.initialize(statistics);
+    if (holdsEvents(*b)) {
+      // synchronous reset, after an event or at the first use
+      const auto neutral = getNeutralStatistics(statistics);
+      if ((MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyAsync)(
+               b->statistics, &neutral, sizeof(Statistics),
+               MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyHostToDevice),
+               stream) != MFRONT_GENERIC_PARALLEL_GPU_API(Success)) ||
+          (MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream) !=
+           MFRONT_GENERIC_PARALLEL_GPU_API(Success))) {
+        return report(s, -7,
+                      "unable to initialize the statistics of the evaluation");
+      }
+      clearEvents(*b);
+    }
+    if (failed(s, launch(b->statistics, &(b->events))) ||
         failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream))) {
       return s.status;
     }
-    return h.report(s, *statistics);
+    if (!holdsEvents(*b)) {
+      return h.report(s, statistics);
+    }
+    auto block_statistics = Statistics{};
+    if ((MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyAsync)(
+             &block_statistics, b->statistics, sizeof(Statistics),
+             MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyDeviceToHost),
+             stream) != MFRONT_GENERIC_PARALLEL_GPU_API(Success)) ||
+        (MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream) !=
+         MFRONT_GENERIC_PARALLEL_GPU_API(Success))) {
+      return report(s, -7, "unable to copy the statistics of the evaluation");
+    }
+    return h.report(s, mergeBlockStatistics(statistics, block_statistics));
   }  // end of apply
 
   /*!
    * \return the primitive of the backend, called by the functions of the
-   * interfaces (see for instance `mfront::gpb::integrateBatch`)
+   * interfaces (see for instance `mfront::gpmp::evaluateBatch`)
    * \param[in] threads_per_block: number of threads per block
    */
   inline auto makeApply(const unsigned int threads_per_block) {

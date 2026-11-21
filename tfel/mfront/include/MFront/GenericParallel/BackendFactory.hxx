@@ -2,7 +2,8 @@
  * \file   mfront/include/MFront/GenericParallel/BackendFactory.hxx
  * \brief  This file declares the factory of the backends of the
  * `generic-parallel` interfaces
- * \date   05/10/2026
+ * \author Thomas Helfer
+ * \date   15/04/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -27,7 +28,7 @@ namespace mfront::generic_parallel {
   // forward declaration
   struct AbstractBackend;
 
-  //! \brief factory of the backends
+  //! \brief abstract factory for backends
   struct MFRONT_VISIBILITY_EXPORT BackendFactory {
     //! \brief a simple alias
     using DataMap = tfel::utilities::DataMap;

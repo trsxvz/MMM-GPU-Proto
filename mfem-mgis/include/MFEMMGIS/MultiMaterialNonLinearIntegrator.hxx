@@ -356,9 +356,8 @@ namespace mfem_mgis {
      * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`), unless
      * the ordered assembly is selected with a backend of MFEM other than
      * `cpu` (see `setOrderedStiffnessMatricesAssembly`). The values of the
-     * matrix are set to zero first. Unless a GPU or the debug device of MFEM
-     * is used, the positions of the entries in the rows of
-     * the matrix are computed at the first call and reused (see
+     * matrix are set to zero first. The positions of the entries in the rows
+     * of the matrix are computed at the first call and reused (see
      * `batch::computeStiffnessMatricesPositions`), separately for the
      * matrices whose columns are sorted (for example by a direct solver) and
      * for the others (diagonal first, see `makeAssembledStiffnessMatrix`):
@@ -368,8 +367,7 @@ namespace mfem_mgis {
      * they are computed again, at most three times for each layout of the
      * rows, then abandoned (the entries are searched). If their computation
      * fails, they are abandoned. They take about as much memory as the
-     * matrix for linear elements. With a GPU, the entries are always
-     * searched (the positions gave no gain). See also
+     * matrix for linear elements. See also
      * `setOrderedStiffnessMatricesAssembly`.
      * \return true on success
      * \param[in, out] ctx: execution context

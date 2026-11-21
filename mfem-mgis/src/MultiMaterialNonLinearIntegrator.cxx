@@ -939,16 +939,16 @@ namespace mfem_mgis {
     // at the first assembly in this layout, and again after an assembly in
     // which some of them did not designate their columns (another matrix),
     // at most three times. They make the assembly 1.1 to 2.9 times faster on
-    // the CPU, but gave no gain on a GPU, where they would use memory: they
-    // are not used with a GPU or the debug device of MFEM. If their
-    // computation fails, the entries are searched.
+    // the CPU and 1.5 times faster on a GPU (quadratic tetrahedra in finite
+    // strain, single precision; in double precision on a GPU with few double
+    // precision units, the kernel is bound by these units and the positions
+    // gave no gain). If their computation fails, the entries are searched.
     constexpr auto maximum_number_of_positions_computations = 3;
     const auto layout = m.ColumnsAreSorted() ? 1 : 0;
     auto& positions = this->stiffness_matrices_positions[layout];
     auto& computations =
         this->stiffness_matrices_positions_computations[layout];
-    const auto device = mfem::Device::Allows(mfem::Backend::DEVICE_MASK);
-    if ((!device) && (positions.Size() == 0) &&
+    if ((positions.Size() == 0) &&
         (computations < maximum_number_of_positions_computations)) {
       ++computations;
       auto positions_ctx = Context{};
@@ -958,7 +958,7 @@ namespace mfem_mgis {
         computations = maximum_number_of_positions_computations;
       }
     }
-    const auto use_positions = (!device) && (positions.Size() != 0);
+    const auto use_positions = positions.Size() != 0;
     auto searched_entries = std::size_t{};
     const auto a = batch::AssembledStiffnessMatrix{
         .matrix = &m,

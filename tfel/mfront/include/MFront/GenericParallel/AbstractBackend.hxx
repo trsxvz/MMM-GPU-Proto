@@ -2,7 +2,8 @@
  * \file   mfront/include/MFront/GenericParallel/AbstractBackend.hxx
  * \brief  This file declares the base class of the backends of the
  * `generic-parallel` interfaces
- * \date   05/10/2026
+ * \author Thomas Helfer
+ * \date   07/04/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with

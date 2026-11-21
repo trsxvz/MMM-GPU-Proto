@@ -1,0 +1,474 @@
+From b88865f5a616ca6d0fde73038dcf521189a47d0e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 21 Nov 2026 07:19:05 +0100
+Subject: [PATCH] generic-parallel: OpenMP backend
+
+target teams distribute parallel for construct (offload option) or
+threads of the host (configurations openmp-offload-nvhpc-gpu and
+openmp-host-gcc).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../config-openmp-host-gcc.json               |  17 ++
+ .../config-openmp-offload-nvhpc-gpu.json      |  21 +++
+ mfront/include/CMakeLists.txt                 |   4 +
+ .../include/MFront/GenericParallel/OpenMP.hxx | 165 ++++++++++++++++++
+ .../MFront/GenericParallel/OpenMPBackend.hxx  |  62 +++++++
+ .../OpenMPBackendExecutionPolicy.hxx          |  49 ++++++
+ mfront/src/CMakeLists.txt                     |   1 +
+ mfront/src/GenericParallel/OpenMPBackend.cxx  |  67 +++++++
+ 8 files changed, 386 insertions(+)
+ create mode 100644 mfront/configuration-files/config-openmp-host-gcc.json
+ create mode 100644 mfront/configuration-files/config-openmp-offload-nvhpc-gpu.json
+ create mode 100644 mfront/include/MFront/GenericParallel/OpenMP.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/OpenMPBackend.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx
+ create mode 100644 mfront/src/GenericParallel/OpenMPBackend.cxx
+
+diff --git a/mfront/configuration-files/config-openmp-host-gcc.json b/mfront/configuration-files/config-openmp-host-gcc.json
+new file mode 100644
+index 000000000..8d2e0f110
+--- /dev/null
++++ b/mfront/configuration-files/config-openmp-host-gcc.json
+@@ -0,0 +1,17 @@
++interfaces_options: {
++  generic-parallel: {
++    backend: {openmp: {
++        offload: false
++      }
++    }
++  }
++},
++compilation_options : {
++  cxx : {
++    compiler: "@TFEL_GXX_COMPILER@",
++    compilation_flags: "-O2 -ftree-vectorize -DNDEBUG -DTFEL_NO_RUNTIME_CHECK_BOUNDS -fopenmp -std=c++@TFEL_CXX_STANDARD@ -march=native"
++  }
++},
++linking_options : {
++  linker_flags: "-fopenmp"
++}
+diff --git a/mfront/configuration-files/config-openmp-offload-nvhpc-gpu.json b/mfront/configuration-files/config-openmp-offload-nvhpc-gpu.json
+new file mode 100644
+index 000000000..a38b7fa66
+--- /dev/null
++++ b/mfront/configuration-files/config-openmp-offload-nvhpc-gpu.json
+@@ -0,0 +1,21 @@
++dsl_options: {
++  disable_runtime_checks: false
++},
++interfaces_options: {
++  generic-parallel: {
++    backend: {openmp: {
++        offload: true,
++        device_stack_size: 16384
++      }
++    }
++  }
++},
++compilation_options : {
++  cxx : {
++    compiler: "@TFEL_NVHPC_COMPILER@",
++    compilation_flags: "-O2 -mp=gpu -gpu=mem:managed -std=c++@TFEL_CXX_STANDARD@ -march=native"
++  }
++},
++linking_options : {
++  linker_flags: "-mp=gpu -gpu=mem:managed"
++}
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index 9e7aaa7cf..d84d63061 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -172,6 +172,10 @@ install_mfront_header(MFront/GenericParallel RAJABackendExecutionPolicy.hxx)
+ install_mfront_header(MFront/GenericParallel RAJABackend.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour RAJA.hxx)
+ install_mfront_header(MFront/GenericParallel RAJA.hxx)
++# OpenMP backend
++install_mfront_header(MFront/GenericParallel OpenMPBackendExecutionPolicy.hxx)
++install_mfront_header(MFront/GenericParallel OpenMPBackend.hxx)
++install_mfront_header(MFront/GenericParallel OpenMP.hxx)
+ install_mfront_header(MFront GenericBehaviourInterface.hxx)
+ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
+ install_mfront_header(MFront GenericModelInterface.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/OpenMP.hxx b/mfront/include/MFront/GenericParallel/OpenMP.hxx
+new file mode 100644
+index 000000000..b057e8e97
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/OpenMP.hxx
+@@ -0,0 +1,165 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/OpenMP.hxx
++ * \brief  This file declares the primitive of the `openmp` backend of the
++ * `generic-parallel` interfaces, on the host or on a device (target
++ * offloading).
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_OPENMP_HXX
++#define LIB_MFRONT_GENERICPARALLEL_OPENMP_HXX
++
++#include <cstddef>
++#include "MFront/GenericParallel/DeviceStackSize.hxx"
++#include "MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx"
++#include "MFront/GenericParallel/Batch.hxx"
++
++namespace mfront::generic_parallel::openmp {
++
++  /*!
++   * \brief apply a function at the points of a batch and report the
++   * statistics of the batch.
++   *
++   * If the computations are offloaded, the fields of the batch must be
++   * accessible from the device, for instance allocated in unified or
++   * managed memory (`nvc++ -gpu=mem:managed`). This function waits for the
++   * completion of the computations. The statistics given by the calling
++   * code, if any, are accumulated on the host. If the function never
++   * reports an event (see the `hasEvents` method of the handler), the
++   * statistics are neither combined nor reported.
++   *
++   * \tparam offload: if true, the computations are offloaded to the default
++   * device (`target` construct). Otherwise, they are performed by the
++   * threads of the host (`parallel` construct) and the code does not depend
++   * on the support of offloading by the OpenMP runtime.
++   * \tparam device_stack_size: minimal stack size, in bytes, of the threads
++   * of the device when the computations are offloaded to an NVIDIA GPU
++   * through the CUDA runtime (see
++   * `mfront::generic_parallel::setMinimalCUDAStackSize`). The stack size is
++   * not modified if this value is null. This value is a template argument,
++   * as for the `stlpar` backend.
++   * \tparam StatisticsHandler: handler of the statistics (see
++   * `MFront/GenericParallel/Batch.hxx`)
++   * \tparam PointFunction: function object taking the index of a point and
++   * returning the statistics associated with this point
++   * \param[in,out] s: output status, which must have been initialized
++   * \param[in] n: number of points
++   * \param[in] e: execution of the batch. The policy is a
++   * `OpenMPBackendExecutionPolicy`, or null for the default policy: only its
++   * common options are used, the computations being synchronous.
++   * \param[in] h: handler of the statistics
++   * \param[in] f: function
++   * \return the status
++   */
++  template <bool offload,
++            std::size_t device_stack_size,
++            typename StatisticsHandler,
++            typename PointFunction>
++  int apply(typename StatisticsHandler::OutputStatus& s,
++            const size_type n,
++            const BatchExecution<typename StatisticsHandler::Statistics>& e,
++            const StatisticsHandler& h,
++            const PointFunction& f) {
++    if (n == 0) {
++      return s.status;
++    }
++    const auto p = checkBackendExecutionPolicy<OpenMPBackendExecutionPolicy>(
++        e.policy, e.statistics != nullptr);
++    if (p.error != nullptr) {
++      return report(s, -5, p.error);
++    }
++    if constexpr (offload && (device_stack_size != 0)) {
++      if (!setMinimalCUDAStackSize(device_stack_size,
++                                   p.common_options.preserve_stack_size)) {
++        return report(s, -7, stack_size_error_message);
++      }
++    }
++    if (!h.hasEvents()) {
++      // the statistics are neither combined nor reported
++      if constexpr (offload) {
++#pragma omp target teams distribute parallel for map(to : f)
++        for (size_type i = 0; i < n; ++i) {
++          static_cast<void>(f(i));
++        }
++      } else {
++#pragma omp parallel for
++        for (size_type i = 0; i < n; ++i) {
++          static_cast<void>(f(i));
++        }
++      }
++      return s.status;
++    }
++    // the statistics are reduced member by member
++    const auto r0 = h.initial();
++    auto number_of_failures = r0.number_of_failures;
++    auto first_failure = r0.first_failure;
++    auto number_of_unreliable_results = r0.number_of_unreliable_results;
++    auto first_unreliable_result = r0.first_unreliable_result;
++    auto rdt = r0.rdt;
++    if constexpr (offload) {
++#pragma omp target teams distribute parallel for map(to : f)        \
++    reduction(+ : number_of_failures, number_of_unreliable_results) \
++    reduction(min : first_failure, first_unreliable_result, rdt)
++      for (size_type i = 0; i < n; ++i) {
++        const auto r = f(i);
++        number_of_failures += r.number_of_failures;
++        first_failure =
++            r.first_failure < first_failure ? r.first_failure : first_failure;
++        number_of_unreliable_results += r.number_of_unreliable_results;
++        first_unreliable_result =
++            r.first_unreliable_result < first_unreliable_result
++                ? r.first_unreliable_result
++                : first_unreliable_result;
++        rdt = r.rdt < rdt ? r.rdt : rdt;
++      }
++    } else {
++#pragma omp parallel for reduction(+ : number_of_failures,           \
++                                       number_of_unreliable_results) \
++    reduction(min : first_failure, first_unreliable_result, rdt)
++      for (size_type i = 0; i < n; ++i) {
++        const auto r = f(i);
++        number_of_failures += r.number_of_failures;
++        first_failure =
++            r.first_failure < first_failure ? r.first_failure : first_failure;
++        number_of_unreliable_results += r.number_of_unreliable_results;
++        first_unreliable_result =
++            r.first_unreliable_result < first_unreliable_result
++                ? r.first_unreliable_result
++                : first_unreliable_result;
++        rdt = r.rdt < rdt ? r.rdt : rdt;
++      }
++    }
++    return h.report(
++        s, e.statistics,
++        decltype(r0){
++            .number_of_failures = number_of_failures,
++            .first_failure = first_failure,
++            .number_of_unreliable_results = number_of_unreliable_results,
++            .first_unreliable_result = first_unreliable_result,
++            .rdt = rdt});
++  }  // end of apply
++
++  /*!
++   * \return the primitive of the backend, called by the functions of the
++   * interfaces (see for instance `mfront::gpb::integrateBatch`)
++   * \tparam offload: if true, the computations are offloaded
++   * \tparam device_stack_size: minimal stack size of the threads of the
++   * device (see `apply`)
++   */
++  template <bool offload, std::size_t device_stack_size = 0>
++  auto makeApply() {
++    return [](auto& s, const size_type n, const auto& e, const auto& h,
++              const auto& f) {
++      return openmp::apply<offload, device_stack_size>(s, n, e, h, f);
++    };
++  }  // end of makeApply
++
++}  // end of namespace mfront::generic_parallel::openmp
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_OPENMP_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/OpenMPBackend.hxx b/mfront/include/MFront/GenericParallel/OpenMPBackend.hxx
+new file mode 100644
+index 000000000..0bcc6052b
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/OpenMPBackend.hxx
+@@ -0,0 +1,62 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/OpenMPBackend.hxx
++ * \brief  This file declares the backend of the `generic-parallel` interfaces
++ * based on OpenMP
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_OPENMPBACKEND_HXX
++#define LIB_MFRONT_GENERICPARALLEL_OPENMPBACKEND_HXX
++
++#include "TFEL/Utilities/Data.hxx"
++#include "MFront/MFrontConfig.hxx"
++#include "MFront/GenericParallel/AbstractBackend.hxx"
++
++namespace mfront::generic_parallel {
++
++  /*!
++   * \brief backend based on OpenMP.
++   *
++   * Options:
++   *
++   * - `offload`: if true (default), the computations are offloaded to the
++   *   default device (`target` construct). Otherwise, they are performed by
++   *   the threads of the host (`parallel` construct).
++   * - `device_stack_size`: minimal stack size, in bytes, of the threads of the
++   *   device when the computations are offloaded to an NVIDIA GPU through the
++   *   CUDA runtime (ignored otherwise).
++   */
++  struct MFRONT_VISIBILITY_EXPORT OpenMPBackend final : AbstractBackend {
++    //! \brief default constructor
++    OpenMPBackend();
++    /*!
++     * \brief constructor
++     * \param[in] opts: options
++     */
++    OpenMPBackend(const tfel::utilities::DataMap&);
++    //
++    [[nodiscard]] std::string getName() const override;
++    [[nodiscard]] std::string getSourceFileExtension() const override;
++    void writeSpecificIncludes(std::ostream&, const Runtime) const override;
++    [[nodiscard]] std::string getApply() const override;
++    [[nodiscard]] std::string getMemorySpace() const override;
++    [[nodiscard]] std::string getExecutionPolicyType() const override;
++    //! \brief destructor
++    ~OpenMPBackend() noexcept override;
++
++   private:
++    //! \brief offload the computations to the default device
++    bool offload = true;
++    //! \brief stack size of the threads of the device (0 if not specified)
++    int device_stack_size = 0;
++  };  // end of OpenMPBackend
++
++}  // end of namespace mfront::generic_parallel
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_OPENMPBACKEND_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx b/mfront/include/MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx
+new file mode 100644
+index 000000000..23f2eaed3
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx
+@@ -0,0 +1,49 @@
++/*!
++ * \file mfront/include/MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx
++ * \brief  This file declares the execution policy of the `openmp` backend
++ * of the `generic-parallel` interfaces.
++ * \date   22/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_OPENMPBACKENDEXECUTIONPOLICY_HXX
++#define LIB_MFRONT_GENERICPARALLEL_OPENMPBACKENDEXECUTIONPOLICY_HXX
++
++#include "MFront/GenericParallel/BackendExecutionPolicyBase.hxx"
++
++namespace mfront::generic_parallel {
++
++  /*!
++   * \brief execution policy of the `openmp` backend: the computations are
++   * performed synchronously, and only the common options are used
++   */
++  struct OpenMPBackendExecutionPolicy final : BackendExecutionPolicyBase {
++    //! \return the identifier of the policy
++    static constexpr const char* identifier() noexcept { return "openmp"; }
++    /*!
++     * \brief constructor
++     * \param[in] opts: common options
++     */
++    explicit OpenMPBackendExecutionPolicy(
++        const BackendExecutionCommonPolicy& opts = {}) noexcept
++        : BackendExecutionPolicyBase(opts) {}
++    const char* getIdentifier() const noexcept override { return identifier(); }
++  };  // end of struct OpenMPBackendExecutionPolicy
++
++  /*!
++   * \return an execution policy of the `openmp` backend
++   * \param[in] opts: common options
++   */
++  inline OpenMPBackendExecutionPolicy makeOpenMPBackendExecutionPolicy(
++      const BackendExecutionCommonPolicy& opts = {}) noexcept {
++    return OpenMPBackendExecutionPolicy{opts};
++  }  // end of makeOpenMPBackendExecutionPolicy
++
++}  // end of namespace mfront::generic_parallel
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_OPENMPBACKENDEXECUTIONPOLICY_HXX */
+diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
+index 856f0d479..f50dfe7ec 100644
+--- a/mfront/src/CMakeLists.txt
++++ b/mfront/src/CMakeLists.txt
+@@ -240,6 +240,7 @@ set(TFELMFront_SOURCES
+     GenericParallel/BackendFactory.cxx
+     GenericParallel/GPUBackend.cxx
+     GenericParallel/KokkosBackend.cxx
++    GenericParallel/OpenMPBackend.cxx
+     GenericParallel/ParallelSTLBackend.cxx
+     GenericParallel/RAJABackend.cxx
+     GenericParallel/SYCLBackend.cxx
+diff --git a/mfront/src/GenericParallel/OpenMPBackend.cxx b/mfront/src/GenericParallel/OpenMPBackend.cxx
+new file mode 100644
+index 000000000..e69f786db
+--- /dev/null
++++ b/mfront/src/GenericParallel/OpenMPBackend.cxx
+@@ -0,0 +1,67 @@
++/*!
++ * \file   mfront/src/GenericParallel/OpenMPBackend.cxx
++ * \brief  This file implements the backend of the `generic-parallel`
++ * interfaces based on OpenMP
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <ostream>
++#include "MFront/GenericParallel/BackendOptions.hxx"
++#include "MFront/GenericParallel/OpenMPBackend.hxx"
++
++namespace mfront::generic_parallel {
++
++  OpenMPBackend::OpenMPBackend() = default;
++
++  OpenMPBackend::OpenMPBackend(const tfel::utilities::DataMap& opts) {
++    auto validator = tfel::utilities::DataMapValidator{};
++    validator.addDataTypeValidator<bool>("offload");
++    declareDeviceStackSizeOption(validator);
++    validator.validate(opts);
++    if (contains(opts, "offload")) {
++      this->offload = get<bool>(opts, "offload");
++    }
++    this->device_stack_size = getDeviceStackSize(opts);
++  }  // end of OpenMPBackend
++
++  std::string OpenMPBackend::getName() const { return "openmp"; }
++
++  std::string OpenMPBackend::getSourceFileExtension() const {
++    return "cxx";
++  }  // end of getSourceFileExtension
++
++  void OpenMPBackend::writeSpecificIncludes(std::ostream& os,
++                                            const Runtime) const {
++    os << "#include \"MFront/GenericParallel/OpenMP.hxx\"\n";
++  }  // end of writeSpecificIncludes
++
++  std::string OpenMPBackend::getApply() const {
++    // the offload option is a template argument, so that the code
++    // executed on the host does not depend on the support of offloading by
++    // the OpenMP runtime. The stack size is a template argument, as for the
++    // `stlpar` backend
++    return std::string{"mfront::generic_parallel::openmp::makeApply<"} +
++           (this->offload ? "true" : "false") + ", " +
++           std::to_string(this->device_stack_size) + ">()";
++  }  // end of getApply
++
++  std::string OpenMPBackend::getMemorySpace() const {
++    if (this->offload) {
++      return "mfront::generic_parallel::getOpenMPOffloadMemorySpace()";
++    }
++    return "mfront::generic_parallel::host_memory_space";
++  }  // end of getMemorySpace
++
++  std::string OpenMPBackend::getExecutionPolicyType() const {
++    return "::mfront::generic_parallel::OpenMPBackendExecutionPolicy";
++  }  // end of getExecutionPolicyType
++
++  OpenMPBackend::~OpenMPBackend() noexcept = default;
++
++}  // end of namespace mfront::generic_parallel
+-- 
+2.43.0
+

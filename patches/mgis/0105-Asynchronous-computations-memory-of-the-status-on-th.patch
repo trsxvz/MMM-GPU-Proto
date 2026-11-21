@@ -1,0 +1,60 @@
+From 2d4d4c6ca45c635f0bde2255794d75ddfa127fd5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 20 Nov 2026 20:10:32 +0100
+Subject: [PATCH] Asynchronous computations: memory of the status on the AMD
+ GPUs connected by PCI Express
+
+The status of the asynchronous computations is updated by atomic
+operations of the device. On the AMD GPUs connected by PCI Express
+without page migration (XNACK), managed memory and the unified memory of
+Arccore are host memory, where the atomic minimum is not performed: the
+memory resource of the policy must then allocate coarse-grained memory.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ docs/web/generic-parallel.md          | 10 ++++++++++
+ include/MGIS/BatchExecutionPolicy.hxx |  7 +++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
+index 67f8d44f..0d93dbd1 100644
+--- a/docs/web/generic-parallel.md
++++ b/docs/web/generic-parallel.md
+@@ -400,6 +400,16 @@ backend policy without the `asynchronous` option, the computations are
+ synchronous, and the returned pending computation gives the result as for
+ an asynchronous computation.
+ 
++The status of the computations is updated by atomic operations of the
++device, in memory allocated by the memory resource of the policy. On the
++AMD GPUs connected by PCI Express without page migration (XNACK), managed
++memory, and the unified memory of Arccore, are host memory, where the
++atomic minimum is not performed (the PCI Express bus only provides the
++atomic addition, exchange and compare-and-swap operations): the memory
++resource must then allocate coarse-grained memory, for instance host
++memory allocated by `hipHostMalloc` with the `hipHostMallocNonCoherent`
++flag.
++
+ ~~~~{.cxx}
+ #include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
+ const auto backend_policy =
+diff --git a/include/MGIS/BatchExecutionPolicy.hxx b/include/MGIS/BatchExecutionPolicy.hxx
+index f3b61401..64f4b23c 100644
+--- a/include/MGIS/BatchExecutionPolicy.hxx
++++ b/include/MGIS/BatchExecutionPolicy.hxx
+@@ -70,6 +70,13 @@ namespace mgis {
+    * and is initialized and read by the host: it must be accessible by the
+    * host and by the computations (see
+    * `checkDeferredReportBatchExecutionPolicy`).
++   * The device updates it by atomic operations: on the AMD GPUs connected
++   * by PCI Express without page migration (XNACK), managed memory, and the
++   * unified memory of Arccore, are host memory, where the atomic minimum is
++   * not performed (the PCI Express bus only provides the atomic addition,
++   * exchange and compare-and-swap operations). The memory resource must then
++   * allocate coarse-grained memory, for instance host memory allocated by
++   * `hipHostMalloc` with the `hipHostMallocNonCoherent` flag.
+    *
+    * Errors of the device raised after the submission (for instance an
+    * invalid memory access) are not seen by `MGIS`: they are reported by the
+-- 
+2.43.0
+

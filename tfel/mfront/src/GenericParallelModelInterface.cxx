@@ -214,9 +214,19 @@ namespace mfront {
        << " */\n\n";
     this->backend->writeSpecificIncludes(
         os, generic_parallel::AbstractBackend::Runtime::BEHAVIOURS);
+    // the standard headers and `TFEL/Raise.hxx` are required by the reading
+    // of the parameters from a file, on the host (see
+    // `writeGenericModelClass`)
     os << "#include <cmath>\n"
-       << "#include \"MFront/GenericParallel/MemorySpace.hxx\"\n"
+       << "#include <cerrno>\n"
+       << "#include <locale>\n"
+       << "#include <string>\n"
+       << "#include <vector>\n"
        << "#include <cstring>\n"
+       << "#include <fstream>\n"
+       << "#include <sstream>\n"
+       << "#include \"TFEL/Raise.hxx\"\n"
+       << "#include \"MFront/GenericParallel/MemorySpace.hxx\"\n"
        << "#include \"TFEL/PhysicalConstants.hxx\"\n"
        << "#include \"TFEL/Config/TFELTypes.hxx\"\n"
        << "#include \"TFEL/Math/Array/View.hxx\"\n"

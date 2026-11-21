@@ -53,7 +53,7 @@ strain frameworks is zero. The behaviours written with the deformation
 gradient receive F as given by the caller (I + H with the displacement
 gradient) and store the axial component in the `AxialDeformationGradient`
 internal state variable, whose initial value shall be one (patches
-`patches/tfel/0125` and `patches/mgis/0074`). MGIS (`BehaviourData`,
+`patches/tfel/0002` and `patches/mgis/0074`). MGIS (`BehaviourData`,
 `MaterialDataManager`) and mfem-mgis (`MaterialArrays`) set it to one,
 the offset being given by `getAxialDeformationGradientOffset`, also
 bound in C, Fortran and Python (patches `patches/mgis/0075` to `0077`
@@ -81,9 +81,10 @@ axial strain, in relative value, with F as with H).
 
 ## Implementation
 
-Patches `patches/tfel/0118` to `0121`, `patches/mgis/0070` to `0072`,
+Patches `patches/tfel/0001` (TFEL/Math, TFEL/Material) and `0002`
+(MFront), `patches/mgis/0070` to `0072`,
 `patches/mfem-mgis/0182` and `patches/mm-opera-hpc/0034`. The plane stress
-corrections are in `patches/tfel/0122` and `patches/mgis/0073` to `0075`.
+corrections are in `patches/tfel/0002` and `patches/mgis/0073` to `0075`.
 
 TFEL:
 

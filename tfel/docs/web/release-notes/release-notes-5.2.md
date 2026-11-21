@@ -45,6 +45,61 @@ designed for maximum GPU performance:
 When compiling `TFEL`, one must explicitly enable support for the `TDLS`
 library, see below.
 
+## Compatibility modes
+
+The behaviour of `MFront` and the results of the code it generates are
+now governed by a compatibility mode, which is a version number. A
+development which does not fix an explicit bug, but changes the results
+of the `TFEL` libraries or the results or the behaviour of `MFront` and
+of the assets it generates, such as a new default value of an option or
+a new default behaviour of a working keyword, is associated with the
+version which makes it the default. Users who need the previous
+behaviour restore it by selecting an older compatibility mode.
+
+Version 5.2 provides two compatibility modes:
+
+- `5.2.0`, the values and behaviours of Version 5.2,
+- `future`, which introduces the changes which shall be the default of
+  the next major version.
+
+By default, no compatibility mode is declared: the generated code uses
+the entities and the algorithms of the version of the `TFEL` libraries
+which compiles it. Declaring a compatibility mode makes the results of
+the generated code independent of this version.
+
+The compatibility mode of a file is defined by the `compatibility_mode`
+option of its domain specific language, which is available for all the
+DSLs, whereas the `--default-compatibility-mode` command line argument declares
+the mode of all the files treated by a run of `mfront` which do not
+declare their own mode:
+
+~~~~{.bash}
+$ mfront --obuild --interface=generic --default-compatibility-mode=5.2.0 Norton.mfront
+~~~~
+
+The compatibility mode of an asset which declares one is recorded in its
+generated code as the `<entry point>_compatibility_mode` symbol, which is
+returned by the `ExternalLibraryManager::getCompatibilityMode` method,
+available both in `C++` and in `Python`.
+
+The values of the physical constants are the first entities to be
+versioned this way. The `TFEL/PhysicalConstants` library now provides
+one set of constants per compatibility mode, in namespaces named after
+the version which introduced them (`tfel::v5_2_0::`, `tfel::v6_0_0::`,
+...), whereas the names used by the previous versions,
+`tfel::PhysicalConstants` and the variables of `tfel::constants`, keep
+referring to the values of the current version. The current values of
+Version 5.2 are those of the `5.2.0` mode, so the physical constants of
+version 5.2 are those of version 5.1: the use of the values of the
+`CODATA` 2022 adjustment with all the digits of the `double`
+representation is postponed to version 6.0, where it is available
+through the `6.0.0` set of constants.
+
+Compatibility modes are described in the pages devoted to
+[compatibility modes in the `TFEL` libraries](tfel-compatibility-modes.html)
+and to
+[compatibility modes in `MFront`](mfront-compatibility-modes.html).
+
 ## Behaviours on GPUs: the `generic-parallel` interface for behaviours
 
 The `generic-parallel` interface integrates a behaviour, or executes a
@@ -71,6 +126,10 @@ page](generic-parallel-behaviour-interface.html) for details.
   as documented, if `C++` keywords are allowed (see Issue #964): its
   meaning has been inverted. With the default value (`true`), `C++`
   keywords are now considered as valid identifiers.
+- In the python bindings, the `None` value of the `OutOfBoundsPolicy`
+  enumeration is renamed `None_`, and the first argument of the `execute`
+  method of `ProcessManagerCommand` is renamed `in_`, as `None` and `in`
+  are reserved keywords in python (see Issue #1072).
 - The static method `get` of the
   `GlobalDomainSpecificLanguageOptionsManager` class has been removed.
   The global options passed to domain specific languages are now handled
@@ -171,6 +230,41 @@ page](generic-parallel-behaviour-interface.html) for details.
   correction affects their results: setting it to `false` restores the
   previous derivatives.
 
+- The value of a raw string literal token given by `CxxTokenizer` holds the
+  whole literal, from the `R` delimiter to the closing `"` included, and its
+  offset is that of the `R`, as for a quoted string (see Issue #1390): the
+  value was the contents of the literal only and the offset that of those
+  contents, so that the consumers which stripped the first and last characters
+  of the value of the string tokens, as the parsers of `MFront`, `MTest` and
+  `tfel-check` did, truncated the raw string literals. Those parsers read the
+  right contents now: `@Date R"(23/11/06)";` gave the date `3/11/0` and
+  `@Author R"(Helfer "Thomas")";` the author `elfer "Thomas"`. Code which
+  reads the contents of a string token shall use the new
+  `tfel::utilities::getContents` function rather than removing the first and
+  last characters of the value.
+- The offset of a comment token which has no contents on the line it starts on
+  is that of the delimiter which opens the comment (see Issue #1391): it was
+  the offset reached after the delimiters and the spaces which would have
+  surrounded the contents, so that it pointed past the end of the line for an
+  empty `C++` style comment, as `a; //`, and beyond the opening delimiter for an
+  empty `C` style comment or for a comment opened at the end of a line, as the
+  header comments of the `MFront` files starting with `/*!`. The flags, the
+  lines and the values of the tokens are unaffected.
+- `CxxTokenizer::stripComments` gathers all the comments of a line, separated
+  by a space character, instead of keeping only the last one (see Issue
+  #1392): the comments of a line holding `//! first` and `//! second` are
+  `first second`, not `second`. The empty comments bring nothing and give no
+  separator, so that a line whose only comment is empty gives no entry in the
+  comments of the tokenizer.
+- Tokenizing a file line by line, with a call to `CxxTokenizer::parseString`
+  per line, gives the same tokens as giving the whole contents to a single call
+  (see Issue #1396): a file whose last line is terminated by an end of line
+  character gave an additional empty line, which is not a line of the file, so
+  that the value of a comment or of a raw string literal which is not closed at
+  the end of the file held an additional end of line character, and the last
+  line of a file which is not terminated by an end of line character was
+  tokenized twice. The line numbers are unaffected.
+
 The support of device code by `TFEL` and `MFront` (see the
 `generic-parallel` interface for behaviours) leads to the following
 changes:
@@ -226,6 +320,16 @@ changes:
 - `enable-tdls-as-default-linear-system-solver-in-mfront`: use `TDLS`
   as the default linear solver. Requires `enable-tdls` to be `ON`.
   `OFF` by default.
+- `enable-pybind11-stubgen`: generate the stub files (`.pyi` files) of the
+  python modules built using `pybind11` and install them. Those files are
+  used by python development environments to provide code completion and
+  type checking. This option has no effect if the python bindings are not
+  enabled or if the `pybind11-stubgen` tool is not found. `ON` by default.
+- `enable-libfuzzer-tests`: configure the `libFuzzer` based analyses of
+  the `tfel::utilities::CxxTokenizer` class. `OFF` by default. Those
+  analyses can only be built with `clang` and are neither built nor run
+  by `make check`, see the `build-cxxtokenzier-libfuzzer-tests` and
+  `cxxtokenzier-libfuzzer-tests` targets described below.
 
 ## Sanitizers and hardening options
 
@@ -397,6 +501,93 @@ only compiles the tests. To run the tests, one may still call the
 If the `build-tests` target has not been called, the `check` target
 works as in previous versions.
 
+## Generation of the stubs of the python modules
+
+When the python bindings are enabled and the `pybind11-stubgen` tool is
+found, the stub files (`.pyi` files) associated with the python modules
+are generated by the `python-stubs` target, which is built along with the
+project. The generated files are installed next to the python modules they
+describe. Such files are used by python development environments to provide
+code completion and type checking.
+
+A `py.typed` marker is installed in the packages holding stubs, as type
+checkers such as `mypy` only use the stubs of a package holding this marker
+(see PEP 561). The arguments of the methods of the `mfront`,
+`mfront.database` and `mtest` modules now have names, and can be passed by
+keyword.
+
+The `python-stubs` target can be triggered explicitly:
+
+```
+make python-stubs
+```
+
+## Fuzz testing the tokenizer with `libFuzzer`
+
+The `tfel::utilities::CxxTokenizer` class, which `MFront` uses to read
+the files of its domain specific language, is now covered by coverage
+guided fuzz testing, gathered in the `additional-tests/fuzzing`
+directory of the sources. Those analyses are configured by the
+`enable-libfuzzer-tests` option, which is `OFF` by default, and can
+only be built with `clang`.
+
+Two targets are dedicated to them:
+
+- `build-cxxtokenzier-libfuzzer-tests` builds the fuzzing executables,
+- `cxxtokenzier-libfuzzer-tests` builds them and runs the analyses, for
+  the duration given by the `libfuzzer-tests-max-total-time` option.
+
+The fuzzing executables are excluded from the default target and no
+analysis is registered with `ctest`, so that neither `make all` nor
+`make check` builds or runs them: the duration of a fuzzing analysis is
+not bounded a priori. The corpus of an analysis and the inputs it
+generates which lead to a failure are kept in the build tree, so that a
+long campaign is a sequence of runs sharing the same corpus.
+
+The `mfront-fuzzing` analysis tokenizes `MFront` files with the options
+`MFront` itself uses, and checks the contract of the produced tokens
+beyond the absence of any sanitizer report. The `all` value of the
+`mfront-fuzzing-database` option uses all the `MFront` files of
+`mfront/tests/behaviours` as the database of the analysis.
+
+For more details, see the documentation on [fuzz testing the
+tokenizer](testing-fuzzing.html).
+
+# New features in `TFEL/Utilities`
+
+## Contents of the string tokens
+
+The `getContents` function returns the contents of the literal held by a
+`Token`: its value without the double quotes of a quoted string, without the
+single quotes of a character literal and without the `R"delim(` prefix and the
+`)delim"` suffix of a raw string literal. The `isRawString` and
+`getRawStringDelimiter` functions tell if a token holds a raw string literal
+and give its delimiter. Those functions allow a consumer to read the contents
+of a string token without relying on the flag of the token only, as removing
+the first and last characters of the value truncates a raw string literal (see
+Issue #1390).
+
+## Documented contract of the tokens
+
+The contract of the tokens given by `CxxTokenizer` is documented now, on the
+`Token` class for the value, the line and the offset of a token, and on the
+`CxxTokenizer` class for the exceptions: the value of a number does not hold
+the digit separators of the `C++14` integer literals, whereas the offsets
+remain those of the file, so that a source code can be rewritten from the
+offsets of its tokens (see Issue #1393); a `C` style comment and a raw string
+literal which are not closed at the end of a file are on the contrary accepted,
+and leave the state of the tokenizer open, on the contrary to a quoted string
+and a character literal, which are rejected (see Issue #1395). Checking that
+the tokens describe the file they come from is what the fuzz testing analysis
+of the tokenizer does, see above.
+
+## Classes usable in device code
+
+- `TrivialGenTypeBase` is a tagged union of trivially copyable types with
+  the interface of `GenTypeBase`, usable in device code.
+- `getConstantObject` (`TFEL/Utilities/ConstantObject.hxx`) gives access
+  to objects built at compile time in host and device code.
+
 # New `TFEL/Config` features
 
 The `TFEL/Config` library is now documented on [this
@@ -562,6 +753,89 @@ const auto adj = computeAdjugateDeterminantDerivative(F);
 const auto dadj = computeAdjugateDeterminantSecondDerivative(F);
 ~~~~
 
+## Piola's and Nanson's transformations
+
+### Piola's transformation
+
+The `computePiolaTransformOfIdentityMatrixInReferenceConfiguration`
+function returns the Piola transformation of the identity matrix of the
+current configuration, i.e. the matrix
+\(\det\left(F\right)\,F^{-1}\,F^{-T}\) in the reference configuration.
+
+The `computePiolaTransform` function returns the Piola transformation
+\(\det\left(F\right)\,F^{-1}\,q\) of a vector \(q\) of the current
+configuration, such as the heat flux. The `computeInversePiolaTransform`
+function returns the vector of the current configuration from its Piola
+transformation.
+
+~~~~{.cxx}
+const auto Q = computePiolaTransform(q, F);
+const auto q2 = computeInversePiolaTransform(Q, F);
+~~~~
+
+### Nanson's transformation
+
+The `computeNansonTransform` function returns the vector
+\(\det\left(F\right)\,F^{-T}\,N\) given by Nanson's formula. If \(N\)
+is an oriented surface element of the reference configuration, the
+result is the oriented surface element of the current configuration.
+The `computeInverseNansonTransform` function returns the vector of the
+reference configuration.
+
+~~~~{.cxx}
+const auto n = computeNansonTransform(N, F);
+const auto N2 = computeInverseNansonTransform(n, F);
+~~~~
+
+### Derivatives
+
+Strongly coupled resolutions need the derivatives of those
+transformations. The `computePiolaTransformAndDerivatives`,
+`computeInversePiolaTransformAndDerivatives`,
+`computeNansonTransformAndDerivatives` and
+`computeInverseNansonTransformAndDerivatives` functions return a tuple
+made of the transformed vector, its derivative with respect to the
+initial vector and its derivative with respect to the deformation
+gradient.
+
+~~~~{.cxx}
+const auto [Q, dQ_dq, dQ_dF] = computePiolaTransformAndDerivatives(q, F);
+~~~~
+
+The derivative with respect to the vector is a `tmatrix`. The
+derivative with respect to the deformation gradient is of type
+`derivative_type<tvector<N, T>, tensor<N, real>>`. A `tmatrix` can now
+be multiplied by such a derivative, which allows to apply the chain
+rule:
+
+~~~~{.cxx}
+// q depends on F through dq_dF
+const auto dQ_dF_total = dQ_dF + dQ_dq * dq_dF;
+~~~~
+
+Those functions are declared in the
+`TFEL/Math/Tensor/PiolaTransformation.hxx` header.
+
+### Space dimensions one and two
+
+In space dimensions one and two, those functions only describe the in
+plane behaviour:
+
+- the out of plane stretch, given by the third component of the
+  deformation gradient, is taken into account: the result is the in plane
+  block of the result obtained in the three dimensional case,
+- the out of plane component of the vector on which the transformation is
+  applied is taken equal to zero: the out of plane component of the
+  result is null.
+
+In space dimension one, only the diagonal components of the deformation
+gradient are described. The result of
+`computePiolaTransformOfIdentityMatrixInReferenceConfiguration` is
+therefore \(F_{22}\,F_{33}/F_{11}\). In space dimension two, the missing
+out of plane component of this matrix is
+\(\det\left(F\right)/F_{33}^{2}\), where \(\det\left(F\right)\) is the
+determinant of the two dimensional deformation gradient.
+
 ## Rotation of vectors and square matrices
 
 `change_basis` is available for `tvector<N>` and `tmatrix<N, N>`,
@@ -584,14 +858,67 @@ Many functions are usable in device code:
 This allows to report errors in device code, where exceptions are not
 supported (see [this page](tfel-math.html)).
 
-# New `TFEL/Utilities` features
-
-- `TrivialGenTypeBase` is a tagged union of trivially copyable types with
-  the interface of `GenTypeBase`, usable in device code.
-- `getConstantObject` (`TFEL/Utilities/ConstantObject.hxx`) gives access
-  to objects built at compile time in host and device code.
-
 # New `TFEL/Material` features
+
+## Finite strain heat transfer
+
+For isotropic or orthotropic materials described by Fourier's law in the
+current configuration, the
+`computeThermalConductivityMatrixInReferenceConfiguration` functions are
+available to compute the thermal conductivity matrix in the reference
+configuration using Piola's transformation. Those functions can also be
+used to compute the derivative of the thermal conductivity matrix with
+respect to the temperature.
+
+### Example of usage
+
+~~~~{.cxx}
+const auto K =
+  computeThermalConductivityMatrixInReferenceConfiguration(k, F);
+~~~~
+
+where `k` is the thermal conductivity and `F` is the deformation
+gradient.
+
+### Space dimensions one and two
+
+In space dimension two, the orthotropic version of the function takes the
+two in plane thermal conductivities as arguments and returns the in plane
+block of the thermal conductivity matrix:
+
+~~~~{.cxx}
+const auto K =
+  computeThermalConductivityMatrixInReferenceConfiguration(k1, k2, F);
+~~~~
+
+The out of plane thermal conductivity \(k_3\) is not used: the out of
+plane component of the three dimensional result,
+\(\det\left(F\right)\,k_3/F_{33}\), is indeed of no use in a two
+dimensional computation. The out of plane stretch is nevertheless taken
+into account, as for Piola's transformation.
+
+In space dimension one, only the diagonal components of the deformation
+gradient are described and the isotropic version of the function is also
+suitable for orthotropic materials: only the thermal conductivity in the
+first direction is used and the result is
+\(F_{22}\,F_{33}\,k_1/F_{11}\).
+
+### Heat flux in the reference configuration and its derivatives
+
+The `computeHeatFluxInReferenceConfigurationAndDerivatives` function
+returns the heat flux \(Q=-K\,\nabla T\) in the reference
+configuration, its derivative with respect to the temperature gradient
+and its derivative with respect to the deformation gradient, which
+strongly coupled resolutions need. The thermal conductivity matrix
+\(K\) must be given by one of the
+`computeThermalConductivyMatrixInReferenceConfiguration` functions.
+
+~~~~{.cxx}
+const auto K =
+  computeThermalConductivyMatrixInReferenceConfiguration(k, F);
+const auto [Q, dQ_dgT, dQ_dF] =
+  computeHeatFluxInReferenceConfigurationAndDerivatives(K, gT, F);
+~~~~
 
 ## Logarithmic strain handler
 
@@ -1010,8 +1337,9 @@ $ mfront --obuild --interface='{generic-parallel:{backend:"stlpar"{execution_pol
 
 ## The `generic-parallel` interface for material properties
 
-See [this page for
-details](generic-parallel-material-property-interface.html).
+The `generic-parallel` interface generates functions evaluating a
+material property on a batch of points, on CPUs or on GPUs. See [this
+page for details](generic-parallel-material-property-interface.html).
 
 ### Available backends
 
@@ -1027,10 +1355,11 @@ details](generic-parallel-material-property-interface.html).
 - `arcane`: accelerator API of Arccore, the core component of the Arcane
   framework (device selected by the queue given at runtime).
 
-### Changes of the generated functions
+### Generated functions
 
-The functions generated for a material property `S` are now (version 4
-of those functions, `MFRONT_GPMP_API_VERSION` macro):
+The functions generated for a material property `S` are (version 1 of
+those functions, `MFRONT_GPMP_API_VERSION` macro, declared in
+`MFront/GenericParallelMaterialProperty/MaterialProperty.h`):
 
 ~~~~{.cxx}
 int S_generic_parallel(mfront_gpmp_OutputStatus* const,
@@ -1042,16 +1371,12 @@ int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
 - the data of a batch (`mfront_gpmp_BatchData`) give the number of
   points, the output and the arguments (pointer and stride between two
   points), the out of bounds policy, the optional statuses of the points,
-  the optional statistics and the execution policy, as for the
-  behaviours (see the section on the execution policies below). The
-  queue of the `SYCL` backend, which was a specific argument of its
-  functions, is now given by its execution policy. The function with
-  contiguous arrays (suffix `2`) is removed: the backends treat the
-  contiguous arrays as a special case.
+  the optional statistics and the execution policy (see the section on
+  the execution policies below). Contiguous arrays are treated as a
+  special case by the backends.
 - the names of the functions end with `_generic_parallel`, and the names
   of the material properties can't contain `_generic_parallel`. A library
-  generated by this interface does not contain the function of a point of
-  the `generic` interface: it is recognized by the
+  generated by this interface is recognized by the
   `<name>_generic_parallel_api_version` symbol, next to the
   `<name>_generic_parallel_backend`,
   `<name>_generic_parallel_memory_space` and
@@ -1061,88 +1386,57 @@ int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
   in the optional array of the statuses of the points), same retained
   check. The output is `NaN` where the evaluation fails, and the computed
   value where it is not finite.
-- the output status (`mfront_gpmp_OutputStatus`) is specific to the
-  interface: as for the behaviours, it gives the numbers of points where
-  the evaluation failed and where a bound is violated with the warning
-  policy, and the first point of each kind. Its status is the error of the
-  batch, otherwise the status of the first point where the evaluation
-  failed, otherwise the status of the first point where the result is
-  unreliable. The errors of the batch are `-5` (invalid arguments), `-6`
-  (invalid parameters) and `-7` (runtime error of the backend, including
-  the exceptions thrown on the host by its runtime). An empty batch is
-  accepted without any check.
-- the codes change: `-7` now denotes a runtime error of the backend (an
-  inconsistent uniform output gives `-5`), `-2` is no longer used (the
-  exceptions thrown on the host give `-7`), `-6` only reports invalid
-  parameters (the errors of the `CUDA` and `HIP` runtimes give `-7`), and
-  the output is `NaN` at the points where the evaluation fails instead of
-  being left unchanged.
+- the output status (`mfront_gpmp_OutputStatus`) gives the numbers of
+  points where the evaluation failed and where a bound is violated with
+  the warning policy, and the first point of each kind. Its status is the
+  error of the batch, otherwise the status of the first point where the
+  evaluation failed, otherwise the status of the first point where the
+  result is unreliable. The errors of the batch are `-5` (invalid
+  arguments), `-6` (invalid parameters) and `-7` (runtime error of the
+  backend, including the exceptions thrown on the host by its runtime).
+  An empty batch is accepted without any check.
 - the kernels only update the statistics of the evaluation when an event
   occurs at a point: with atomic operations (`cuda`, `hip`, `sycl`,
   `kokkos` and `raja` backends), the cost of the error reporting is null
   when the evaluation succeeds. The `stlpar`, `openmp` and `openacc`
   backends merge the statuses of the points by a reduction.
-- with statistics given by the calling code, on all the backends, the
-  output status only reports the errors of the batch, and the result is
-  given by the `<name>_generic_parallel_report` function once the
-  computations are completed. If the execution policy requests an
-  asynchronous evaluation, the backends with a queue may return before
-  the end of the computations.
-- the `stlpar` and `sycl` backends have a new `device_stack_size` option.
-  The new `openmp` backend has the `offload` and `device_stack_size`
-  options, the new `openacc` backend the `device_stack_size` option. The
-  `cuda`, `hip`, `kokkos` and `raja` backends increase the stack size of
-  the threads if the kernel requires it, as for the behaviours.
-- the automatic data transfers of the `sycl` backend are shared with the
-  behaviours: they also copy the statuses of the points and the
-  statistics.
+- with statistics given by the calling code, the output status only
+  reports the errors of the batch, and the result is given by the
+  `<name>_generic_parallel_report` function once the computations are
+  completed. If the execution policy requests an asynchronous evaluation,
+  the backends with a queue may return before the end of the
+  computations.
+- the `stlpar`, `sycl` and `openacc` backends have a `device_stack_size`
+  option, the `openmp` backend the `offload` and `device_stack_size`
+  options. The `cuda`, `hip`, `kokkos` and `raja` backends increase the
+  stack size of the threads if the kernel requires it.
+- the automatic data transfers of the `sycl` backend also copy the
+  statuses of the points and the statistics.
 - the default number of threads per block of the `cuda` and `hip`
-  backends is `128`, rounded up to a multiple of the warp size, as for the
-  behaviours.
+  backends is `128`, rounded up to a multiple of the warp size.
+- the libraries of several backends for the same material property can be
+  loaded in the same process: each library has its own parameters.
+- the generated code mostly depends on the material property. The
+  backend selects the header and the expression of its primitive
+  (`MFront/GenericParallel/GPU.hxx`, `ParallelSTL.hxx`, `SYCL.hxx`,
+  `Kokkos.hxx`, `RAJA.hxx`, `OpenMP.hxx`, `OpenACC.hxx` or `Arcane.hxx`),
+  the function of the runtime which is called and the symbols describing
+  the backend. The generated code holds a function object evaluating
+  the material property at one point, the report function and the
+  function of batches, which calls the runtime of the interface
+  (`MFront/GenericParallelMaterialProperty/Evaluate.hxx`) with this
+  primitive. The checks, the launch of the kernels and the report of the
+  statistics are written once, in those installed headers, and shared by
+  all the backends.
 
-## The `generic-parallel` interface for behaviours
+### Execution policies
 
-The `generic-parallel` interface integrates a behaviour, or executes a
-standalone model, over a batch of integration points, on GPUs or on CPUs,
-with the backends of the interface for material properties. See [this page
-for details](generic-parallel-behaviour-interface.html).
-
-The generated libraries provide, under the names of the functions of the
-`generic` interface followed by `_generic_parallel`:
-
-- the integration of a batch, the initialize functions and the
-  post-processings over a batch;
-- the rotation functions of the orthotropic behaviours over a batch;
-- the execution of the standalone models (`@DSL Model`) over a batch.
-
-The data structures exchanged with the generated functions are declared
-in `MFront/GenericParallelBehaviour/BatchData.h`. Their version is given
-by the `MFRONT_GPB_API_VERSION` macro (`4`). The values of the variables
-at all the points are described by fields, which support several layouts
-(point by point, component by component, uniform values), and the
-material properties and the external state variables can be given
-variable by variable. The statistics of the batch may be given by the
-calling code: they are then accumulated on the device and analysed by the
-`<name>_generic_parallel_report` function exported by the library, and
-the computations may be asynchronous. The output status, the statistics,
-the execution policies and the errors of the batch (`-5` invalid
-arguments, `-6` invalid parameters, `-7` runtime error of the backend)
-are the ones of the material properties,
-the time step scaling factor being added. The libraries export the
-`<name>_generic_parallel_backend`, `<name>_generic_parallel_memory_space`,
-`<name>_generic_parallel_execution_policy` and
-`<name>_generic_parallel_api_version` symbols. The configuration files
-are shared with the `generic-parallel` interface for material properties.
-The name of a behaviour or of a model can't contain `_generic_parallel`.
-
-## Execution policies of the `generic-parallel` interfaces
-
-The functions generated by the `generic-parallel` interfaces receive an
-execution policy (`execution_policy` member of the data of a batch), or a
-null pointer for the default policy of the backend (default stream,
-default instance of the execution space, default resource). The policies
-are `C++` classes of the `mfront::generic_parallel` namespace, one per
-backend, declared in the headers of `MFront/GenericParallel`:
+The generated functions receive an execution policy (`execution_policy`
+member of the data of a batch), or a null pointer for the default policy
+of the backend (default stream, default instance of the execution space,
+default resource). The policies are `C++` classes of the
+`mfront::generic_parallel` namespace, one per backend, declared in the
+headers of `MFront/GenericParallel`:
 
 - `CUDABackendExecutionPolicy` and `HIPBackendExecutionPolicy`, which hold
   a stream;
@@ -1185,6 +1479,41 @@ functions starts with `getIdentifier` with the ABI of Visual Studio and
 with the Itanium ABI: a policy created by a program built by Visual
 Studio can be checked by a library generated by a `TFEL` built with
 MinGW, and the reverse.
+
+## The `generic-parallel` interface for behaviours
+
+The `generic-parallel` interface integrates a behaviour, or executes a
+standalone model, over a batch of integration points, on GPUs or on CPUs,
+with the backends of the interface for material properties. See [this page
+for details](generic-parallel-behaviour-interface.html).
+
+The generated libraries provide, under the names of the functions of the
+`generic` interface followed by `_generic_parallel`:
+
+- the integration of a batch, the initialize functions and the
+  post-processings over a batch;
+- the rotation functions of the orthotropic behaviours over a batch;
+- the execution of the standalone models (`@DSL Model`) over a batch.
+
+The data structures exchanged with the generated functions are declared
+in `MFront/GenericParallelBehaviour/BatchData.h`. Their version is given
+by the `MFRONT_GPB_API_VERSION` macro (`4`). The values of the variables
+at all the points are described by fields, which support several layouts
+(point by point, component by component, uniform values), and the
+material properties and the external state variables can be given
+variable by variable. The statistics of the batch may be given by the
+calling code: they are then accumulated on the device and analysed by the
+`<name>_generic_parallel_report` function exported by the library, and
+the computations may be asynchronous. The output status, the statistics,
+the execution policies and the errors of the batch (`-5` invalid
+arguments, `-6` invalid parameters, `-7` runtime error of the backend)
+are the ones of the material properties (see the
+execution policies above), the time step scaling factor being added. The libraries export the
+`<name>_generic_parallel_backend`, `<name>_generic_parallel_memory_space`,
+`<name>_generic_parallel_execution_policy` and
+`<name>_generic_parallel_api_version` symbols. The configuration files
+are shared with the `generic-parallel` interface for material properties.
+The name of a behaviour or of a model can't contain `_generic_parallel`.
 
 ## Libraries of the `generic-parallel` interfaces also containing the functions of the `generic` interface
 
@@ -1395,12 +1724,11 @@ consistent tangent operator, as numerical tests showed (or at least
 seemed to show) that they were negligible.
 
 These derivatives are now taken into account by default (see Issue
-#1359). The results are not affected, up to the convergence criteria,
-but the convergence is when the deformation gradient is not fully
-imposed: the global iterations recover their quadratic convergence. The
-boolean option
-`plastic_deformation_gradient_normalisation_corrections` allows to
-neglect them:
+1359). The results are not affected, up to the convergence criteria, but
+the convergence is when the deformation gradient is not fully imposed:
+the global iterations recover their quadratic convergence. The boolean
+option `plastic_deformation_gradient_normalisation_corrections` allows
+to neglect them:
 
 ~~~~{.cpp}
 @Brick FiniteStrainSingleCrystal{
@@ -1417,6 +1745,57 @@ taking them into account are provided by the
 `FiniteStrainSingleCrystal_NumericalJacobian_WithCorrections` test
 behaviours.
 
+## Generalised porous stress criteria in the `StandardElastoViscoPlasticity` brick {#sec:tfel:5.2:mfront:generalised_porous_stress_criteria}
+
+The `StandardElastoViscoPlasticity` brick provides two new stress
+criteria coupled with the porosity evolution:
+
+- `GeneralisedGursonTvergaardNeedleman`,
+- `GeneralisedRousselierTanguyBesson`.
+
+They are the `GursonTvergaardNeedleman1982` and
+`RousselierTanguyBesson2002` stress criteria in which the von Mises
+stress is replaced by an equivalent stress chosen by the user.
+
+This equivalent stress is given by the `equivalent_stress` option. It
+must be a stress criterion of the brick with a deviatoric normal, not
+coupled with the porosity evolution (`Mises`, `Hill`, `Hosford`,
+`Barlat`, etc.).
+
+~~~~{.cxx}
+@Brick StandardElastoViscoPlasticity{
+  stress_potential : "Hooke" {young_modulus : 200e9, poisson_ratio : 0.3},
+  inelastic_flow : "Plastic" {
+    criterion : "GeneralisedGursonTvergaardNeedleman" {
+      q_1 : 1.5,
+      q_2 : 1.0,
+      f_c : 0.01,
+      f_r : 0.1,
+      equivalent_stress : "Hosford" {a : 8}
+    },
+    isotropic_hardening : "Linear" {R0 : 150e6}
+  }
+};
+~~~~
+
+The original criteria are unchanged. The generalised criteria give the
+same results if the equivalent stress is the von Mises stress.
+
+Those criteria are described on [this
+page](StandardElastoViscoPlasticityBrick-PorousPlasticity.html).
+
+The associated functions of the `TFEL/Material` library are declared in
+the `TFEL/Material/GeneralisedGursonTvergaardNeedlemanStressCriterion.hxx`
+and `TFEL/Material/GeneralisedRousselierTanguyBessonStressCriterion.hxx`
+headers.
+
+# New features in `mfront-query`
+
+## `--compute-thermal-expansion` and `--compute-stress-free-expansion` queries
+
+The queries `--compute-thermal-expansion` and
+`--compute-stress-free-expansion` are now available.
+
 # Documentation
 
 ## New coding guidelines page
@@ -1424,6 +1803,14 @@ behaviours.
 A new page describes the coding conventions of the `C` and `C++`
 sources of the project, for new developers as well as for coding
 agents: [coding guidelines](coding-guidelines.html).
+
+## New compatibility modes pages
+
+Two new pages describe how compatibility modes are implemented in the
+`TFEL` libraries ([compatibility modes in the `TFEL`
+libraries](tfel-compatibility-modes.html)) and how they are used by
+`MFront` ([compatibility modes in
+`MFront`](mfront-compatibility-modes.html)).
 
 # Continuous integration
 
@@ -1443,6 +1830,259 @@ France) and Framatome. Homogenization developments were conducted within
 the framework of the AnoHonA ANR project (n° AAPG2023).
 
 # Issues fixed
+
+## Issue 969: GPU coalescence/broadcast loss when projectors/identities are accessed with warp-divergent runtime index
+
+The `Id`, `IxI`, `K`, `M` and `J` methods of the `st2tost2` class, the
+`Id`, `IxI`, `K` and `transpose_derivative` methods of the `t2tot2`
+class and the `Id` methods of the `stensor`, `tensor` and `tmatrix`
+classes have a new overload which takes the indices of a component and
+returns this component without building the object:
+
+~~~~{.cxx}
+// same value as Stensor4::M()(i, j)
+const auto m = Stensor4::M(i, j);
+~~~~
+
+The component has no unit: its type is the base type of the numeric
+type of the object.
+
+On GPUs, those overloads avoid storing and reading a table when an
+index is only known at run time. The existing methods are unchanged.
+
+For more details, see <https://github.com/thelfer/tfel/issues/969>.
+
+## Issue 1414: [mfront] generic-parallel material properties: generated code on shared runtime headers
+
+The code generated by the `generic-parallel` interface for material
+properties only evaluates the material property at one point. The checks
+of a batch, the launch of the kernels and the report of the statistics
+are written once, in installed headers shared by all the backends. The
+API of the generated functions is unchanged.
+
+For more details, see <https://github.com/thelfer/tfel/issues/1414>
+
+## Issue 1451: [doc] Keywords cited in the documentation which do not exist (@StiffnessTensor, @ElasticProperties, @Parameters)
+
+The description of the `@OrthotropicBehaviour` keyword now refers to
+the `@ComputeStiffnessTensor` and `@ElasticMaterialProperties` keywords.
+The example of the manual construction of the interaction matrix of the
+single crystal page now uses the `@Parameter` keyword and gives default
+values.
+
+For more details, see <https://github.com/thelfer/tfel/issues/1451>.
+
+## Issue 1440: [tfel-material] HCP slip systems: the c/a ratio is fixed to the ideal value
+
+The c/a ratio of the `HCP` crystal structure can now be given through
+the `c_over_a_ratio` option of the `@CrystalStructure` keyword:
+
+~~~~{.cpp}
+@CrystalStructure HCP{c_over_a_ratio : 1.593};
+~~~~
+
+The default value is unchanged: it is the one of the ideal structure,
+\(\sqrt{8/3}\). The ratio is an argument of a new constructor of the
+`tfel::material::SlipSystemsDescription` and `numodis::HCP` classes.
+
+For more details, see <https://github.com/thelfer/tfel/issues/1440>.
+
+## Issue 431: Extend the GursonTvergaardNeedleman model to account for other equivalent stresses
+
+The `GeneralisedGursonTvergaardNeedleman` stress criterion of the
+`StandardElastoViscoPlasticity` brick allows choosing the equivalent
+stress used by the Gurson-Tvergaard-Needleman criterion. The same
+extension is available for the Rousselier-Tanguy-Besson criterion
+through the `GeneralisedRousselierTanguyBesson` stress criterion.
+
+See Section @sec:tfel:5.2:mfront:generalised_porous_stress_criteria for
+details.
+
+For more details, see <https://github.com/thelfer/tfel/issues/431>.
+
+## Issue 440: There is no tangent operator for DSL MultipleIsotropicMisesFlows
+
+The behaviours generated by the `MultipleIsotropicMisesFlows` DSL now
+provide the consistent tangent operator, whatever the number and the
+kind of the flows (`Plasticity`, `Creep`, `StrainHardeningCreep`).
+Requesting this operator previously made the integration fail.
+
+This operator is derived from the implicit equations solved by the DSL.
+For a single flow, it is the one of the `IsotropicPlasticMisesFlow`,
+`IsotropicMisesCreep` and `IsotropicStrainHardeningMisesCreep` DSLs.
+
+The consistent tangent operator is symmetric, unless a specific value of
+\(\theta\) is given to one of the flows. In this case, the behaviour is
+declared as having a non symmetric tangent operator.
+
+For more details, see <https://github.com/thelfer/tfel/issues/440>.
+
+## Issue 617: [mfront] add support for parameter override through a text file for Model DSL
+
+The parameters of a model written with the `Model` domain specific
+language can now be modified through an external file with the
+`generic`, `castem` and `castem21` interfaces, as the parameters of
+behaviours and material properties.
+
+For a model whose class name is `Swelling`, the file is named
+`Swelling-parameters.txt` and is read in the current directory at the
+first call of the model. Each line gives the name of a parameter and its
+value:
+
+~~~~{.txt}
+GrowthRate 3e-2
+~~~~
+
+The name of this file is returned by the new `--parameters-file` query
+of `mfront-query` for models.
+
+This feature is controlled by the `parameters_initialization_from_file`
+DSL option, which was already accepted by the `Model` domain specific
+language but had no effect.
+
+For more details, see <https://github.com/thelfer/tfel/issues/617>.
+
+## Issue 796: Remarks on the documentation of the StandardElastoViscoPlasticity Brick of MFront
+
+The description of the inelastic flows of the
+[`StandardElastoViscoPlasticity` brick](StandardElastoViscoPlasticityBrick.html)
+now uses the same notations for every flow. The inelastic strain rate is
+always written \(\dot{p}\,\tenseur{n}\), where \(\dot{p}\) is the rate
+of the equivalent strain and \(\tenseur{n}\) is the flow direction, and
+\(f\) always denotes the yield function. Each flow is then described by
+the expression of \(\dot{p}\). A section describing this general form
+has been added.
+
+For more details, see <https://github.com/thelfer/tfel/issues/796>.
+
+## Issue 641: [Miscellaneous] Is a library a MFront library?
+
+`mfm` displayed nothing when its argument was not an existing file, for
+instance `Behaviour.dll` in place of `libBehaviour.dll` for a library
+built with `MinGW`. Such an argument is now reported on the standard
+error stream, unless the `quiet` verbosity level is selected:
+
+~~~~{.bash}
+$ mfm Behaviour.dll
+mfm: 'Behaviour.dll' is neither a regular file nor a directory
+~~~~
+
+The files which can't be analysed are still silently ignored.
+
+For more details, see <https://github.com/thelfer/tfel/issues/641>
+
+## Issue 954: [msys2] the environment scripts are not the good ones (use `.sh.in`, not  `.bat.in` or `.ps1.in`)
+
+With a `MinGW` compiler, such as the ones provided by `MSYS2`, only the
+`env.bat` and `env.ps1` environment scripts were installed, although the
+`MSYS2` environments are used through the `bash` shell.
+
+The `env.sh` and `env.fish` scripts are now also installed in this case,
+in the `share/tfel/env` directory. The `env.bat` and `env.ps1` scripts
+are still installed, as the binaries may also be used from the `cmd` and
+`PowerShell` shells.
+
+For more details, see <https://github.com/thelfer/tfel/issues/954>
+
+## Issue 955: [msys2] `python` modules are not installed in the right places: one shall follow Unix conventions
+
+With a `MinGW` compiler, such as the ones provided by `MSYS2`, the
+`Python` modules were installed in the
+`bin/python<major>.<minor>/site-packages` directory, which is the
+directory used on `Windows` with `Visual Studio`. The `Python`
+interpreter of `MSYS2` follows the Unix directory layout and does not
+look for modules in this directory.
+
+The `Python` modules are now installed in the
+`lib/python<major>.<minor>/site-packages` directory in this case. The
+`TFEL_PYTHON_SITE_PACKAGES_DIR` `cmake` variable still allows choosing
+another directory.
+
+For more details, see <https://github.com/thelfer/tfel/issues/955>
+
+## Issue 1411: [TFEL/PhysicalConstants] Use CODATA 2022 for 6.0 and the `future` compatibility mode of 5.2.0
+
+The values of the physical constants of the `6.0.0` compatibility mode,
+which are those of the next major version, are now the `CODATA` 2022
+internationally recommended values, in place of the `CODATA` 2014 ones.
+Those values are available through the `tfel::v6_0_0` and `tfel::future`
+namespaces in `C++`, through the `tfel.v6_0_0` and `tfel.future`
+submodules in `Python` and through the `future` compatibility mode in
+`MFront`.
+
+The values used by default, which are those of the `5.2.0` compatibility
+mode, are unchanged.
+
+The `Fortran` bindings, which are not versioned, expose the values of
+the next major version: their values are thus now the `CODATA` 2022
+ones.
+
+The initial guess of the gas equation of state solver of `MTest` now
+uses the molar gas constant of the `TFEL/PhysicalConstants` library, in
+place of a hard-coded value.
+
+For more details, see <https://github.com/thelfer/tfel/issues/1411>
+
+## Issue 1417: Investigate tests failures with `gcc` and `-ffast-math`
+
+With the `-ffast-math` flag, the compiler assumes that no `NaN` and no
+infinite value exist, treats the subnormal numbers as zeros and may
+evaluate both branches of a test. The following points are fixed:
+
+- `tfel-check` detects the `NaN` in the results.
+- `MTest` detects the non finite results in the analytical tests and in
+  the comparisons to reference files.
+- `tfel::utilities::convert<double>` and
+  `tfel::utilities::convert<long double>` reject the numbers which
+  overflow.
+- The Jacobi eigen solver (`FSESJACOBIEIGENSOLVER`) returns `NaN` for a
+  tensor holding a `NaN`, as the other eigen solvers.
+- The default 2D kriging model can be evaluated at one of its data
+  points when the floating-point exceptions are enabled.
+
+The tolerances of the `IsotropicCazacuYieldTest`,
+`HosfordSecondDerivativeTest` and `IsotropicModuli` tests and the
+criterion on the stresses of the `HyperbolicSineTest2` `MTest` test are
+now consistent with the accuracy of the algorithms they rely on.
+
+For more details, see <https://github.com/thelfer/tfel/issues/1417>
+
+## Issue 1416: Fix tests failures with intel `icpx` 2024
+
+The `icpx` compiler enables by default a fast floating-point model
+(`-fp-model=fast`), which allows value-unsafe optimisations and flushes
+the subnormal numbers to zero. The `-fno-fast-math` flag is now passed
+to this compiler when the `enable-fast-math` option is not set, as
+already done for `gcc`. The `StringAlgorithms`,
+`LinearHomogenizationSchemes` and `IsotropicModuli` tests failed in
+`Release` mode without this flag.
+
+Those tests no longer depend on the floating-point model. They also
+pass with the default model of `icpx` and with the `-ffast-math` flag of
+`gcc`, `clang` and `icpx`:
+
+- The `tfel::utilities::convert` function detects that a floating-point
+  number overflows from the magnitude of the value returned by
+  `std::strtod` or `std::strtold`, in place of testing if this value is
+  infinite. A number which overflows is thus also rejected when the
+  rounding mode is not `to nearest`: it was previously converted to the
+  largest finite number.
+- The `StringAlgorithms` test compares the representations of the
+  converted values.
+- The `LinearHomogenizationSchemes` test uses a relative tolerance.
+
+For more details, see <https://github.com/thelfer/tfel/issues/1416>
+
+## Issue 1387: [TFEL/Utilities] tests `CxxTokenizer` with `libFuzzer`
+
+The `tfel::utilities::CxxTokenizer` class is now covered by `libFuzzer`
+based analyses, which are enabled by the `enable-libfuzzer-tests`
+option, and by the `CxxTokenizerContractTest` unit test, which checks
+the contract of the tokens for the lexical constructs that were not
+covered by the existing tests of the tokenizer: raw string literals,
+empty comments, comments of a line and numbers with digit separators.
+
+For more details, see <https://github.com/thelfer/tfel/issues/1387>
 
 ## Issue 1379: [mfront] Chaboche 2012 kinematic hardening rule: are the differences with the literature for m != 1 intended?
 
@@ -1892,6 +2532,18 @@ For more details, see <https://github.com/thelfer/tfel/issues/1095>
 ## Issue 1093: [5.2] Regressions since TFEL 5.1
 
 For more details, see <https://github.com/thelfer/tfel/issues/1093>
+
+## Issue 1074: [mfront] generic-parallel material properties: API of the generated functions
+
+For more details, see <https://github.com/thelfer/tfel/issues/1074>
+
+## Issue 1072: Add support for `pybind11_stubgen`
+
+The `SpecificTargetDescription` class is now available in the `mfront`
+python module, so that the `specific_targets` member of the
+`TargetsDescription` class can be read. The libraries exported to `CMake`
+require the `C++20` standard, which is thus enabled in the projects using
+them. For more details, see <https://github.com/thelfer/tfel/issues/1072>
 
 ## Issue 1089: Add debug mode + hardening in the test matrix
 

@@ -36,8 +36,10 @@ eel.setMaximumIncrementValuePerIteration(1e-5);
 @LocalVariable StressStensor S;
 @LocalVariable DeformationGradientTensor idFp;
 @LocalVariable st2tot2<N, real> didFp_ddeel;
-@LocalVariable real tau0[Nss];
-@LocalVariable real gp0[Nss];
+// inverse of the reference shear stress and reference slip rate of the
+// three families of slip systems (6, 6 and 12 systems)
+@LocalVariable real itau0[3];
+@LocalVariable real gp0[3];
 
 @InitLocalVariables{
   const Tensor dF = F1 * invert(F0);
@@ -49,24 +51,17 @@ eel.setMaximumIncrementValuePerIteration(1e-5);
   constexpr real kb = 1.38064852E-23;      // COnstante de Boltzman en J/K
   constexpr real nuD = 4.9356532213000e13; // Fréquence de Debye
   constexpr real a0 = 5.47e-10;            // Paramètre de maille en m
-  constexpr auto rhom = 1.0e12;
+  constexpr real rhom = 1.0e12;
   const real b = a0 * Cste<real>::isqrt2; // Norme du vecteur de Burgers en m
   const auto T_ = T + theta * dT;
-  /****initialisation des paramètres de chaque mode****/
-  for (unsigned short s = 0; s != Nss; ++s) {
-    auto DH0 = real{};
-    if (s < 6) { /**** Système 1 *******/
-      // Moyenne 100 interessante
-      tau0[s] = 1.179e6;
-      DH0 = 4.989 * 1.602e-19;
-    } else if ((s >= 6) && (s < 12)) { /**** Système 2 *******/
-      tau0[s] = 4.750e6;
-      DH0 = 5.246 * 1.602e-19;
-    } else { /**** Système 3 *******/
-      tau0[s] = 9.215e6;
-      DH0 = 12.13 * 1.602e-19;
-    }
-    gp0[s] = rhom * nuD * b * b * exp(-DH0 / (kb * T_));
+  /****initialisation des paramètres de chaque famille****/
+  // Système 1 (moyenne 100 interessante), Système 2, Système 3
+  constexpr real tau0[3] = {1.179e6, 4.750e6, 9.215e6};
+  constexpr real DH0[3] = {4.989 * 1.602e-19, 5.246 * 1.602e-19,
+                           12.13 * 1.602e-19};
+  for (unsigned short f = 0; f != 3; ++f) {
+    itau0[f] = 1 / tau0[f];
+    gp0[f] = rhom * nuD * b * b * exp(-DH0[f] / (kb * T_));
   }
 } // end of @InitLocalVars
 
@@ -90,13 +85,19 @@ eel.setMaximumIncrementValuePerIteration(1e-5);
   idFp = Tensor::Id();
   didFp_ddeel = st2tot2<N, real>{};
   for (unsigned short i = 0; i != Nss; ++i) {
+    // family of the system: six systems of the first and second families,
+    // twelve of the third one. The reference shear stress only appears
+    // through its inverse: no division here, which, in single precision,
+    // takes a slow path for the tiny slip rates of the third family
+    // (denormal numbers)
+    const auto f = i < 6 ? 0 : (i < 12 ? 1 : 2);
     const auto tau = ss.mu[i] | M ;
     const auto sgn_s = tau >= 0 ? 1 : -1;
-    const auto e = exp(tau / tau0[i]);
+    const auto e = exp(tau * itau0[f]);
     const auto ch = (e + 1 / e) / 2;
     const auto sh = (e - 1 / e) / 2;
-    const auto vs = gp0[i] * (ch - 1);
-    const auto dvs_dtau = gp0[i] * sh / tau0[i];
+    const auto vs = gp0[f] * (ch - 1);
+    const auto dvs_dtau = gp0[f] * itau0[f] * sh;
     idFp -= dt * sgn_s * vs* ss.mu[i];
     didFp_ddeel -=
         dt * sgn_s * dvs_dtau * (ss.mu[i]) ^ (ss.mu[i] | dM_ddeel);
@@ -107,8 +108,11 @@ eel.setMaximumIncrementValuePerIteration(1e-5);
   feel = eel + deel - computeGreenLagrangeTensor(Fe);
   //
   const t2tot2<N, real> tprd = t2tot2<N, real>::tprd(Fe_tr);
+  // the factor 1/2 is written as a division by an integer: a literal
+  // `0.5` would make the products of the matrices be computed in double
+  // precision when the behaviour is compiled in single precision
   const t2tost2<N, real> dfeel_didFp =
-      -0.5 * t2tost2<N, real>::dCdF(Fe) * tprd;
+      -t2tost2<N, real>::dCdF(Fe) * tprd / 2;
   dfeel_ddeel += dfeel_didFp * didFp_ddeel;
 } // end of @Integrator
 
@@ -124,19 +128,18 @@ eel.setMaximumIncrementValuePerIteration(1e-5);
   static_cast<void>(smt); // on supprime un warning, on ne traite que
                           // la tangente cohérente
   const t2tost2<N, stress> dC_dFe = t2tost2<N, real>::dCdF(Fe);
-  const t2tost2<N, stress> dS_dFe = 0.5 * D * dC_dFe;
   t2tost2<N, stress> dtau_dFe;
-  computePushForwardDerivative(dtau_dFe, dS_dFe, S, Fe);
-  //
-  const auto dFe_tr_ddF = t2tot2<N, real>::tpld(Fe0);
+  computePushForwardDerivative(dtau_dFe, D * dC_dFe / 2, S, Fe);
+  // derivative of Fe = dF * Fe0 * idFp with respect to dF, idFp being fixed
+  const t2tot2<N, real> dFe_ddF = t2tot2<N, real>::tpld(Fe0 * idFp);
   // computation of ddeel_ddF: Fe = Fe_tr * idFp, idFp being given by the
   // integration variables
-  dfeel_ddF = -0.5 * dC_dFe * t2tot2<N, real>::tpld(idFp, dFe_tr_ddF);
+  dfeel_ddF = -dC_dFe * dFe_ddF / 2;
   auto ddeel_ddF = t2tost2<N, real>{};
   getIntegrationVariablesDerivatives_F(ddeel_ddF);
-  //
-  auto dFe_ddF = t2tot2<N, real>::tpld(idFp, dFe_tr_ddF) +
-                 t2tot2<N, real>::tprd(Fe_tr) * didFp_ddeel * ddeel_ddF;
-  //
-  Dt = dtau_dFe * dFe_ddF;
+  // derivative of the Kirchhoff stress with respect to the elastic strain
+  // through idFp (6 x 6 matrix, instead of the derivative of Fe, 9 x 9)
+  const st2tost2<N, stress> dtau_ddeel =
+      (dtau_dFe * t2tot2<N, real>::tprd(Fe_tr)) * didFp_ddeel;
+  Dt = dtau_dFe * dFe_ddF + dtau_ddeel * ddeel_ddF;
 }

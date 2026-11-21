@@ -2,7 +2,8 @@
  * \file   mfront/src/GenericParallel/AbstractBackend.cxx
  * \brief  This file implements the `AbstractBackend` class of the
  * `generic-parallel` interfaces
- * \date   05/10/2026
+ * \author Thomas Helfer
+ * \date   07/04/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with

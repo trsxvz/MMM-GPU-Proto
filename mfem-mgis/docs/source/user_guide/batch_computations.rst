@@ -387,8 +387,11 @@ nonlinear form without interior face integrators nor extension of
   this matrix by kernels, without being stored. With a device of
   :code:`MFEM`, the additions are atomic, the elements sharing degrees of
   freedom; without device, the elements are processed one after the other
-  on the host. Unless the device of :code:`MFEM` is a :code:`CUDA`,
-  :code:`HIP` or :code:`debug` device, the positions of the entries of the
+  on the host. On a device, each thread computes the blocks
+  :math:`(a, b)` of a node :math:`b` of an element and of five of its nodes
+  :math:`a`, so that the product of the tangent operator by the operator
+  :math:`B` of the node :math:`b` is computed once for these five blocks.
+  The positions of the entries of the
   stiffness matrices in the rows of the matrix are computed at the first
   assembly, and read by the following ones instead of searching for the
   entries in their rows. They are computed again (three times at most) if

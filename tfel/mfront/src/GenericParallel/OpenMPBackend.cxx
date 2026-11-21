@@ -44,13 +44,11 @@ namespace mfront::generic_parallel {
   std::string OpenMPBackend::getApply() const {
     // the offload option is a template argument, so that the code
     // executed on the host does not depend on the support of offloading by
-    // the OpenMP runtime
-    auto apply = std::string{"mfront::generic_parallel::openmp::makeApply<"} +
-                 (this->offload ? "true" : "false") + ">(";
-    if (this->device_stack_size != 0) {
-      apply += std::to_string(this->device_stack_size);
-    }
-    return apply + ")";
+    // the OpenMP runtime. The stack size is a template argument, as for the
+    // `stlpar` backend
+    return std::string{"mfront::generic_parallel::openmp::makeApply<"} +
+           (this->offload ? "true" : "false") + ", " +
+           std::to_string(this->device_stack_size) + ">()";
   }  // end of getApply
 
   std::string OpenMPBackend::getMemorySpace() const {

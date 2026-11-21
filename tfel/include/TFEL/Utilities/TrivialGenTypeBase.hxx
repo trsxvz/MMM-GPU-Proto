@@ -13,6 +13,8 @@
 #ifndef LIB_TFEL_UTILITIES_TRIVIALGENTYPEBASE_HXX
 #define LIB_TFEL_UTILITIES_TRIVIALGENTYPEBASE_HXX
 
+#include <new>
+#include <memory>
 #include <utility>
 #include <type_traits>
 #include "TFEL/Raise.hxx"
@@ -171,8 +173,11 @@ namespace tfel::utilities {
       requires(isValidType<T1>)
     {
       constexpr auto i = position<T1>;
-      this->storage = Storage(std::integral_constant<unsigned short, i>{},
-                              std::forward<T1>(src));
+      // the value is built in place: assigning a new storage would copy the
+      // storage of the largest type
+      ::new (static_cast<void*>(
+          std::addressof(internals::getTrivialGenTypeValue<i>(this->storage))))
+          std::decay_t<T1>(std::forward<T1>(src));
       this->type_index = i + 1;
     }
     //! \return true if a value of the given type is stored

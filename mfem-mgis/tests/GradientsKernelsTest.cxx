@@ -987,23 +987,20 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
     }
     m3.Finalize(0);
   }
-  const auto host = !mfem::Device::Allows(mfem::Backend::DEVICE_MASK);
   const auto assemble = [&ctx, &mi, &fes](mfem::SparseMatrix& m) {
     check(mi.assembleStiffnessMatrixByKernels(ctx, fes, m),
           "integrator positions: assembly (" + ctx.getErrorMessage() + ")");
   };
   // expected numbers of computations and positions kept, for the matrices
   // whose columns are not sorted, then sorted
-  const auto expect = [&mi, host](const std::string& what, const int n1,
-                                  const bool p1, const int n2, const bool p2) {
+  const auto expect = [&mi](const std::string& what, const int n1,
+                            const bool p1, const int n2, const bool p2) {
     const auto c1 = mi.getNumberOfStiffnessMatricesPositionsComputations(false);
     const auto c2 = mi.getNumberOfStiffnessMatricesPositionsComputations(true);
     std::cout << "integrator positions, " << what << ": " << c1 << " and " << c2
               << " computations\n";
-    check((c1 == (host ? n1 : 0)) &&
-              (mi.hasStiffnessMatricesPositions(false) == (host && p1)) &&
-              (c2 == (host ? n2 : 0)) &&
-              (mi.hasStiffnessMatricesPositions(true) == (host && p2)),
+    check((c1 == n1) && (mi.hasStiffnessMatricesPositions(false) == p1) &&
+              (c2 == n2) && (mi.hasStiffnessMatricesPositions(true) == p2),
           "integrator positions: " + what);
   };
   assemble(*m1);

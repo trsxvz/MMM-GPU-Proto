@@ -173,6 +173,11 @@ function(tfel_library_internal name component)
   endif(${ARGC} LESS 2)
   add_library(${name} ${ARGN})
   add_library(tfel::${name} ALIAS ${name})
+  # the installed headers require C++20
+  target_compile_features(${name} PUBLIC cxx_std_20)
+  # reference to the library, used by generate_python_stubs to know the
+  # directories containing the dynamic link libraries of the build tree
+  set_property(GLOBAL APPEND PROPERTY TFEL_LIBRARIES "${name}")
   if(TFEL_APPEND_SUFFIX)
     set(export_install_path "share/tfel-${TFEL_SUFFIX}/cmake")
   else(TFEL_APPEND_SUFFIX)
@@ -223,6 +228,7 @@ function(tfel_library_internal name component)
   if(enable-static)
     add_library(${name}-static STATIC ${ARGN})
     add_library(tfel::${name}-static ALIAS ${name}-static)
+    target_compile_features(${name}-static PUBLIC cxx_std_20)
     if(TFEL_APPEND_SUFFIX)
       set_target_properties(${name}-static PROPERTIES OUTPUT_NAME "${name}-${TFEL_SUFFIX}")
     else(TFEL_APPEND_SUFFIX)
@@ -699,7 +705,7 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
             "as shared libraries")
   endif()
   # version of Arccore, read in its version header: the backend is tested
-  # with Arccore 2.8.0 (Arcane 4.1.16)
+  # with the Arccore 2.8.0 of the main branch of Arcane (commit 51b90b8)
   set(_arccore_version_header "${TFEL_ARCCORE_INCLUDE_DIR}/arccore_version.h")
   if(NOT EXISTS "${_arccore_version_header}")
     message(FATAL_ERROR "the version header of Arccore "
@@ -721,6 +727,21 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
   if(TFEL_ARCCORE_VERSION VERSION_LESS "2.8.0")
     message(FATAL_ERROR "the 'arcane' configuration requires Arccore 2.8.0 "
             "or later (Arcane 4.1.16), found ${TFEL_ARCCORE_VERSION}")
+  endif()
+  # `RunQueue::deviceId()` (PR #2859 of Arcane) and the atomic operations of
+  # the accelerators on `unsigned long long` (PR #2861) are required. They
+  # are in the main branch of Arcane since 16/11/2026, without a new version
+  # number: their declarations are looked for in the headers of Arccore
+  file(STRINGS
+       "${TFEL_ARCCORE_INCLUDE_DIR}/arccore/common/accelerator/RunQueue.h"
+       _arccore_device_id REGEX "DeviceId deviceId\\(\\) const")
+  file(STRINGS "${TFEL_ARCCORE_INCLUDE_DIR}/arccore/accelerator/Atomic.h"
+       _arccore_atomic REGEX "std::same_as<T, unsigned long long>")
+  if((NOT _arccore_device_id) OR (NOT _arccore_atomic))
+    message(FATAL_ERROR "the 'arcane' configuration requires an Arccore "
+            "providing RunQueue::deviceId() and the atomic operations of the "
+            "accelerators on unsigned long long (main branch of Arcane from "
+            "commit 51b90b8, 16/11/2026)")
   endif()
   message(STATUS "Arccore version: ${TFEL_ARCCORE_VERSION} "
           "(${TFEL_ARCCORE_ACCELERATOR})")

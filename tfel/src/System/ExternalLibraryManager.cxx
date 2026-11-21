@@ -332,6 +332,13 @@ namespace tfel::system {
                  getErrorMessage() + ")");
     auto pl = this->getLibraryPath(lib.second);
     for (const auto& s : LibraryInformation(pl).symbols()) {
+      // the address sanitizer adds an indicator for each global variable
+      // of an instrumented library, named `__odr_asan.<variable>` with
+      // gcc and `__odr_asan_gen_<variable>` with clang. Those symbols are
+      // not entry points.
+      if (s.starts_with("__odr_asan")) {
+        continue;
+      }
       if (ends_with(s, "_mfront_ept")) {
         r.push_back(s.substr(0, s.size() - 11));
       }
@@ -447,6 +454,11 @@ namespace tfel::system {
                                                    const std::string& s) {
     return this->getStringIfDefined(l, s + "_validator");
   }  // end of getValidator
+
+  std::string ExternalLibraryManager::getCompatibilityMode(
+      const std::string& l, const std::string& s) {
+    return this->getStringIfDefined(l, s + "_compatibility_mode");
+  }  // end of getCompatibilityMode
 
   std::string ExternalLibraryManager::getBuildId(const std::string& l,
                                                  const std::string& s) {

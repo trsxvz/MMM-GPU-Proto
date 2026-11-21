@@ -1,0 +1,13 @@
+# Configurations of results/generic-parallel-tests-2026-11-21-night-O3.txt
+# run again alone (21/11/2026, -O3):
+# - behaviours hip-clang-nvidia-platform: failed during the matrix while the
+#   GPU tests of mfem-mgis were running (status -7 at the rotation of the
+#   blocks of OrthotropicTangentOperatorBlocksTest);
+# - material-properties openmp-host-gcc: test-no-runtime-checks.cxx was
+#   compiled without -DMFRONT_GPMP_TEST_BACKEND=openmp (define lost in the
+#   rebase on 753cd76da), fixed in the patch of the tests; run again
+#   with the behaviours of the same configuration, TFEL being reinstalled
+#   with the fixes of the morning.
+behaviours           hip-clang-nvidia-platform        SUCCESS   508 s (2 passed, 0 skipped)
+behaviours           openmp-host-gcc                  SUCCESS   439 s (2 passed, 0 skipped)
+material-properties  openmp-host-gcc                  SUCCESS    11 s (1 passed, 0 skipped)

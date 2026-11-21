@@ -67,7 +67,7 @@ namespace mfront::generic_parallel::gpu {
   /*!
    * \brief increase the stack size of the threads of the current device if
    * the given kernel requires it. The default stack size (1024 bytes with
-   * CUDA) is too small for some behaviours, and the increase performed by
+   * CUDA) is too small for some kernels, and the increase performed by
    * the runtime at kernel launch does not account for the internal routines
    * of the compilers (see `setMinimalCUDAStackSize`), hence the margin
    * added below to the static estimate of the local memory of the kernel.

@@ -40,17 +40,18 @@ static void declarestensor(pybind11::module_& m, const char* const n) {
       })
       .def(pybind11::init<>(), "Default constructor")
       .def(pybind11::init<>(
-          [S](pybind11::array_t<double, pybind11::array::c_style |
-                                            pybind11::array::forcecast>& u) {
-            if (u.size() != S) {
-              tfel::raise<std::range_error>("invalid size of Stensor");
-            }
-            stensor t;
-            for (std::size_t i = 0; i < S; i++) {
-              t(i) = u.unchecked<1>()(i);
-            }
-            return t;
-          }),
+               [S](pybind11::array_t<double, pybind11::array::c_style |
+                                                 pybind11::array::forcecast>&
+                       u) {
+                 if (u.size() != S) {
+                   tfel::raise<std::range_error>("invalid size of Stensor");
+                 }
+                 stensor t;
+                 for (std::size_t i = 0; i < S; i++) {
+                   t(i) = u.unchecked<1>()(i);
+                 }
+                 return t;
+               }),
            pybind11::arg("u"))
       .def("__len__", [](const stensor& s) { return s.size(); })
       .def("__repr__",
@@ -125,6 +126,11 @@ void declarestensor(pybind11::module_& m);
 
 void declarestensor(pybind11::module_& m) {
   using namespace tfel::math;
+  // the classes are declared before the functions using them, so that the
+  // signatures of these functions refer to the python names of the classes
+  declarestensor<1u>(m, "Stensor1D");
+  declarestensor<2u>(m, "Stensor2D");
+  declarestensor<3u>(m, "Stensor3D");
   double (*tresca1D)(const stensor<1u, double>&) = stensor_tresca<1u>;
   double (*tresca2D)(const stensor<2u, double>&) = stensor_tresca<2u>;
   double (*tresca3D)(const stensor<3u, double>&) = stensor_tresca<3u>;
@@ -152,7 +158,4 @@ void declarestensor(pybind11::module_& m) {
   m.def("makeStensor1D", makeStensor1D, pybind11::arg("s"));
   m.def("makeStensor2D", makeStensor2D, pybind11::arg("s"));
   m.def("makeStensor3D", makeStensor3D, pybind11::arg("s"));
-  declarestensor<1u>(m, "Stensor1D");
-  declarestensor<2u>(m, "Stensor2D");
-  declarestensor<3u>(m, "Stensor3D");
 }  // end of declarestensor

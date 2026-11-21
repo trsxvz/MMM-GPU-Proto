@@ -294,8 +294,8 @@ namespace tfel::material {
   }  // end of DDIF2Base::cyl2cart
 
   template <unsigned short N, typename real>
-  void DDIF2Base::cyl2cart(tfel::math::st2tost2<N, real>& D,
-                           const real theta) {
+  TFEL_HOST_DEVICE void DDIF2Base::cyl2cart(tfel::math::st2tost2<N, real>& D,
+                                            const real theta) {
     // the change of frame of symmetric tensors is applied to the columns,
     // then to the rows of D
     if constexpr (N != 1) {

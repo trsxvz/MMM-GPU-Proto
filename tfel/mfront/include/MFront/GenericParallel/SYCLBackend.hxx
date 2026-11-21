@@ -2,7 +2,8 @@
  * \file   mfront/include/MFront/GenericParallel/SYCLBackend.hxx
  * \brief  This file declares the SYCL backend of the `generic-parallel`
  * interfaces
- * \date   05/10/2026
+ * \author Thomas Helfer
+ * \date   18/05/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -21,7 +22,7 @@
 namespace mfront::generic_parallel {
 
   /*!
-   * \brief backend based on SYCL. The points are integrated on the device
+   * \brief backend based on SYCL. The points are treated on the device
    * associated with the queue given by the batch data.
    *
    * Options:
@@ -29,8 +30,7 @@ namespace mfront::generic_parallel {
    * - `data_transfer_policy`: `automatic` (or `auto`, default), the fields
    *   which are not accessible by the device are copied in device memory and
    *   the outputs are copied back, or `none`, all the fields are assumed to
-   *   be accessible by the device. This option has the same meaning as for
-   *   material properties.
+   *   be accessible by the device.
    * - `device_stack_size`: minimal stack size, in bytes, of the threads of
    *   the device when the computations are performed on an NVIDIA GPU
    *   through the CUDA runtime (AdaptiveCpp).

@@ -37,6 +37,7 @@
 #define LIB_FSES_SYEVJ3_IXX
 
 #include <cmath>
+#include "TFEL/Math/General/IEEE754.hxx"
 #include "FSES/Utilities.hxx"
 
 namespace fses {

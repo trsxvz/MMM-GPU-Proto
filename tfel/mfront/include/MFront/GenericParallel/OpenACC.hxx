@@ -35,8 +35,14 @@ namespace mfront::generic_parallel::openacc {
    * allocated in unified or managed memory (`nvc++ -gpu=mem:managed`). This
    * function waits for the completion of the computations. The statistics
    * of the points are merged by a reduction, and the statistics given by the
-   * calling code, if any, are accumulated on the host.
+   * calling code, if any, are accumulated on the host. If the function never
+   * reports an event (see the `hasEvents` method of the handler), the
+   * statistics are neither combined nor reported.
    *
+   * \tparam device_stack_size: minimal stack size, in bytes, of the threads
+   * of the device when the computations are performed by an NVIDIA GPU (see
+   * `setMinimalStackSize`). The stack size is not modified if this value is
+   * null. This value is a template argument, as for the `stlpar` backend.
    * \tparam StatisticsHandler: handler of the statistics (see
    * `MFront/GenericParallel/Batch.hxx`)
    * \tparam PointFunction: function object taking the index of a point and
@@ -48,19 +54,16 @@ namespace mfront::generic_parallel::openacc {
    * common options are used, the computations being synchronous.
    * \param[in] h: handler of the statistics
    * \param[in] f: function
-   * \param[in] device_stack_size: minimal stack size, in bytes, of the
-   * threads of the device when the computations are performed by an NVIDIA
-   * GPU (see `setMinimalStackSize`). The stack size is not modified if this
-   * value is null.
    * \return the status
    */
-  template <typename StatisticsHandler, typename PointFunction>
+  template <std::size_t device_stack_size,
+            typename StatisticsHandler,
+            typename PointFunction>
   int apply(typename StatisticsHandler::OutputStatus& s,
             const size_type n,
             const BatchExecution<typename StatisticsHandler::Statistics>& e,
             const StatisticsHandler& h,
-            const PointFunction& f,
-            const std::size_t device_stack_size = 0) {
+            const PointFunction& f) {
     if (n == 0) {
       return s.status;
     }
@@ -68,6 +71,20 @@ namespace mfront::generic_parallel::openacc {
         e.policy, e.statistics != nullptr);
     if (p.error != nullptr) {
       return report(s, -5, p.error);
+    }
+    if constexpr (device_stack_size != 0) {
+      if (!setMinimalStackSize(device_stack_size,
+                               p.common_options.preserve_stack_size)) {
+        return report(s, -7, stack_size_error_message);
+      }
+    }
+    if (!h.hasEvents()) {
+      // the statistics are neither combined nor reported
+#pragma acc parallel loop copyin(f)
+      for (size_type i = 0; i < n; ++i) {
+        static_cast<void>(f(i));
+      }
+      return s.status;
     }
     // the statistics are reduced member by member. The minimum reductions
     // of the keys of the first failure and of the first unreliable result
@@ -82,10 +99,6 @@ namespace mfront::generic_parallel::openacc {
     auto first_unreliable_result =
         static_cast<size_type>(r0.first_unreliable_result);
     auto rdt = r0.rdt;
-    if (!setMinimalStackSize(device_stack_size,
-                             p.common_options.preserve_stack_size)) {
-      return report(s, -7, stack_size_error_message);
-    }
 #pragma acc parallel loop copyin(f)                                 \
     reduction(+ : number_of_failures, number_of_unreliable_results) \
         reduction(min : first_failure, first_unreliable_result, rdt)
@@ -114,13 +127,14 @@ namespace mfront::generic_parallel::openacc {
   /*!
    * \return the primitive of the backend, called by the functions of the
    * interfaces (see for instance `mfront::gpb::integrateBatch`)
-   * \param[in] device_stack_size: minimal stack size of the threads of the
+   * \tparam device_stack_size: minimal stack size of the threads of the
    * device (see `apply`)
    */
-  inline auto makeApply(const std::size_t device_stack_size = 0) {
-    return [device_stack_size](auto& s, const size_type n, const auto& e,
-                               const auto& h, const auto& f) {
-      return openacc::apply(s, n, e, h, f, device_stack_size);
+  template <std::size_t device_stack_size = 0>
+  auto makeApply() {
+    return [](auto& s, const size_type n, const auto& e, const auto& h,
+              const auto& f) {
+      return openacc::apply<device_stack_size>(s, n, e, h, f);
     };
   }  // end of makeApply
 

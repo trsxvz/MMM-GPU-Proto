@@ -2,8 +2,8 @@
  * \file   mfront/include/MFront/GenericParallel/ArcaneUtilities.hxx
  * \brief  This file declares the functions shared by the `arcane` backends
  * of the `generic-parallel` interfaces: check of the queue, launch of the
- * loops, atomic operations, unified memory and stack size of the threads of
- * the device.
+ * loops, memory of the statistics, current device and stack size of the
+ * threads of the device.
  * \date   23/10/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
@@ -16,7 +16,6 @@
 #ifndef LIB_MFRONT_GENERICPARALLEL_ARCANEUTILITIES_HXX
 #define LIB_MFRONT_GENERICPARALLEL_ARCANEUTILITIES_HXX
 
-#include <atomic>
 #include <string>
 #include <algorithm>
 #include <type_traits>
@@ -26,6 +25,7 @@
 #include <arccore/common/AllocatedMemoryInfo.h>
 #include <arccore/common/MemoryAllocationArgs.h>
 #include <arccore/common/accelerator/RunQueue.h>
+#include <arccore/common/accelerator/DeviceId.h>
 #include <arccore/accelerator/RunCommandLoop.h>
 #if defined(ARCCORE_COMPILING_CUDA_OR_HIP)
 #include "MFront/GenericParallel/GPUStackSize.hxx"
@@ -159,60 +159,12 @@ namespace mfront::generic_parallel::arcane {
     }
   }  // end of launch
 
-#if defined(ARCCORE_COMPILING_SYCL)
-  //! \brief atomic counter of the statistics, as in the `sycl` backend
-  using SYCLAtomicCounter =
-      ::sycl::atomic_ref<unsigned long long,
-                         ::sycl::memory_order::relaxed,
-                         ::sycl::memory_scope::device,
-                         ::sycl::access::address_space::global_space>;
-#endif
-
-  /*!
-   * \brief atomically add a value to a counter of the statistics. The
-   * atomic operations of Arccore do not support the unsigned 64 bits
-   * integers used by the statistics.
-   * \param[in] p: counter
-   * \param[in] v: value
-   */
-  ARCCORE_HOST_DEVICE inline void atomicAdd(unsigned long long* const p,
-                                            const unsigned long long v) {
-#if defined(ARCCORE_DEVICE_TARGET_CUDA) || defined(ARCCORE_DEVICE_TARGET_HIP)
-    ::atomicAdd(p, v);
-#elif defined(ARCCORE_COMPILING_SYCL)
-    SYCLAtomicCounter{*p}.fetch_add(v);
-#else
-    std::atomic_ref<unsigned long long>(*p).fetch_add(
-        v, std::memory_order_relaxed);
-#endif
-  }  // end of atomicAdd
-
-  /*!
-   * \brief atomically replace a counter of the statistics by the minimum of
-   * its value and of a given value (see `atomicAdd`)
-   * \param[in] p: counter
-   * \param[in] v: value
-   */
-  ARCCORE_HOST_DEVICE inline void atomicMin(unsigned long long* const p,
-                                            const unsigned long long v) {
-#if defined(ARCCORE_DEVICE_TARGET_CUDA) || defined(ARCCORE_DEVICE_TARGET_HIP)
-    ::atomicMin(p, v);
-#elif defined(ARCCORE_COMPILING_SYCL)
-    SYCLAtomicCounter{*p}.fetch_min(v);
-#else
-    auto c = std::atomic_ref<unsigned long long>(*p);
-    auto current = c.load(std::memory_order_relaxed);
-    while ((v < current) &&
-           (!c.compare_exchange_weak(current, v, std::memory_order_relaxed))) {
-    }
-#endif
-  }  // end of atomicMin
-
   /*!
    * \return the allocator of the unified memory of Arccore, accessible by
    * the host and by the devices, or a null pointer if it is not available.
    * If no accelerator runtime is initialized, Arccore returns the allocator
-   * of the host.
+   * of the host. This memory holds the data shared by all the points, which
+   * are only read by the devices.
    */
   inline ::Arcane::IMemoryAllocator* getUnifiedMemoryAllocator() noexcept {
     try {
@@ -222,6 +174,33 @@ namespace mfront::generic_parallel::arcane {
     }
     return nullptr;
   }  // end of getUnifiedMemoryAllocator
+
+  /*!
+   * \return the allocator of the memory of the accelerators, or a null
+   * pointer if it is not available. The memory is allocated on the current
+   * device of the calling thread.
+   */
+  inline ::Arcane::IMemoryAllocator* getDeviceMemoryAllocator() noexcept {
+    try {
+      return ::Arcane::MemoryUtils::getAllocator(
+          ::Arcane::eMemoryResource::Device);
+    } catch (...) {
+    }
+    return nullptr;
+  }  // end of getDeviceMemoryAllocator
+
+  /*!
+   * \return the allocator of the pinned memory of the host, accessible by
+   * the accelerators, or a null pointer if it is not available
+   */
+  inline ::Arcane::IMemoryAllocator* getPinnedMemoryAllocator() noexcept {
+    try {
+      return ::Arcane::MemoryUtils::getAllocator(
+          ::Arcane::eMemoryResource::HostPinned);
+    } catch (...) {
+    }
+    return nullptr;
+  }  // end of getPinnedMemoryAllocator
 
   /*!
    * \return an object allocated by an allocator of Arccore, which is never
@@ -254,12 +233,71 @@ namespace mfront::generic_parallel::arcane {
     f(0);
   }  // end of stackSizeProbe
 
+  /*!
+   * \brief make the device of a CUDA or HIP queue the current device of the
+   * calling thread, and restore the previous current device at destruction.
+   * The stack size of the threads and the memory allocated by the runtimes
+   * of CUDA and HIP are the ones of the current device.
+   */
+  struct CurrentDeviceGuard {
+    //! \brief constructor
+    explicit CurrentDeviceGuard(const ::Arcane::Accelerator::RunQueue& q) {
+      if (!q.isAcceleratorPolicy()) {
+        return;
+      }
+      const auto d = q.deviceId().asInt32();
+      if (MFRONT_GENERIC_PARALLEL_GPU_API(GetDevice)(&(this->previous)) !=
+          MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
+        this->failed = true;
+        return;
+      }
+      if (this->previous == d) {
+        return;
+      }
+      if (MFRONT_GENERIC_PARALLEL_GPU_API(SetDevice)(d) !=
+          MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
+        this->failed = true;
+        return;
+      }
+      this->restore = true;
+    }
+    CurrentDeviceGuard(const CurrentDeviceGuard&) = delete;
+    CurrentDeviceGuard& operator=(const CurrentDeviceGuard&) = delete;
+    //! \brief destructor
+    ~CurrentDeviceGuard() {
+      if (this->restore) {
+        static_cast<void>(
+            MFRONT_GENERIC_PARALLEL_GPU_API(SetDevice)(this->previous));
+      }
+    }
+    //! \brief true if the device of the queue can't be made current
+    bool failed = false;
+
+   private:
+    //! \brief previous current device
+    int previous = 0;
+    //! \brief if true, the previous current device is restored
+    bool restore = false;
+  };
+
+#else /* defined(ARCCORE_COMPILING_CUDA_OR_HIP) */
+
+  //! \brief nothing to do: the device of a SYCL queue is held by the queue
+  struct CurrentDeviceGuard {
+    explicit CurrentDeviceGuard(const ::Arcane::Accelerator::RunQueue&) {}
+    CurrentDeviceGuard(const CurrentDeviceGuard&) = delete;
+    CurrentDeviceGuard& operator=(const CurrentDeviceGuard&) = delete;
+    //! \brief always false
+    bool failed = false;
+  };
+
 #endif /* defined(ARCCORE_COMPILING_CUDA_OR_HIP) */
 
   /*!
    * \brief increase the stack size of the threads of the current device of
-   * the calling thread (which must be the device of the queue) if the given
-   * function, applied at one point on a CUDA or HIP queue, requires it.
+   * the calling thread (made the device of the queue by
+   * `CurrentDeviceGuard`) if the given function, applied at one point on a
+   * CUDA or HIP queue, requires it.
    * Nothing is done for the other queues (SYCL gives no way to set it).
    * \return an error message, empty on success
    * \param[in] q: queue

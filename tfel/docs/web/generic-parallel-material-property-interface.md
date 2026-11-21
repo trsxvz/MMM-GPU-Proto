@@ -63,7 +63,7 @@ In addition, the `generic-parallel` interface also exports:
   The library does not contain the function `S` of the `generic`
   interface;
 - the `S_generic_parallel_api_version` symbol (an `unsigned short`),
-  equal to the `MFRONT_GPMP_API_VERSION` macro (`4`), shifted by 1000 for
+  equal to the `MFRONT_GPMP_API_VERSION` macro (`1`), shifted by 1000 for
   a material property generated with another numerical type than `double`
   (`real_type` DSL option). This symbol tells
   that the library contains the functions of batches of points. It only
@@ -74,10 +74,10 @@ In addition, the `generic-parallel` interface also exports:
   `openacc` or `arcane`), for information;
 - the `S_generic_parallel_execution_policy` symbol (a `const char*`),
   which gives the identifier of the execution policy expected by the
-  generated function, as for the behaviours (see below);
+  generated function (see below);
 - the `S_generic_parallel_memory_space` symbol (a `const char*`), which
   tells where the values and the statuses of the points must be located
-  (`host`, `device` or `any`, as for the behaviours). The statistics must
+  (`host`, `device` or `any`). The statistics must
   also be readable by the host (see below). The
   name of the backend does not suffice: for instance, the `stlpar` backend
   computes on the host or on a GPU depending on the compiler. This memory
@@ -134,25 +134,14 @@ errors: it is thread-local and does not exist on GPUs. A result which is
 not finite (`nan` or infinite) is reported by the status `-4`. The value
 of `errno` is restored before returning.
 
-An empty batch is accepted without any check, as an empty batch by the
-behaviours: nothing is read, written or submitted, and the status is
+An empty batch is accepted without any check: nothing is read, written
+or submitted, and the status is
 `0`. The arrays and the execution policy may then be null.
 
-The strides are read at runtime by a single kernel, as for the
-behaviours. A kernel specialized for unit strides brought no measurable
-gain (\(2^{24}\) points, on the cores of the host and on a GPU): the
-evaluation of a material property is limited by the memory bandwidth.
-
-The generated code only provides the evaluation of the material property
-at one point. The runtime of the material properties
-(`MFront/GenericParallelMaterialProperty/Evaluate.hxx`) checks the data of
-the batch, reads the arguments and writes the output and the statuses of
-the points, and calls the primitive of the backend, shared with the
-behaviours (see the [page of the
-behaviours](generic-parallel-behaviour-interface.html)). The invalid
-parameters (status `-6`) are reported before the other checks of the
-batch, and the execution policy is checked by the primitive, after the
-fields, as for the behaviours.
+All the backends use a single kernel, which reads the strides at
+runtime. A kernel specialized for unit strides gave no measurable gain on
+large batches, which are limited by the memory bandwidth, and a few
+percent on small batches evaluated sequentially on a CPU.
 
 ## Execution policies and statistics
 
@@ -206,19 +195,25 @@ of the batch (statuses `-5`, `-6` and `-7`), and the
 `S_generic_parallel_report` function gives the result once the
 computations are completed, whether the evaluation is asynchronous or not.
 If the `asynchronous` option of the policy is true, the backends with a
-queue (`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane`) may return once
-the
-computations are submitted to the queue: the calling code synchronizes its
-queue before calling the report function. Otherwise, and always with the
-C++ parallel algorithms, `OpenMP` and `OpenACC`, the function returns once
-the computations are completed. The statistics
+queue (`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane`) may return
+once the computations are submitted to the queue: the calling code synchronizes its queue before
+calling the report function. Otherwise, and always with the C++ parallel
+algorithms, `OpenMP` and `OpenACC`, the function returns once the computations are completed. The statistics
 (`mfront_gpmp_Statistics`) are initialized by
 `mfront_gpmp_initializeStatistics`. They must be accessible by the host
 and by the device where the computations are performed, for instance in
 managed or shared memory if the memory space of the library is `device`:
 the kernels update them, and the report function reads them on the host
 (the C++ parallel algorithms, `OpenMP` and `OpenACC` also merge the
-statuses of the points in them on the host). With the automatic data
+statuses of the points in them on the host). On devices without concurrent access to managed
+memory (`cudaDevAttrConcurrentManagedAccess` null, for instance under
+Windows), the host must not access managed statistics while kernels run
+on the device. On the AMD GPUs connected by PCI Express without page
+migration (XNACK), managed memory is host memory, where the atomic minimum
+is not performed (the PCI Express bus only provides the atomic addition,
+exchange and compare-and-swap operations): the statistics must then be in
+coarse-grained memory, for instance host memory allocated by
+`hipHostMalloc` with the `hipHostMallocNonCoherent` flag. With the automatic data
 transfers of the `SYCL`
 backend, statistics which are not accessible by the device are copied,
 as the values, and the evaluation is then synchronous:
@@ -247,26 +242,36 @@ const auto status =
 
 The report function is only meaningful if the evaluation returned `0`.
 An evaluation without statistics calls the same report function on
-statistics held by blocks of memory reused from one call to another
-(`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane` backends) or by a
-local variable (C++ parallel algorithms, `OpenMP` and `OpenACC`): the output
-status is the same.
+statistics held by blocks of device memory reused from one call to
+another (`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane` backends,
+see below), or by a local variable (C++ parallel algorithms, `OpenMP`,
+`OpenACC`, and the computations of the `Kokkos`, `RAJA` and `Arcane`
+backends on the host): the output status is the same.
 
-The statistics have the same structure as the ones of the behaviours: the
-number of points where the evaluation failed, the number of points where
-a bound is violated with the warning policy, and two keys giving the
-first point of each kind and the check retained at this point. The keys
-are opaque: the minimum of the keys gives the first point, whatever the
-order of the computations, and only the report function of the same
-library decodes them. A structure of statistics is used for one material
-property and one batch. The kernels compute the status of each point and
-merge it in the statistics only when an event occurs: with integer atomic
-operations (`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane` backends),
-or by a reduction (C++ parallel algorithms, `OpenMP` and `OpenACC`), as for the
-behaviours. With the atomic operations, the reporting of the errors costs
-nothing when the evaluation succeeds. A reduction combines the statuses of
-all the points and copies its result, a few integers, to the host at each
-call.
+The statistics give the number of points where the evaluation failed, the
+number of points where a bound is violated with the warning policy, and
+two keys giving the first point of each kind and the check retained at
+this point. The keys are opaque: the minimum of the keys gives the first
+point, whatever the order of the computations, and only the report
+function of the same library decodes them. A structure of statistics is
+used for one material property and one batch. The kernels compute the
+status of each point and merge it in the statistics only when an event
+occurs: with integer atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos`,
+`RAJA` and `Arcane` backends,
+the `CUDA` and `HIP` backends first combining the statuses of the points
+of a warp), or by a reduction (C++ parallel algorithms, `OpenMP` and
+`OpenACC`). With the atomic
+operations, the reporting of the errors costs nothing when the evaluation
+succeeds: without statistics given by the calling code, a thread updating
+the statistics, in device memory, also sets a flag in pinned host memory,
+read by the host once the computations are completed. The statistics are
+only copied to the host if the flag is set, the block being then reset
+before its next use (see `mfront::generic_parallel::StatisticsBlock`). A
+reduction combines the statuses of all the points and copies
+its result, a few integers, to the host at each call. The members of the
+statistics have the type `mfront_gp_atomic_size_type`, an alias of
+`unsigned long long`: it is the only 64 bits integer type for which `CUDA`
+provides the `atomicAdd` and `atomicMin` functions.
 
 ## Output status
 
@@ -294,7 +299,8 @@ computed:
   array of arguments or no values for an argument, invalid number of
   arguments, uniform output with several points, more than
   \(2^{48}-1\) points, more blocks of threads than the grid of the device
-  can hold with the `CUDA` and `HIP` backends (\(2^{31}-1\) blocks), an
+  can hold with the `CUDA` and `HIP` backends (\(2^{31}-1\) blocks, and
+  at most \(2^{32}-1\) threads on AMD devices), an
   execution policy of another backend, no execution policy given to the
   `SYCL` backend, an asynchronous evaluation without statistics or with
   an out-of-order `SYCL` queue, or no statistics given to the report
@@ -304,8 +310,12 @@ computed:
   submission or execution of a kernel, stack size of the threads of the
   device, or exceptions thrown on the host by the runtimes of the backends
   based on C++ programming models (`SYCL`, `Kokkos`, `RAJA`, C++ parallel
-  algorithms, `OpenMP`, `OpenACC`, `Arcane`). No exception goes through the
+  algorithms, `OpenMP`, `OpenACC`, `Arcane`). No
+  exception goes through the
   generated functions: an unexpected exception also gives `-7`.
+
+If the data of the batch are given, the invalid parameters (`-6`) are
+reported before the other errors of the batch.
 
 The output status also gives:
 
@@ -334,7 +344,9 @@ kernels do not throw and `errno` does not exist on GPUs), the bounds
 status of a point where the result is not finite is null (the `generic`
 interface keeps the bounds status of a bound violated with the warning
 policy), the message does not give the values, and no `MTest` file is
-written when the evaluation fails.
+written when the evaluation fails. The body of a material property must
+thus not throw: with the C++ parallel algorithms, an exception leaving
+the computation of a point terminates the process (`std::terminate`).
 
 A material property calling another material property (`@MaterialLaw`)
 uses, in device code, the implementation of the called material property
@@ -404,6 +416,37 @@ report the statuses `-3`.
 # Backends
 
 Backends are associated with parallel programming models.
+
+The code generated for a material property only depends on the backend
+through the inclusion of the header of its primitive, the expression
+building this primitive, the function of the runtime which is called
+(`mfront::gpmp::sycl::evaluateBatch` for the `SYCL` backend, which
+transfers the fields) and the symbols describing the backend. It holds:
+
+- a function object, declared in an anonymous namespace, which evaluates
+  the material property at one point and returns its value and the status
+  of the point. Its body is written as for the `generic` interface. The
+  parameters, unless they are treated as static variables, are members of
+  this function object;
+- the report function (`<name>_generic_parallel_report`), which decodes
+  the statistics of an evaluation;
+- the function of batches (`<name>_generic_parallel`), which checks the
+  pointers and the parameters (status `-6`), and calls
+  `mfront::gpmp::evaluateBatch` (see
+  `MFront/GenericParallelMaterialProperty/Evaluate.hxx`). This function
+  checks the data of the batch, and evaluates the material property at
+  each point with the primitive of the backend.
+
+The primitive of a backend, declared in `MFront/GenericParallel/GPU.hxx`
+(`CUDA` and `HIP`), `MFront/GenericParallel/ParallelSTL.hxx`,
+`MFront/GenericParallel/SYCL.hxx`, `MFront/GenericParallel/Kokkos.hxx`,
+`MFront/GenericParallel/RAJA.hxx`, `MFront/GenericParallel/OpenMP.hxx`,
+`MFront/GenericParallel/OpenACC.hxx` or `MFront/GenericParallel/Arcane.hxx`,
+applies a function at the points of a
+batch, checks the execution policy, combines the statuses of the points
+and reports the statistics (see `MFront/GenericParallel/Batch.hxx`).
+These headers are installed with `TFEL`: the rest of the generated code
+only depends on the material property.
 
 ## `CUDA` backend
 
@@ -527,41 +570,60 @@ of threads per block. By default, the value used is \(128\) (\(64\) in
 the configuration files delivered with `TFEL`). This number is rounded up
 at runtime to a multiple of the number of threads per warp, which is
 typically \(32\) or \(64\). Typical values are thus \(64\), \(128\)
-and \(256\). This option has the same meaning as for the behaviours.
+and \(256\).
 
 ### Internal details
 
-When required, the strides are passed by value to the kernel, as kernel
-parameters, which `CUDA` stores in constant memory.
+The function object evaluating the material property at the points of a
+batch, which holds the pointers to the arguments and to the output and
+their strides, is passed by value to the kernel, as a kernel parameter,
+which `CUDA` stores in constant memory. This parameter is declared
+`__grid_constant__` (devices of compute capability 7.0 or later): its
+member functions take its address, which would otherwise make each thread
+copy it in its stack (local memory). For the behaviours, this copy took
+more than a kilobyte per thread, and 29 % of the time of the integration
+of an elastic behaviour in finite strain. The `HIP` compilers for `AMD`
+GPUs read the kernel parameters in place.
 
-If the material property exposes parameters, those are stored in a
-global variable on the host (the CPU). For efficiency, the values of the
-parameters are also passed by value to the kernel when evaluating the
-material property. This mechanism allows to keep the flexibility provided by
-parameters: this flexibility is required to perform sensitivity
-analyses, uncertainty propagation studies or perform a new
-identification. Note that parameters' handling can still be disabled by
-setting the `parameters_as_static_variables` DSL option to `true`.
+If the material property exposes parameters, those are stored in a global
+variable on the host (the CPU). For efficiency, the values of the
+parameters are copied in the function object evaluating the material
+property at one point, and thus passed by value to the kernel. This
+mechanism allows to keep the flexibility provided by parameters: this
+flexibility is required to perform sensitivity analyses, uncertainty
+propagation studies or perform a new identification. Note that parameters'
+handling can still be disabled by setting the
+`parameters_as_static_variables` DSL option to `true`.
 
-The errors are reported in the statistics of the evaluation, held by managed
-memory. Each thread computes the status of its point and only accesses the
-statistics, with integer atomic operations, if an event occurs, minimizing
-the cost of error handling. Without statistics given by the calling code,
-the statistics are taken from a pool of blocks allocated at the first call
-on a device and reused by the following calls (see
-`mfront::generic_parallel::StatusBlockPool`), so that no memory is allocated
-per call. The `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane` backends handle
-the errors in the same way, with the memory accessible by the host and the
-device of the backend (managed memory, shared USM memory,
-`Kokkos::SharedSpace`, managed memory of the resources of camp, unified
-memory of Arccore). Those blocks are never freed,
-except with the `Kokkos` backend, which frees them when Kokkos is finalized.
-The C++ parallel algorithms, `OpenMP` and `OpenACC` merge the statuses of
-the points by a reduction.
+The errors are reported in the statistics of the evaluation. Each thread
+computes the status of its point. The statuses of the points of a warp are
+combined, and the statistics are only accessed, with integer atomic
+operations, if an event occurs in the warp, minimizing the cost of error
+handling. Without statistics given by the calling code, the statistics are
+held by a block taken from a pool of blocks allocated at the first call on
+a device and reused by the following calls (see
+`mfront::generic_parallel::StatusBlockPool`), so that no memory is
+allocated per call. Each generated function has its own pool. A block (see
+`mfront::generic_parallel::StatisticsBlock`) holds the statistics in
+device memory, where the atomic operations are performed, and a flag in
+pinned host memory, set by the threads updating the statistics. Between
+two calls, the statistics of a block hold their neutral value unless the
+flag is set. Once the computations are completed, the host reads the
+flag: without event, which is the usual case, the result is given without
+copy nor additional synchronization. Otherwise, the statistics are copied
+to the host, and the block is reset by a synchronous copy before its next
+use. The host never accesses the statistics while kernels run, and the
+atomic operations are never performed on host memory: the PCI Express bus
+only provides the atomic addition, exchange and compare-and-swap
+operations, the other ones not being performed on the AMD GPUs connected
+by PCI Express without page migration (XNACK). The `HIP` and `SYCL`
+backends handle the errors in the same way, the `SYCL` backend updating
+the statistics point by point. Those blocks are never freed. The C++
+parallel algorithms merge the statuses of the points by a reduction.
 
 Before launching a kernel, the stack size of the threads is increased if
-the kernel requires it, as for the behaviours (see the
-`preserve_stack_size` option of the execution policies).
+the kernel requires it (see the `preserve_stack_size` option of the
+execution policies).
 
 On output, the user knows the number of points where the evaluation
 failed and the first of them. For instance, the `UO2_ShearModulus`
@@ -846,10 +908,11 @@ relocatable device code, so that the calling code and the generated
 libraries share the same instance of `Kokkos`.
 
 Without statistics given by the calling code, the statistics are held by
-memory allocated in `Kokkos::SharedSpace`, as for the behaviours. This
-memory space is provided by all the backends of `Kokkos` except the `OpenACC`
-and `OpenMPTarget` backends: a static assertion of the generated sources
-reports this requirement. With a `CUDA` or a `HIP` execution space, the
+a local variable if the execution space accesses the memory of the host,
+and otherwise by a block of a pool (see the `CUDA` backend), the
+statistics being in the memory space of the execution space and the flag
+in `Kokkos::SharedHostPinnedSpace`, as for the behaviours. With a
+`CUDA` or a `HIP` execution space, the
 stack size of the threads is increased if the kernel requires it, as for
 the behaviours.
 
@@ -880,8 +943,10 @@ library of RAJA (see the `config-raja.json` and `config-raja-host.json`
 configuration files and the section of the behaviours).
 
 Without statistics given by the calling code, the statistics are held by
-managed memory allocated by the resource of camp, one block per device,
-kept until the end of the process. With an execution policy of `CUDA` or `HIP`, the stack
+a local variable with an execution policy of the host, and otherwise by
+a block of a pool (see the `CUDA` backend), allocated by the resource of
+camp in device and pinned memory, one block per device, kept until the end
+of the process. With an execution policy of `CUDA` or `HIP`, the stack
 size of the threads is increased if the kernel requires it, as for the
 behaviours. The memory space of the library is `device` for the execution
 policies of `CUDA` and `HIP`, `host` otherwise. The execution policies of
@@ -907,15 +972,19 @@ backend has no default policy. The execution policy of the queue (`CUDA`,
 `HIP`, `SYCL`, `Thread` or `Sequential`) is selected at runtime, as for the
 behaviours: the arguments and the output must be accessible by the device
 of the queue, and the memory space of the library is `device`. The
-statuses of the points are merged with native atomic operations. Without
-statistics given by the calling code, the statistics are held by the
-unified memory of Arccore, kept until the end of the process. The commands
+statuses of the points are merged with the atomic operations of Arccore.
+Without statistics given by the calling code, the statistics are held, on
+an accelerator, by a block of a pool (see the `CUDA` backend), allocated
+in the memory of the device of the queue and in the pinned memory of
+Arccore and kept until the end of the process, and, with the `Thread` and
+`Sequential` queues, by a local variable. The commands
 are launched asynchronously, whatever the asynchronous state of the queue:
 a synchronous evaluation waits for the completion of the commands of the
 queue (`barrier`). The queue has a reference semantics: it must not be used
-by another thread during the call. With a `CUDA` or `HIP` queue, the stack
-size of the threads of the current device of the calling thread, which must
-be the device of the queue, is increased if the kernel requires it. The source files (`.cu`
+by another thread during the call. With a `CUDA` or `HIP` queue, the device
+of the queue is made the current device of the calling thread during the
+call, and the stack size of its threads is increased if the kernel
+requires it. The source files (`.cu`
 files) are compiled by `clang++` as a `CUDA` compiler, by `hipcc` or by the
 `SYCL` compiler of Arccore, depending on its accelerator mode, and linked with the
 shared libraries of Arccore (see the `config-arcane.json` configuration

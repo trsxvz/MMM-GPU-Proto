@@ -114,7 +114,8 @@ static TestExecution testExecution() {
  * \param[in] o: common options
  */
 static std::unique_ptr<mfront::generic_parallel::AbstractBackendExecutionPolicy>
-makeTestPolicy(const mfront::generic_parallel::BackendExecutionCommonPolicy& o) {
+makeTestPolicy(
+    const mfront::generic_parallel::BackendExecutionCommonPolicy& o) {
   using namespace mfront::generic_parallel;
   return std::make_unique<HIPBackendExecutionPolicy>(
       HIPBackendExecutionOptions{.common_options = o});
@@ -147,8 +148,8 @@ struct HIPTest : public tfel::tests::TestCase {
     // the default stream
     constexpr auto eps = double{1e-2};
     auto stream = hipStream_t{};
-    TFEL_TESTS_ASSERT(hipStreamCreateWithFlags(
-                          &stream, hipStreamNonBlocking) == hipSuccess);
+    TFEL_TESTS_ASSERT(hipStreamCreateWithFlags(&stream, hipStreamNonBlocking) ==
+                      hipSuccess);
     auto E = createManagedData(4);
     const auto values = createManagedData({300, 500, 300, 800});
     const auto T = createManagedData(4);
@@ -181,12 +182,12 @@ struct HIPTest : public tfel::tests::TestCase {
     // synchronized. The second temperature is out of its physical bounds.
     constexpr auto eps = double{1e-2};
     auto stream = hipStream_t{};
-    TFEL_TESTS_ASSERT(hipStreamCreateWithFlags(
-                          &stream, hipStreamNonBlocking) == hipSuccess);
-    mfront_gpmp_Statistics* statistics = nullptr;
-    TFEL_TESTS_ASSERT(hipMallocManaged(&statistics,
-                                        sizeof(mfront_gpmp_Statistics)) ==
+    TFEL_TESTS_ASSERT(hipStreamCreateWithFlags(&stream, hipStreamNonBlocking) ==
                       hipSuccess);
+    mfront_gpmp_Statistics* statistics = nullptr;
+    TFEL_TESTS_ASSERT(
+        hipMallocManaged(&statistics, sizeof(mfront_gpmp_Statistics)) ==
+        hipSuccess);
     mfront_gpmp_initializeStatistics(statistics);
     auto E = createManagedData(4);
     const auto values = createManagedData({300, -1, 500, 800});
@@ -199,8 +200,8 @@ struct HIPTest : public tfel::tests::TestCase {
     const auto execution_policy =
         mfront::generic_parallel::makeHIPBackendExecutionPolicy(
             {.common_options = {.asynchronous = true}, .stream = stream});
-    const auto execution = TestExecution{.statistics = statistics,
-                                         .policy = &execution_policy};
+    const auto execution =
+        TestExecution{.statistics = statistics, .policy = &execution_policy};
     auto output = mfront_gpmp_OutputStatus{};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.get(), 1,
@@ -236,8 +237,7 @@ struct HIPTest : public tfel::tests::TestCase {
                                         hipLimitStackSize) == hipSuccess);
     // the kernels require at least 1024 bytes (see
     // mfront::generic_parallel::gpu::ensureStackSize)
-    TFEL_TESTS_ASSERT(hipDeviceSetLimit(hipLimitStackSize, 256) ==
-                      hipSuccess);
+    TFEL_TESTS_ASSERT(hipDeviceSetLimit(hipLimitStackSize, 256) == hipSuccess);
     auto stack_size = std::size_t{};
     TFEL_TESTS_ASSERT(hipDeviceGetLimit(&stack_size, hipLimitStackSize) ==
                       hipSuccess);
@@ -248,16 +248,16 @@ struct HIPTest : public tfel::tests::TestCase {
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     auto output = mfront_gpmp_OutputStatus{};
-    const auto preserve_policy =
-        makeTestPolicy({.preserve_stack_size = true});
+    const auto preserve_policy = makeTestPolicy({.preserve_stack_size = true});
     const auto preserve = TestExecution{.policy = preserve_policy.get()};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.get(), 1,
                  args, args_strides, 2, policy, preserve),
         -7);
     TFEL_TESTS_CHECK_EQUAL(output.status, -7);
-    TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
-        "the stack size of the threads of the device must be at least"));
+    TFEL_TESTS_ASSERT(std::string(output.msg)
+                          .starts_with("the stack size of the threads of the "
+                                       "device must be at least"));
     TFEL_TESTS_ASSERT(hipDeviceGetLimit(&stack_size, hipLimitStackSize) ==
                       hipSuccess);
     TFEL_TESTS_ASSERT(stack_size < 1024);
@@ -273,8 +273,8 @@ struct HIPTest : public tfel::tests::TestCase {
     for (std::size_t i = 0; i != 2; ++i) {
       TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(getValue(T, i))) < eps);
     }
-    TFEL_TESTS_ASSERT(hipDeviceSetLimit(hipLimitStackSize,
-                                        initial_stack_size) == hipSuccess);
+    TFEL_TESTS_ASSERT(
+        hipDeviceSetLimit(hipLimitStackSize, initial_stack_size) == hipSuccess);
   }
 
   void test4() {

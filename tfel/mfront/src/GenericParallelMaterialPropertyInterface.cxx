@@ -48,7 +48,7 @@ namespace mfront {
   using GenericBase = GenericMaterialPropertyInterfaceBase;
 
   //! \brief identifier of the check of the finiteness of the result
-  static constexpr unsigned long long invalid_result_check =
+  static constexpr std::size_t invalid_result_check =
       GenericBase::invalid_result_check;
 
   //! \return the name of the function object evaluating a material property
@@ -144,17 +144,16 @@ namespace mfront {
        << "std::to_string(mfront_number_of_failures) + \" failure(s), \" + "
        << "std::to_string(mfront_number_of_unreliable_results) + "
        << "\" unreliable result(s))\";\n"
-       << "if (mfront_check == " << invalid_result_check << "ull) {\n"
+       << "if (mfront_check == " << invalid_result_check << "u) {\n"
        << "return " << ns << "report(*mfront_output_status, -4, "
        << "\"invalid result\" + mfront_points);\n"
        << "}\n";
     // as with the `generic` interface, the status and the bounds status are
     // negative if the evaluation failed (physical bound, or bound with the
     // strict policy), positive otherwise (bound with the warning policy)
-    auto write_check = [&os, &ns](const unsigned long long c,
-                                  const std::string& msg,
+    auto write_check = [&os, &ns](const std::size_t c, const std::string& msg,
                                   const std::size_t rank) {
-      os << "if (mfront_check == " << c << "ull) {\n"
+      os << "if (mfront_check == " << c << "u) {\n"
          << "const auto mfront_status = mfront_failure ? -1 : 1;\n"
          << "mfront_output_status->bounds_status = mfront_status * " << rank
          << ";\n"
@@ -308,20 +307,20 @@ namespace mfront {
             .failure =
                 [](std::ostream& out, const GenericBase::BoundCheck& c) {
                   out << "mfront_status.report(" << c.identifier
-                      << "ull, true);\n"
+                      << "u, true);\n"
                       << "return {std::numeric_limits<mfront_gmp_real>::"
                       << "quiet_NaN(), mfront_status};\n";
                 },
             .warning =
                 [](std::ostream& out, const GenericBase::BoundCheck& c) {
                   out << "mfront_status.report(" << c.identifier
-                      << "ull, false);\n";
+                      << "u, false);\n";
                 }});
     if (checks) {
       // as with the `generic` interface, the output is the computed value
       os << "if(!tfel::math::ieee754::isfinite(" << result << ")){\n"
          << "mfront_status.reportInvalidResult(" << invalid_result_check
-         << "ull);\n"
+         << "u);\n"
          << "}\n";
     }
     os << "return {" << result << ", mfront_status};\n"
@@ -338,10 +337,9 @@ namespace mfront {
 
   /*!
    * \brief write the function of batches of a material property
-   * (`<name>_generic_parallel`). As the functions of batches of the
-   * behaviours, it checks the pointers, accepts an empty batch without any
-   * other check, gets the parameters (status `-6` if they are invalid), and
-   * calls the runtime of the material properties (see
+   * (`<name>_generic_parallel`). It checks the pointers, accepts an empty
+   * batch without any other check, gets the parameters (status `-6` if they
+   * are invalid), and calls the runtime of the material properties (see
    * `mfront::gpmp::evaluateBatch`) with the evaluation at one point and the
    * primitive of the backend.
    * \param[out] os: output stream
@@ -367,16 +365,16 @@ namespace mfront {
                    "writeBatchFunction: too many arguments");
     os << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel("
        << "mfront_gpmp_OutputStatus* const mfront_output_status,\n"
-       << "const mfront_gpmp_BatchData* const mfront_batch_data){\n"
+       << "const mfront_gpmp_BatchData* const mfront_batch){\n"
        << "return ::mfront::gpmp::handleExceptions(mfront_output_status, "
-       << "[mfront_output_status, mfront_batch_data] {\n"
-       << "if (mfront_batch_data == nullptr) {\n"
+       << "[mfront_output_status, mfront_batch] {\n"
+       << "if (mfront_batch == nullptr) {\n"
        << "return ::mfront::gpmp::report(*mfront_output_status, -5, "
        << "\"no batch data given\");\n"
        << "}\n"
        // an empty batch is accepted without any check: nothing is read,
        // written or submitted (the fields and the queue may be null)
-       << "if (mfront_batch_data->number_of_points == 0) {\n"
+       << "if (mfront_batch->number_of_points == 0) {\n"
        << "return mfront_output_status->status;\n"
        << "}\n";
     auto evaluation = getEvaluationName(name) + "{}";
@@ -407,7 +405,7 @@ namespace mfront {
     os << "};\n";
     backend.writeCall(os, Runtime::MATERIAL_PROPERTIES, "evaluateBatch", "",
                       "*mfront_output_status",
-                      "*mfront_batch_data, " + evaluation +
+                      "*mfront_batch, " + evaluation +
                           ", mfront_arguments_names, " +
                           (checks ? "true" : "false") + ", &" + name +
                           "_generic_parallel_report");
@@ -535,8 +533,7 @@ namespace mfront {
       const MaterialPropertyDescription& mpd) const {
     const auto& material = mpd.material;
     const auto& className = mpd.className;
-    const auto name =
-        material.empty() ? className : material + "_" + className;
+    const auto name = material.empty() ? className : material + "_" + className;
     // the names of the batch functions and of their metadata end with
     // `_generic_parallel`
     tfel::raise_if(name.find("_generic_parallel") != std::string::npos,
@@ -735,18 +732,16 @@ namespace mfront {
     if (!includes.empty()) {
       os << includes << "\n\n";
     }
+    // primitive of the backend. Its header includes the header of the
+    // execution policy of the backend
     this->backend->writeSpecificIncludes(
         os, generic_parallel::AbstractBackend::Runtime::MATERIAL_PROPERTIES);
     os << '\n';
 
-    // the parameters handler has a hidden visibility: libraries of several
-    // backends for the same material property, loaded in the same process,
-    // have their own parameters
     writeMaterialPropertyParametersHandler(os, mpd,
                                            {.material_property_name = name,
                                             .floating_point_type = "double",
-                                            .interface_namespace = nname,
-                                            .hidden_visibility = true});
+                                            .interface_namespace = nname});
 
     writeEvaluation(os, *this, mpd, fd, name);
 
@@ -758,6 +753,7 @@ namespace mfront {
     writeVariablesNamesSymbol(os, name, mpd);
     writeVariablesBoundsSymbols(os, name, mpd);
     writeValidatorSymbol(os, name, mpd);
+    writeCompatibilityModeSymbol(os, name, mpd);
     writeBuildIdentifierSymbol(os, name, mpd);
     writeEntryPointSymbol(os, name);
     writeRealSizeSymbol(os, name, types.real_type);
@@ -769,8 +765,8 @@ namespace mfront {
                          this->generic_functions
                              ? std::string{"Generic"}
                              : this->getInterfaceNameInCamelCase());
-    // backend, memory space, execution policy and version of the generated
-    // functions, as for the behaviours
+    // backend, version of the generated functions, memory space and
+    // execution policy
     this->backend->writeSymbols(
         os, name,
         generic_parallel::AbstractBackend::Runtime::MATERIAL_PROPERTIES);
@@ -867,8 +863,7 @@ namespace mfront {
         os, mpd,
         {.material_property_name = name,
          .floating_point_type = "double",
-         .interface_namespace = d.interface_namespace,
-         .hidden_visibility = true});
+         .interface_namespace = d.interface_namespace});
     os << "#ifdef __cplusplus\n"
        << "extern \"C\"{\n"
        << "#endif /* __cplusplus */\n\n";

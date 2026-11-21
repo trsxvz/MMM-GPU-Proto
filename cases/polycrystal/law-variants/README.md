@@ -22,3 +22,12 @@ from the ones of the law by 2e-7 at most (local tolerance 1e-11), and the
 failures of the integration disappear up to increments of 2 % (A) or 10 %
 (B). They are built for the GPU (generic-parallel, hip) and the CPU
 (generic) by `adastra-fm/build-laws.slurm`.
+
+Since 21/11/2026, both variants are built on the version of the law of
+mm-opera-hpc 5b4b104 (constants per family of slip systems, no division in
+the loop over the slip systems, no double precision literal, smaller
+matrices in the tangent operator): same results to the rounding errors as
+the former variants (relative differences 8e-13 on the stresses and 2e-13
+on the tangent operators in double precision). On a batch of 65,536 points
+in double precision (RTX 5080), A and B integrate about 1.6 times faster
+than the law, with fewer iterations of the local Newton method.

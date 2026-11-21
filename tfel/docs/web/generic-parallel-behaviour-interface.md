@@ -608,6 +608,14 @@ value given to `mfront_gpb_initializeStatistics` and of the factors of
 the points which are lower than the initial value of the batch. The rotations never fail and never lower the time step
 scaling factor: they leave the statistics unchanged.
 
+The statistics given by the calling code are updated by atomic operations
+of the device. On the AMD GPUs connected by PCI Express without page
+migration (XNACK), managed memory is host memory, where the atomic
+minimum is not performed (the PCI Express bus only provides the atomic
+addition, exchange and compare-and-swap operations): the statistics must
+then be in coarse-grained memory, for instance host memory allocated by
+`hipHostMalloc` with the `hipHostMallocNonCoherent` flag.
+
 The devices only write in the statistics when an event occurs at a point
 (failure, unreliable result, decrease of the time step scaling factor), by
 atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane`
@@ -616,18 +624,22 @@ reporting of the statistics then costs nothing when the computations
 succeed. The `OpenMP` and `OpenACC` backends and the C++ parallel algorithms
 merge the statistics of the points by a parallel reduction, whose result, a
 few integers, is copied to the host at each call. Without statistics given
-by the calling code, the
-`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane` backends hold the
-statistics in a block of memory accessible by the host and by the device
-(managed memory, shared USM memory, `Kokkos::SharedSpace`, managed memory of
-the resources of camp, unified memory of Arccore), initialized and read by the host: no data is transferred between the
-host and the device when no event occurs.
-Those blocks are allocated at the first call on a device and reused by the
-following calls (see `mfront::generic_parallel::StatusBlockPool`), as the
-statistics of the material properties. With `CUDA` and `HIP`, on
-devices which do not support concurrent accesses to managed memory by the
-host and the device (for instance on Windows), no other kernel may run
-during a call without statistics.
+by the calling code, the `CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and
+`Arcane` backends hold the statistics in a block of a pool, as the
+statistics of the material properties, and in a local variable when the
+computations are performed on the host (execution spaces of Kokkos and
+execution policies of RAJA of the host, `Thread` and `Sequential` queues of
+Arcane). A block (see `mfront::generic_parallel::StatisticsBlock`) holds
+the statistics in device memory, where the atomic operations are
+performed, and a flag in pinned host memory, set by the threads updating
+the statistics: once the computations are completed, the statistics are
+only copied to the host if the flag is set, the block being then reset
+before its next use. A call without event thus performs neither copy nor
+additional synchronization. The time step scaling factor of a block is
+only written below the initial value of the call, which is restored when
+the statistics are read. Those blocks are allocated at the first call on a
+device and reused by the following calls (see
+`mfront::generic_parallel::StatusBlockPool`).
 
 The stack size of the threads of a GPU is a property of the context of the
 device, shared by all the computations of the process. It is increased if
@@ -906,12 +918,12 @@ Options:
 
 The behaviour is integrated by `Kokkos::parallel_for` in the given
 execution space, the statistics being updated by atomic operations.
-Without statistics given by the calling code, they are held by a block of
-`Kokkos::SharedSpace`, as for
-the material properties: this memory space is provided by all the backends
-of Kokkos except the `OpenACC` and `OpenMPTarget` backends (a static
-assertion reports this requirement). Kokkos must be initialized by the
-calling code. The execution policy
+Without statistics given by the calling code, they are held by a local
+variable if the execution space accesses the memory of the host, and
+otherwise by a block of a pool, the statistics being in the memory space
+of the execution space and the flag signalling an event in
+`Kokkos::SharedHostPinnedSpace`, as for the material properties. Kokkos
+must be initialized by the calling code. The execution policy
 (`KokkosBackendExecutionPolicy<ExecutionSpace>`, where `ExecutionSpace` is
 the execution space of the library) holds an instance of the execution
 space (`execution_space` member). The default policy uses the default
@@ -942,10 +954,11 @@ Options:
 
 The behaviour is integrated by `RAJA::forall` with the given execution
 policy, the statistics being updated by the atomic operations of RAJA.
-Without statistics given by the calling code, they are held by a block of
-managed memory allocated by
-the resource of camp associated with the execution policy, one per device,
-kept until the end of the process. The execution policy of the backend
+Without statistics given by the calling code, they are held by a local
+variable with an execution policy of the host, and otherwise by a block of
+a pool, allocated in device and pinned memory by the resource of camp
+associated with the execution policy, one per device, kept until the end
+of the process. The execution policy of the backend
 (`RAJABackendExecutionPolicy<Resource>`, where `Resource` is the resource
 of camp associated with the execution policy of RAJA:
 `camp::resources::Cuda`, `camp::resources::Hip` or
@@ -1016,11 +1029,13 @@ of the queue: the memory space of the library is `device`, the device being
 only known at runtime (unified memory of Arccore, or managed memory, for a
 library used with all the queues).
 
-The statistics are updated by native atomic operations (the atomic
-operations of Arccore do not support the unsigned 64 bits integers of the
-statistics, and its reductions synchronize the queue). Without statistics
-given by the calling code, they are held by a block of the unified memory
-of Arccore, kept until the end of the process. The commands are launched
+The statistics are updated by the atomic operations of Arccore
+(`doAtomic`), rather than by its reductions, which synchronize the queue.
+Without statistics given by the calling code, they are held, on an
+accelerator, by a block of a pool, allocated in the memory of the device of
+the queue and in the pinned memory of Arccore and kept until the end of
+the process, and, with the `Thread` and `Sequential` queues, by a local
+variable. The commands are launched
 asynchronously, whatever the asynchronous state of the queue, which is
 restored afterwards (`RunQueue::ScopedAsync`): a synchronous computation
 then waits for the completion of the commands of the queue (`barrier`),
@@ -1033,9 +1048,10 @@ Arccore have 32 bits indices, and its kernels compute the index of a thread
 on 32 bits: a batch of more than `2^30` points is split in several
 commands. The calling code initializes the accelerator
 runtime of Arccore (for instance with an `AcceleratorInitializer`) and
-creates the queue (`makeQueue`). On GPUs, the stack size of the threads of
-the current device of the calling thread, which must be the device of the
-queue, is increased if needed, as for the `CUDA` and `HIP` backends.
+creates the queue (`makeQueue`). On GPUs, the device of the queue
+(`RunQueue::deviceId()`) is made the current device of the calling thread
+during the call, and the stack size of its threads is increased if needed,
+as for the `CUDA` and `HIP` backends.
 
 The compiler of the generated sources depends on the accelerator mode of
 Arccore (`TFEL_ARCANE_CXX_COMPILER` and `TFEL_ARCANE_CXX_FLAGS`
@@ -1072,7 +1088,9 @@ excluded from the overloads in the compilation for the host (`-Xarch_host
 or `min` in the code of a behaviour is resolved to the function of the
 standard library. The libraries are linked with the shared libraries of
 Arccore (`TFEL_ARCANE_LINKER_FLAGS` substitution). The `arcane`
-configuration requires Arccore 2.8.0 or later (Arcane 4.1.16), built with
+configuration requires an Arccore providing `RunQueue::deviceId()` and the
+atomic operations of the accelerators on `unsigned long long` (main branch
+of Arcane since its commit `51b90b8` of 16/11/2026, Arccore 2.8.0), built with
 `CUDA`, `HIP` or `SYCL` (`ARCCORE_ACCELERATOR_MODE`) as shared libraries, found in
 `Arccore_ROOT`.
 
@@ -1347,7 +1365,8 @@ The following points are specific to device code:
 The configurations have been tested with `nvcc` 13.0, `hipcc` 5.7 and 7.2
 on top of `nvcc` (NVIDIA platform), `clang` 20 (with `CUDA` 12.9), `g++`
 14, `icpx` 2026.1, `nvc++` 25.11 (also for OpenACC), Kokkos 5.0 and 5.2,
-RAJA 2026.07, AdaptiveCpp 25.10 and Arccore 2.8 (Arcane 4.1.16, with
+RAJA 2026.07, AdaptiveCpp 25.10 and Arccore 2.8 (main branch of Arcane,
+commit `51b90b8`, with
 `clang` 20 and `CUDA` 12.9).
 Some compiler defects found during these tests are
 worked around in the generated code and the headers (see the comments of

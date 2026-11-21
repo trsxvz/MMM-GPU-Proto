@@ -2,7 +2,8 @@
  * \file mfront/include/MFront/GenericParallel/ParallelSTLBackend.hxx
  * \brief  This file declares the backend of the `generic-parallel` interfaces
  * based on the parallel algorithms of the C++ standard library
- * \date   05/10/2026
+ * \author Thomas Helfer
+ * \date   07/04/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -32,7 +33,7 @@ namespace mfront::generic_parallel {
    * - `device_stack_size`: minimal stack size, in bytes, of the threads of the
    *   device when the parallel algorithms are offloaded to a GPU by
    *   `nvc++ -stdpar=gpu` (ignored otherwise). The default stack size of
-   *   CUDA threads (1024 bytes) is too small for many behaviours.
+   *   CUDA threads (1024 bytes) is too small for some kernels.
    */
   struct MFRONT_VISIBILITY_EXPORT ParallelSTLBackend final : AbstractBackend {
     //! \brief default constructor

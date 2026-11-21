@@ -4,7 +4,9 @@
  * the elements in the local sparse matrix of the tangent operator, with the
  * positions of the entries in the rows of the matrix computed once
  * (`batch::computeStiffnessMatricesPositions`) and without them (entries
- * searched in their rows), in the same program. Mechanics in small or finite
+ * searched in their rows), and by the ordered assembly (stiffness matrices
+ * stored element by element, then added value by value in a fixed order,
+ * without atomic addition), in the same program. Mechanics in small or finite
  * strain (vector unknowns) or heat transfer (scalar unknowns), arbitrary
  * tangent operator blocks, one process or several (`--parallel`), on the
  * host or on a device. The values of the matrix may be written to a file,
@@ -152,6 +154,8 @@ int main(int argc, char** argv) {
   // behaviour integrators on all the element attributes, arbitrary tangent
   // operator blocks
   auto integrators = std::vector<AbstractBehaviourIntegrator*>{};
+  // number of integration points per element
+  auto integration_points = 0;
   auto geometry = batch::ElementsGeometrySet{};
   for (const auto m : attributes) {
     if (thermal) {
@@ -185,6 +189,7 @@ int main(int argc, char** argv) {
       batch::computeElementsGeometry(ctx, geometry[r], fes, *r) | or_die;
     }
     integrators.push_back(&(problem.getBehaviourIntegrator(ctx, m, 0) | or_die));
+    integration_points = r->GetNPoints();
   }
   auto dofs = mfem::Array<int>{};
   batch::computeElementsDegreesOfFreedom(ctx, dofs, fes) | or_die;
@@ -265,6 +270,51 @@ int main(int argc, char** argv) {
       with.push_back(assemble(positions));
       without.push_back(assemble(no_positions));
     }
+  }
+  // ordered assembly (`TangentOperatorAssembly` set to `Ordered`): stiffness
+  // matrices stored element by element, then added value by value in the
+  // order of their contributions, without atomic additions
+  const auto ne = fes.GetNE();
+  const auto n = (ne == 0) ? 0 : dofs.Size() / ne;
+  auto contributions = batch::EntriesContributions{};
+  auto contributions_time = 0.;
+  {
+    const auto t0 = clock::now();
+    batch::computeEntriesContributions(ctx, contributions, *matrix, dofs, n) |
+        or_die;
+    contributions_time = elapsed(t0);
+  }
+  auto stiffness_matrices = mfem::Vector{};
+  stiffness_matrices.UseDevice(true);
+  stiffness_matrices.SetSize(n * n * ne);
+  const auto assemble_ordered = [&]() {
+    const auto t = clock::now();
+    batch::zeroSparseMatrixValues(ctx, *matrix) | or_die;
+    stiffness_matrices = real{0};
+    for (auto* const bi : integrators) {
+      bi->addStiffnessMatricesByKernels(ctx, stiffness_matrices, geometry) |
+          or_die;
+    }
+    const auto a = batch::AssembledStiffnessMatrix{.matrix = matrix.get(),
+                                                   .element_dofs = &dofs};
+    batch::addStiffnessMatricesByEntries(ctx, a, contributions,
+                                         stiffness_matrices) |
+        or_die;
+    synchronize();
+    return elapsed(t);
+  };
+  assemble_ordered();
+  auto ordered_difference = real{};
+  {
+    const auto* const v = matrix->HostReadData();
+    for (int i = 0; i != nnz; ++i) {
+      ordered_difference =
+          std::max(ordered_difference, std::abs(v[i] - reference[i]));
+    }
+  }
+  auto ordered = std::vector<double>{};
+  for (int i = 0; i != repetitions; ++i) {
+    ordered.push_back(assemble_ordered());
   }
   // construction of the global matrix, as by
   // `NonLinearEvolutionProblemImplementation::assembleTangentOperatorByKernels`
@@ -352,14 +402,14 @@ int main(int argc, char** argv) {
     }
 #endif /* MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX */
   }
-  const auto ne = fes.GetNE();
-  const auto n = (ne == 0) ? 0 : dofs.Size() / ne;
   const auto without_time = maximumOverProcesses(median(without), parallel);
   const auto with_time = maximumOverProcesses(median(with), parallel);
+  const auto ordered_time = maximumOverProcesses(median(ordered), parallel);
   // checks made on all the processes
   const auto failed = maximumOverProcesses(
       ((positions.Size() == 0) || (searched_entries != 0) ||
-       (!(maximum > 0)) || (difference > tolerance * maximum))
+       (!(maximum > 0)) || (difference > tolerance * maximum) ||
+       (ordered_difference > tolerance * maximum))
           ? 1
           : 0,
       parallel);
@@ -378,6 +428,7 @@ int main(int argc, char** argv) {
               << "assembly without positions: median " << without_time
               << " ms\n"
               << "assembly with positions: median " << with_time << " ms\n"
+              << "ordered assembly: median " << ordered_time << " ms\n"
               << "block diagonal matrix and product Pt A P: median "
               << median(global) << " ms\n"
               << "elimination of the essential degrees of freedom: median "
@@ -390,7 +441,9 @@ int main(int argc, char** argv) {
     }
   }
   std::cout << std::setprecision(4) << "elements " << ne
-            << ", degrees of freedom per element " << n << ", entries " << nnz
+            << ", degrees of freedom per element " << n
+            << ", integration points per element " << integration_points
+            << ", entries " << nnz
             << ", positions " << positions.Size() * sizeof(std::uint16_t) / 1e6
             << " MB (" << positions_time << " ms)\n"
             << "assembly without positions: median "
@@ -403,7 +456,16 @@ int main(int argc, char** argv) {
             << '\n'
             << "ratio of the medians " << median(without) / median(with)
             << ", maximum difference " << difference << " (maximum value "
-            << maximum << ")\n";
+            << maximum << ")\n"
+            << "ordered assembly (stiffness matrices stored element by "
+            << "element, then added value by value): median "
+            << median(ordered) << " ms, minimum "
+            << *std::min_element(ordered.begin(), ordered.end())
+            << " ms, maximum difference " << ordered_difference
+            << ", contributions "
+            << contributions.contributions.Size() * sizeof(int) / 1e6
+            << " MB (" << contributions_time << " ms), stiffness matrices "
+            << stiffness_matrices.Size() * sizeof(real) / 1e6 << " MB\n";
   if (failed > 0) {
     std::cerr << "assembly: no positions, entries searched or different "
                  "matrices\n";

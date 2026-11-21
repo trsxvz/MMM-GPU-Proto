@@ -2,7 +2,8 @@
  * \file   mfront/src/GenericParallel/SYCLBackend.cxx
  * \brief  This file implements the SYCL backend of the `generic-parallel`
  * interfaces
- * \date   05/10/2026
+ * \author Thomas Helfer
+ * \date   18/05/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -46,8 +47,8 @@ namespace mfront::generic_parallel {
     if (this->device_stack_size == 0) {
       return "mfront::generic_parallel::sycl::makeApply()";
     }
-    return "mfront::generic_parallel::sycl::makeApply(" +
-           std::to_string(this->device_stack_size) + ")";
+    return "mfront::generic_parallel::sycl::makeApply<" +
+           std::to_string(this->device_stack_size) + ">()";
   }  // end of getApply
 
   std::string SYCLBackend::getMemorySpace() const {

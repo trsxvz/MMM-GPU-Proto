@@ -108,13 +108,12 @@ namespace mfront {
     return name + "-" + i + ".cxx";
   }
 
-  unsigned long long
-  GenericMaterialPropertyInterfaceBase::getPhysicalBoundCheck(
+  std::size_t GenericMaterialPropertyInterfaceBase::getPhysicalBoundCheck(
       const std::size_t i, const bool upper) {
     return 1 + 2 * i + (upper ? 0 : 1);
   }  // end of getPhysicalBoundCheck
 
-  unsigned long long GenericMaterialPropertyInterfaceBase::getBoundCheck(
+  std::size_t GenericMaterialPropertyInterfaceBase::getBoundCheck(
       const MaterialPropertyDescription& mpd,
       const std::size_t i,
       const bool upper) {
@@ -363,7 +362,8 @@ namespace mfront {
     }
     os << "mfront_output_status->status = 0;\n"
        << "mfront_output_status->bounds_status = 0;\n"
-       << "mfront_output_status->c_error_number = 0;\n";
+       << "mfront_output_status->c_error_number = 0;\n"
+       << "mfront_output_status->msg[0] = '\\0';\n";
     if (!areRuntimeChecksDisabled(mpd)) {
       // C-error handling
       os << "errno = 0;\n";
@@ -445,6 +445,7 @@ namespace mfront {
          << "errno = mfront_errno_old;\n"
          << "if(!tfel::math::ieee754::isfinite(" << mpd.output.name << ")){\n"
          << "mfront_output_status->status = -4;\n"
+         << "mfront_report(\"invalid result\");\n"
          << "}\n";
     }
     if (useQuantities(mpd)) {
@@ -524,6 +525,7 @@ namespace mfront {
     writeVariablesNamesSymbol(os, name, mpd);
     writeVariablesBoundsSymbols(os, name, mpd);
     writeValidatorSymbol(os, name, mpd);
+    writeCompatibilityModeSymbol(os, name, mpd);
     writeBuildIdentifierSymbol(os, name, mpd);
     writeEntryPointSymbol(os, name);
     writeRealSizeSymbol(os, name, types.real_type);

@@ -30,12 +30,20 @@ namespace mfront::generic_parallel::openmp {
    * accessible from the device, for instance allocated in unified or
    * managed memory (`nvc++ -gpu=mem:managed`). This function waits for the
    * completion of the computations. The statistics given by the calling
-   * code, if any, are accumulated on the host.
+   * code, if any, are accumulated on the host. If the function never
+   * reports an event (see the `hasEvents` method of the handler), the
+   * statistics are neither combined nor reported.
    *
    * \tparam offload: if true, the computations are offloaded to the default
    * device (`target` construct). Otherwise, they are performed by the
    * threads of the host (`parallel` construct) and the code does not depend
    * on the support of offloading by the OpenMP runtime.
+   * \tparam device_stack_size: minimal stack size, in bytes, of the threads
+   * of the device when the computations are offloaded to an NVIDIA GPU
+   * through the CUDA runtime (see
+   * `mfront::generic_parallel::setMinimalCUDAStackSize`). The stack size is
+   * not modified if this value is null. This value is a template argument,
+   * as for the `stlpar` backend.
    * \tparam StatisticsHandler: handler of the statistics (see
    * `MFront/GenericParallel/Batch.hxx`)
    * \tparam PointFunction: function object taking the index of a point and
@@ -47,20 +55,17 @@ namespace mfront::generic_parallel::openmp {
    * common options are used, the computations being synchronous.
    * \param[in] h: handler of the statistics
    * \param[in] f: function
-   * \param[in] device_stack_size: minimal stack size, in bytes, of the
-   * threads of the device when the computations are offloaded to an NVIDIA
-   * GPU through the CUDA runtime (see
-   * `mfront::generic_parallel::setMinimalCUDAStackSize`). The stack size is
-   * not modified if this value is null.
    * \return the status
    */
-  template <bool offload, typename StatisticsHandler, typename PointFunction>
+  template <bool offload,
+            std::size_t device_stack_size,
+            typename StatisticsHandler,
+            typename PointFunction>
   int apply(typename StatisticsHandler::OutputStatus& s,
             const size_type n,
             const BatchExecution<typename StatisticsHandler::Statistics>& e,
             const StatisticsHandler& h,
-            const PointFunction& f,
-            const std::size_t device_stack_size = 0) {
+            const PointFunction& f) {
     if (n == 0) {
       return s.status;
     }
@@ -68,6 +73,27 @@ namespace mfront::generic_parallel::openmp {
         e.policy, e.statistics != nullptr);
     if (p.error != nullptr) {
       return report(s, -5, p.error);
+    }
+    if constexpr (offload && (device_stack_size != 0)) {
+      if (!setMinimalCUDAStackSize(device_stack_size,
+                                   p.common_options.preserve_stack_size)) {
+        return report(s, -7, stack_size_error_message);
+      }
+    }
+    if (!h.hasEvents()) {
+      // the statistics are neither combined nor reported
+      if constexpr (offload) {
+#pragma omp target teams distribute parallel for map(to : f)
+        for (size_type i = 0; i < n; ++i) {
+          static_cast<void>(f(i));
+        }
+      } else {
+#pragma omp parallel for
+        for (size_type i = 0; i < n; ++i) {
+          static_cast<void>(f(i));
+        }
+      }
+      return s.status;
     }
     // the statistics are reduced member by member
     const auto r0 = h.initial();
@@ -77,10 +103,6 @@ namespace mfront::generic_parallel::openmp {
     auto first_unreliable_result = r0.first_unreliable_result;
     auto rdt = r0.rdt;
     if constexpr (offload) {
-      if (!setMinimalCUDAStackSize(device_stack_size,
-                                   p.common_options.preserve_stack_size)) {
-        return report(s, -7, stack_size_error_message);
-      }
 #pragma omp target teams distribute parallel for map(to : f)        \
     reduction(+ : number_of_failures, number_of_unreliable_results) \
     reduction(min : first_failure, first_unreliable_result, rdt)
@@ -97,7 +119,6 @@ namespace mfront::generic_parallel::openmp {
         rdt = r.rdt < rdt ? r.rdt : rdt;
       }
     } else {
-      static_cast<void>(device_stack_size);
 #pragma omp parallel for reduction(+ : number_of_failures,           \
                                        number_of_unreliable_results) \
     reduction(min : first_failure, first_unreliable_result, rdt)
@@ -128,14 +149,14 @@ namespace mfront::generic_parallel::openmp {
    * \return the primitive of the backend, called by the functions of the
    * interfaces (see for instance `mfront::gpb::integrateBatch`)
    * \tparam offload: if true, the computations are offloaded
-   * \param[in] device_stack_size: minimal stack size of the threads of the
+   * \tparam device_stack_size: minimal stack size of the threads of the
    * device (see `apply`)
    */
-  template <bool offload>
-  auto makeApply(const std::size_t device_stack_size = 0) {
-    return [device_stack_size](auto& s, const size_type n, const auto& e,
-                               const auto& h, const auto& f) {
-      return openmp::apply<offload>(s, n, e, h, f, device_stack_size);
+  template <bool offload, std::size_t device_stack_size = 0>
+  auto makeApply() {
+    return [](auto& s, const size_type n, const auto& e, const auto& h,
+              const auto& f) {
+      return openmp::apply<offload, device_stack_size>(s, n, e, h, f);
     };
   }  // end of makeApply
 

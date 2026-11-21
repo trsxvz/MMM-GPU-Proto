@@ -16,6 +16,7 @@
 #define LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_MATERIALPROPERTY_H
 
 #include "MFront/GenericMaterialProperty/MaterialProperty.h"
+#include "MFront/GenericParallel/Types.h"
 #include "MFront/GenericParallel/BackendExecutionPolicy.h"
 
 /*!
@@ -28,7 +29,7 @@
  * incompatible change of those functions: a calling code must refuse any
  * version it does not know.
  */
-#define MFRONT_GPMP_API_VERSION 4
+#define MFRONT_GPMP_API_VERSION 1
 
 // NOLINTBEGIN(modernize-use-using)
 #ifdef __cplusplus
@@ -55,25 +56,25 @@ typedef struct mfront_gpmp_Statistics {
    * \brief number of points where the evaluation failed (physical bound
    * violated, bound violated with the strict policy, invalid result)
    */
-  unsigned long long number_of_failures;
+  mfront_gp_atomic_size_type number_of_failures;
   /*!
    * \brief opaque key of the first point where the evaluation failed and
    * of the check which failed at this point, or `~0` if no point failed.
    * Only the `<name>_generic_parallel_report` function of the same library
    * decodes it.
    */
-  unsigned long long first_failure;
+  mfront_gp_atomic_size_type first_failure;
   /*!
    * \brief number of points where a bound is violated with the warning
    * policy: the result is computed, but must be used with caution
    */
-  unsigned long long number_of_unreliable_results;
+  mfront_gp_atomic_size_type number_of_unreliable_results;
   /*!
    * \brief opaque key of the first point where the result is unreliable and
    * of the bound violated at this point, or `~0` if no result is
    * unreliable
    */
-  unsigned long long first_unreliable_result;
+  mfront_gp_atomic_size_type first_unreliable_result;
 } mfront_gpmp_Statistics;
 
 /*!
@@ -82,10 +83,11 @@ typedef struct mfront_gpmp_Statistics {
  */
 static inline void mfront_gpmp_initializeStatistics(
     mfront_gpmp_Statistics* const s) {
-  s->number_of_failures = 0;
-  s->first_failure = ~0ull;
-  s->number_of_unreliable_results = 0;
-  s->first_unreliable_result = ~0ull;
+  const mfront_gp_atomic_size_type zero = 0;
+  s->number_of_failures = zero;
+  s->first_failure = ~zero;
+  s->number_of_unreliable_results = zero;
+  s->first_unreliable_result = ~zero;
 } /* end of mfront_gpmp_initializeStatistics */
 
 /*!
@@ -151,8 +153,7 @@ typedef struct mfront_gpmp_BatchData {
    */
   int* statuses;
   /*!
-   * \brief statistics of the evaluation (optional, null if not requested),
-   * as for the behaviours (see `mfront_gpb_BatchData`).
+   * \brief statistics of the evaluation (optional, null if not requested).
    *
    * If null, the output status reports the result of the batch.
    *
@@ -175,8 +176,7 @@ typedef struct mfront_gpmp_BatchData {
   mfront_gpmp_Statistics* statistics;
   /*!
    * \brief execution policy of the backend of the library, or null for the
-   * default policy of the backend, as for the behaviours (see
-   * `mfront_gpb_BatchData`). The `sycl` backend has no default policy.
+   * default policy of the backend. The `sycl` backend has no default policy.
    */
   const mfront_gp_AbstractBackendExecutionPolicy* execution_policy;
 } mfront_gpmp_BatchData;
@@ -245,8 +245,8 @@ typedef struct mfront_gpmp_OutputStatus {
  * \brief type of the functions generated for a material property `S`
  * (`S_generic_parallel`)
  */
-typedef int(GENERIC_MATERIALPROPERTY_ADDCALL_PTR
-                mfront_gpmp_BatchMaterialPropertyPtr)(
+typedef int(
+    GENERIC_MATERIALPROPERTY_ADDCALL_PTR mfront_gpmp_BatchMaterialPropertyPtr)(
     mfront_gpmp_OutputStatus* const, const mfront_gpmp_BatchData* const);
 
 /*!

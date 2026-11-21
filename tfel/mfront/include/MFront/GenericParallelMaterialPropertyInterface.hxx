@@ -32,8 +32,10 @@ namespace mfront {
    * \brief the `generic-parallel` interface for material properties, built
    * on the `generic` interface: the code evaluating a material property at
    * a point is written by `GenericMaterialPropertyInterfaceBase` (see
-   * `writePointEvaluation`), the backends writing the batch function and its
-   * kernels.
+   * `writePointEvaluation`) in a function object. The generated function of
+   * batches gives this function object to the runtime of the interface (see
+   * `MFront/GenericParallelMaterialProperty/Evaluate.hxx`), with the
+   * primitive of the backend (see `MFront/GenericParallel/Batch.hxx`).
    */
   struct MFRONT_VISIBILITY_EXPORT GenericParallelMaterialPropertyInterface
       : public GenericMaterialPropertyInterfaceBase {

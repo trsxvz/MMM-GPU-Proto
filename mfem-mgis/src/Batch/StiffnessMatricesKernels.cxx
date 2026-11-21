@@ -172,6 +172,7 @@ namespace mfem_mgis::batch::internals {
       constexpr auto gs = getGradientsSize<K>();
       constexpr auto entries = getBOperatorEntries<K>();
       auto v = real{0};
+      MFEM_MGIS_UNROLL
       for (const auto& e : entries) {
         if (e.column == 0) {
           v += (e.factor * xa[e.source]) *
@@ -208,8 +209,10 @@ namespace mfem_mgis::batch::internals {
     constexpr auto entries = getBOperatorEntries<K>();
     const auto* const t = a.tangent_operator + o * a.point_stride;
     const auto cs = a.component_stride;
+    MFEM_MGIS_UNROLL
     for (std::size_t r1 = 0; r1 != gs; ++r1) {
       y[r1] = 0;
+      MFEM_MGIS_UNROLL
       for (const auto& e : entries) {
         if (static_cast<std::size_t>(e.column) == d) {
           const auto r2 = static_cast<std::size_t>(e.row);
@@ -234,11 +237,13 @@ namespace mfem_mgis::batch::internals {
       };
       const auto alpha = a.modification_coefficients[so];
       auto cx = real{0};
+      MFEM_MGIS_UNROLL
       for (const auto& e : entries) {
         if (static_cast<std::size_t>(e.column) == d) {
           cx += c(static_cast<std::size_t>(e.row)) * (e.factor * x[e.source]);
         }
       }
+      MFEM_MGIS_UNROLL
       for (std::size_t r1 = 0; r1 != gs; ++r1) {
         y[r1] = alpha * y[r1] + v(r1) * cx;
       }
@@ -261,6 +266,7 @@ namespace mfem_mgis::batch::internals {
                                                      const real* const y) {
     constexpr auto entries = getBOperatorEntries<K>();
     auto v = real{0};
+    MFEM_MGIS_UNROLL
     for (const auto& e : entries) {
       if (static_cast<std::size_t>(e.column) == c) {
         v += (e.factor * x[e.source]) * y[e.row];
@@ -407,14 +413,28 @@ namespace mfem_mgis::batch::internals {
   }  // end of computeStiffnessMatricesOnHost
 
   /*!
+   * \brief number of nodes `a` whose blocks `(a, b)` are computed by a
+   * thread of `launchStiffnessMatricesKernel`, for a node `b`. The products
+   * `K B_b`, which take most of the operations, are computed once for these
+   * blocks, whose sums take `nodes_per_thread * V * V` registers. Measured on
+   * quadratic tetrahedra in finite strain (single precision, four points
+   * per element): assembly 2.2 times faster than with one thread per pair of
+   * nodes, against 1.8 times with two nodes and 1.7 times with ten.
+   */
+  inline constexpr std::size_t nodes_per_thread = 5;
+
+  /*!
    * \brief launches the kernel adding the stiffness matrices of the
-   * elements of a material: one thread per pair of nodes of an element,
-   * computing the `V x V` block `Σ B_aᵀ K B_b w det J` (plus the
-   * contribution of the derivatives with respect to the unknowns, see
-   * `addUnknownsBlock`), `V` being the number of components of the unknowns.
-   * Without device, one iteration per element (see
-   * `computeStiffnessMatricesOnHost`); the devices of MFEM computing on the
-   * host (`omp`, `debug`) use the kernel.
+   * elements of a material, computing the `V x V` blocks `Σ B_aᵀ K B_b w det
+   * J` (plus the contribution of the derivatives with respect to the
+   * unknowns, see `addUnknownsBlock`), `V` being the number of components of
+   * the unknowns: one thread per node `b` of an element and per group of
+   * `nodes_per_thread` consecutive nodes `a`, so that the products `K B_b`
+   * are computed once for the blocks of the group (one thread per node for
+   * the blocks of the pairs of a node with itself). The operations on each
+   * block are made in the same order as without groups. Without device, one
+   * iteration per element (see `computeStiffnessMatricesOnHost`); the
+   * devices of MFEM computing on the host (`omp`, `debug`) use the kernel.
    * \tparam K: kind of the gradients
    * \tparam Output: destination of the blocks
    * \tparam blocks: blocks computed
@@ -434,21 +454,25 @@ namespace mfem_mgis::batch::internals {
       return;
     }
     constexpr auto all = blocks == StiffnessBlocks::ALL;
-    const auto npairs = all ? a.nd * a.nd : a.nd;
-    const auto n = a.number_of_elements * npairs;
-    mfem::forall_switch(use_device, n, [a, o, npairs] MFEM_HOST_DEVICE(int i) {
+    // number of nodes `a` per thread, groups of nodes `a` and threads per
+    // element
+    constexpr auto G = all ? nodes_per_thread : std::size_t{1};
+    const auto ng = all ? (static_cast<std::size_t>(a.nd) + G - 1) / G : 1;
+    const auto nt = static_cast<std::size_t>(a.nd) * ng;
+    const auto n = a.number_of_elements * static_cast<int>(nt);
+    mfem::forall_switch(use_device, n, [a, o, ng, nt] MFEM_HOST_DEVICE(int i) {
       // dimension and number of components of the unknowns
       constexpr auto N = getDimension<K>();
       constexpr auto V = getUnknownsSize<K>();
       const auto nd = static_cast<std::size_t>(a.nd);
       const auto nq = static_cast<std::size_t>(a.nq);
-      const auto np = static_cast<std::size_t>(npairs);
-      const auto k = static_cast<std::size_t>(i) / np;
-      const auto r = static_cast<std::size_t>(i) - k * np;
-      const auto na = all ? r % nd : r;
-      const auto nb = all ? r / nd : r;
+      const auto k = static_cast<std::size_t>(i) / nt;
+      const auto r = static_cast<std::size_t>(i) - k * nt;
+      // node `b`, then first node `a` of the group
+      const auto nb = r / ng;
+      const auto na0 = all ? (r % ng) * G : nb;
       const auto e = static_cast<std::size_t>(a.elements[k]);
-      real m[V][V] = {};
+      real m[G][V][V] = {};
       for (std::size_t q = 0; q != nq; ++q) {
         const auto detJ = a.determinants[q + nq * e];
         real iJ[N * N];
@@ -456,13 +480,19 @@ namespace mfem_mgis::batch::internals {
                                nq);
         // derivatives of the shape functions in the physical frame, followed
         // by their values (see `getBOperatorEntries`)
-        real xa[N + 1];
+        real xa[G][N + 1];
         real xb[N + 1];
-        computePhysicalDerivatives<N>(xa, a.shape_functions_gradients, q, nq,
-                                      na, iJ);
+        MFEM_MGIS_UNROLL
+        for (std::size_t g = 0; g != G; ++g) {
+          if (na0 + g < nd) {
+            computePhysicalDerivatives<N>(xa[g], a.shape_functions_gradients, q,
+                                          nq, na0 + g, iJ);
+            xa[g][N] =
+                getShapeFunctionValue<K>(a.shape_functions, q, nq, na0 + g);
+          }
+        }
         computePhysicalDerivatives<N>(xb, a.shape_functions_gradients, q, nq,
                                       nb, iJ);
-        xa[N] = getShapeFunctionValue<K>(a.shape_functions, q, nq, na);
         xb[N] = getShapeFunctionValue<K>(a.shape_functions, q, nq, nb);
         const auto o2 =
             static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
@@ -472,23 +502,42 @@ namespace mfem_mgis::batch::internals {
         [[maybe_unused]] const auto cs = a.component_stride;
         const auto w = a.weights[q] * detJ;
         // K B_b, then B_aᵀ (K B_b), column by column, without forming B
+        MFEM_MGIS_UNROLL
         for (std::size_t d = 0; d != V; ++d) {
           real KB[getGradientsSize<K>()];
           multiplyByTangentOperatorAndB<K>(KB, a, o2, xb, d);
-          if constexpr (blocks == StiffnessBlocks::DIAGONAL) {
-            // only the diagonal of the block is used
-            m[d][d] += w * multiplyByTransposedB<K>(xa, d, KB);
-          } else {
-            for (std::size_t c = 0; c != V; ++c) {
-              m[c][d] += w * multiplyByTransposedB<K>(xa, c, KB);
+          MFEM_MGIS_UNROLL
+          for (std::size_t g = 0; g != G; ++g) {
+            if (na0 + g >= nd) {
+              continue;
+            }
+            if constexpr (blocks == StiffnessBlocks::DIAGONAL) {
+              // only the diagonal of the block is used
+              m[g][d][d] += w * multiplyByTransposedB<K>(xa[g], d, KB);
+            } else {
+              MFEM_MGIS_UNROLL
+              for (std::size_t c = 0; c != V; ++c) {
+                m[g][c][d] += w * multiplyByTransposedB<K>(xa[g], c, KB);
+              }
             }
           }
         }
         if constexpr (hasUnknownsBlock<K>()) {
-          addUnknownsBlock<K>(m, xa, t, cs, a.shape_functions[q + nq * nb], w);
+          MFEM_MGIS_UNROLL
+          for (std::size_t g = 0; g != G; ++g) {
+            if (na0 + g < nd) {
+              addUnknownsBlock<K>(m[g], xa[g], t, cs,
+                                  a.shape_functions[q + nq * nb], w);
+            }
+          }
         }
       }
-      o.template add<V>(e, nd, na, nb, m);
+      MFEM_MGIS_UNROLL
+      for (std::size_t g = 0; g != G; ++g) {
+        if (na0 + g < nd) {
+          o.template add<V>(e, nd, na0 + g, nb, m[g]);
+        }
+      }
     });
   }  // end of launchStiffnessMatricesKernel
 

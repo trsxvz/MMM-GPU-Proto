@@ -2,7 +2,8 @@
  * \file   mfront/include/MFront/GenericParallel/GPUBackend.hxx
  * \brief  This file declares the CUDA and HIP backends of the
  * `generic-parallel` interfaces
- * \date   05/10/2026
+ * \author Thomas Helfer
+ * \date   07/04/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -21,8 +22,7 @@
 namespace mfront::generic_parallel {
 
   /*!
-   * \brief base class of the CUDA and HIP backends: one thread per
-   * integration point.
+   * \brief base class of the CUDA and HIP backends: one thread per point.
    *
    * Options:
    *
@@ -37,11 +37,10 @@ namespace mfront::generic_parallel {
     GPUBackend(const tfel::utilities::DataMap&);
     //
     void writeSpecificIncludes(std::ostream&, const Runtime) const override;
-    [[nodiscard]] std::string getApply() const override;
-    [[nodiscard]] std::string getMemorySpace() const override;
-    [[nodiscard]] std::string getExecutionPolicyType() const override;
     [[nodiscard]] std::string getSharedDataCopy(
         std::string_view, std::string_view) const override;
+    [[nodiscard]] std::string getApply() const override;
+    [[nodiscard]] std::string getMemorySpace() const override;
     //! \brief destructor
     ~GPUBackend() noexcept override;
 
@@ -55,6 +54,7 @@ namespace mfront::generic_parallel {
     using GPUBackend::GPUBackend;
     [[nodiscard]] std::string getName() const override;
     [[nodiscard]] std::string getSourceFileExtension() const override;
+    [[nodiscard]] std::string getExecutionPolicyType() const override;
     //! \brief destructor
     ~CUDABackend() noexcept override;
   };  // end of CUDABackend
@@ -64,6 +64,7 @@ namespace mfront::generic_parallel {
     using GPUBackend::GPUBackend;
     [[nodiscard]] std::string getName() const override;
     [[nodiscard]] std::string getSourceFileExtension() const override;
+    [[nodiscard]] std::string getExecutionPolicyType() const override;
     void writeSpecificIncludes(std::ostream&, const Runtime) const override;
     //! \brief destructor
     ~HIPBackend() noexcept override;

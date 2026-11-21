@@ -14,6 +14,7 @@
 #ifndef LIB_MFRONT_GENERICPARALLEL_SYCL_HXX
 #define LIB_MFRONT_GENERICPARALLEL_SYCL_HXX
 
+#include <new>
 #include <cstddef>
 #include <utility>
 #include <sycl/sycl.hpp>
@@ -30,14 +31,16 @@ namespace mfront::generic_parallel::sycl {
     struct Atomics {
       //! \brief a simple alias
       using AtomicCounter =
-          ::sycl::atomic_ref<unsigned long long,
+          ::sycl::atomic_ref<atomic_size_type,
                              ::sycl::memory_order::relaxed,
                              ::sycl::memory_scope::device,
                              ::sycl::access::address_space::global_space>;
-      static void add(unsigned long long* const p, const unsigned long long v) {
+      //! \brief add a value to a counter
+      static void add(atomic_size_type* const p, const atomic_size_type v) {
         AtomicCounter{*p}.fetch_add(v);
       }
-      static void min(unsigned long long* const p, const unsigned long long v) {
+      //! \brief replace a counter by the minimum of its value and a value
+      static void min(atomic_size_type* const p, const atomic_size_type v) {
         AtomicCounter{*p}.fetch_min(v);
       }
     };
@@ -49,36 +52,75 @@ namespace mfront::generic_parallel::sycl {
      * The statistics are updated by atomic operations, which are only
      * performed if an event occurs at this point (see `updateStatistics`).
      * Parallel reductions are not used since their synchronisation barriers
-     * make the compilation of the large kernels of some behaviours fail with
-     * AdaptiveCpp on CPUs.
+     * make the compilation of large kernels fail with AdaptiveCpp on CPUs.
      *
      * \tparam Statistics: statistics updated by the devices
      * \tparam PointFunction: function object applied at one point
      */
     template <typename Statistics, typename PointFunction>
     struct Kernel {
+      //! \brief apply the function at the `i`-th point
       void operator()(const ::sycl::id<1> i) const {
-        updateStatistics<Atomics>(*(this->statistics), this->f(i[0]),
-                                  this->rdt0);
+        const auto r = this->f(i[0]);
+        if ((this->statistics != nullptr) &&
+            (updateStatistics<Atomics>(*(this->statistics), r, this->rdt0))) {
+          signalEvents(this->events);
+        }
       }
       //! \brief function object applied at one point
       PointFunction f;
-      //! \brief statistics, accessible by the device
+      //! \brief statistics, accessible by the device, or null if the
+      //! function never reports an event
       Statistics* statistics;
+      //! \brief flag set when the statistics are updated (see
+      //! `StatisticsBlock`), or null
+      int* events;
       //! \brief ordered key of the initial time step scaling factor
-      unsigned long long rdt0;
+      atomic_size_type rdt0;
     };
 
     /*!
-     * \return the pool of blocks of shared memory holding the statistics
-     * of the synchronous computations, shared by all the functions of the
-     * library. The blocks are identified by the device and the context of
-     * the queue.
+     * \return a block of statistics (see `StatisticsBlock`), allocated in
+     * host memory, the statistics being allocated in the memory of the device
+     * of the queue, or a null pointer if an allocation failed. The block is
+     * reset before its first use.
      * \tparam Statistics: statistics updated by the devices
+     * \param[in] q: queue
      */
     template <typename Statistics>
+    StatisticsBlock<Statistics>* allocateStatisticsBlock(
+        const ::sycl::queue& q) noexcept {
+      try {
+        auto* const statistics = ::sycl::malloc_device<Statistics>(1, q);
+        if (statistics == nullptr) {
+          return nullptr;
+        }
+        auto* const block =
+            ::sycl::malloc_host<StatisticsBlock<Statistics>>(1, q);
+        if (block == nullptr) {
+          ::sycl::free(statistics, q);
+          return nullptr;
+        }
+        return ::new (block)
+            StatisticsBlock<Statistics>{.statistics = statistics, .events = 1};
+      } catch (...) {
+      }
+      return nullptr;
+    }  // end of allocateStatisticsBlock
+
+    /*!
+     * \return the pool of blocks holding the statistics of the synchronous
+     * computations of a function of the generated library (see
+     * `StatisticsBlock`). The blocks are identified by the device and the
+     * context of the queue.
+     * \tparam Statistics: statistics updated by the devices
+     * \tparam PointFunction: function applied at the points, which is
+     * specific to a generated function, so that each generated library has
+     * its own pool (see `mfront::generic_parallel::gpu::internals`)
+     */
+    template <typename Statistics, typename PointFunction>
     auto& getStatisticsBlocks() noexcept {
-      using Pool = StatusBlockPool<Statistics,
+      using Pool = StatusBlockPool<StatisticsBlock<Statistics>,
                                    std::pair<::sycl::device, ::sycl::context>>;
       static auto pool = Pool{};
       return pool;
@@ -106,12 +148,50 @@ namespace mfront::generic_parallel::sycl {
   }  // end of checkExecutionPolicy
 
   /*!
+   * \return an error message if the computations can't be submitted to the
+   * queue of the given policy, a null pointer otherwise
+   *
+   * The computations must be executed after the computations already
+   * submitted to the queue, which may compute the inputs. This is guaranteed
+   * by an in-order queue. With an out-of-order queue, the computations must
+   * be synchronous, and the queue is synchronized before them (see `apply`).
+   *
+   * \param[in] p: policy given by the calling code, checked by
+   * `checkExecutionPolicy`
+   */
+  inline const char* checkQueue(
+      const CheckedBackendExecutionPolicy<SyclBackendExecutionPolicy>& p) {
+    if ((!p.policy->queue.is_in_order()) && (p.common_options.asynchronous)) {
+      return "asynchronous evaluations require an in-order SYCL queue";
+    }
+    return nullptr;
+  }  // end of checkQueue
+
+  /*!
    * \brief apply a function at the points of a batch and report the
    * statistics of the batch.
    *
    * If the computations are asynchronous, this function returns once they
    * are submitted to the queue. Otherwise, it waits for their completion.
    *
+   * Without statistics given by the calling code, the statistics are held by
+   * a block of a pool (see `StatisticsBlock` and `StatusBlockPool`): no
+   * memory is allocated per call. The device only accesses the statistics,
+   * in device memory, if an event occurs at a point, and then signals it to
+   * the host: a call without event performs neither copy nor additional
+   * synchronization.
+   *
+   * If the function never reports an event (see the `hasEvents` method of
+   * the handler), the statistics are neither combined nor reported, and no
+   * block of the pool is used.
+   *
+   * \tparam device_stack_size: minimal stack size, in bytes, of the threads
+   * of the device when the computations are performed on an NVIDIA GPU
+   * through the CUDA runtime (see `setMinimalCUDAStackSize`). The stack size
+   * is not modified if this value is null. This value is a template argument
+   * so that the code setting the stack size, which looks for the CUDA
+   * runtime with the functions of the dynamic loader, is only compiled if
+   * required.
    * \tparam StatisticsHandler: handler of the statistics (see
    * `MFront/GenericParallel/Batch.hxx`)
    * \tparam PointFunction: function object taking the index of a point and
@@ -122,19 +202,16 @@ namespace mfront::generic_parallel::sycl {
    * `SyclBackendExecutionPolicy`.
    * \param[in] h: handler of the statistics
    * \param[in] f: function
-   * \param[in] device_stack_size: minimal stack size, in bytes, of the
-   * threads of the device when the computations are performed on an NVIDIA
-   * GPU through the CUDA runtime (see `setMinimalCUDAStackSize`). The stack
-   * size is not modified if this value is null.
    * \return the status
    */
-  template <typename StatisticsHandler, typename PointFunction>
+  template <std::size_t device_stack_size,
+            typename StatisticsHandler,
+            typename PointFunction>
   int apply(typename StatisticsHandler::OutputStatus& s,
             const size_type n,
             const BatchExecution<typename StatisticsHandler::Statistics>& e,
             const StatisticsHandler& h,
-            const PointFunction& f,
-            const std::size_t device_stack_size = 0) {
+            const PointFunction& f) {
     using Statistics = typename StatisticsHandler::Statistics;
     using Kernel = internals::Kernel<Statistics, PointFunction>;
     if (n == 0) {
@@ -144,58 +221,76 @@ namespace mfront::generic_parallel::sycl {
     if (p.error != nullptr) {
       return report(s, -5, p.error);
     }
-    if (!setMinimalCUDAStackSize(device_stack_size,
-                                 p.common_options.preserve_stack_size)) {
-      return report(s, -7, stack_size_error_message);
+    if (const auto* const error = checkQueue(p); error != nullptr) {
+      return report(s, -5, error);
     }
     auto q = p.policy->queue;
-    // the kernel must be executed after the computations already submitted
-    // to the queue, which may compute the inputs. This is guaranteed by an
-    // in-order queue. With an out-of-order queue, the computations are
-    // synchronous and the queue is synchronized before the kernel.
     if (!q.is_in_order()) {
-      if (p.common_options.asynchronous) {
-        return report(s, -5,
-                      "asynchronous computations require an in-order SYCL "
-                      "queue");
-      }
       q.wait_and_throw();
+    }
+    if constexpr (device_stack_size != 0) {
+      // the stack size is only set when the queue runs on a GPU: the CUDA
+      // runtime may be loaded by another component of a process whose
+      // computations run on the host
+      if ((q.get_device().is_gpu()) &&
+          (!setMinimalCUDAStackSize(device_stack_size,
+                                    p.common_options.preserve_stack_size))) {
+        return report(s, -7, stack_size_error_message);
+      }
     }
     const auto range = ::sycl::range<1>{n};
     const auto rdt0 = toOrderedKey(h.initial().rdt);
-    if (e.statistics != nullptr) {
-      auto event = q.parallel_for(range, Kernel{f, e.statistics, rdt0});
+    if ((e.statistics != nullptr) || (!h.hasEvents())) {
+      // statistics given by the calling code: the result is given by the
+      // report function of the library. Without event, the statistics, if
+      // any, are not accessed by the kernel
+      auto* const statistics = h.hasEvents() ? e.statistics : nullptr;
+      auto event = q.parallel_for(range, Kernel{f, statistics, nullptr, rdt0});
       if (!p.common_options.asynchronous) {
         event.wait_and_throw();
       }
       return s.status;
     }
-    // synchronous computations: the statistics are held by a block of
-    // shared memory, initialized and read by the host. The device only
-    // accesses this block if an event occurs (see internals::Kernel): no
-    // data is transferred otherwise.
-    const auto block = internals::getStatisticsBlocks<Statistics>().acquire(
-        {q.get_device(), q.get_context()},
-        [&q] { return ::sycl::malloc_shared<Statistics>(1, q); });
-    auto* const statistics = block.get();
-    if (statistics == nullptr) {
-      return report(s, -7, "unable to allocate the statistics of the batch");
+    // synchronous computations: block of statistics of the pool (see
+    // `StatisticsBlock`)
+    const auto block =
+        internals::getStatisticsBlocks<Statistics, PointFunction>().acquire(
+            {q.get_device(), q.get_context()},
+            [&q] { return internals::allocateStatisticsBlock<Statistics>(q); });
+    auto* const b = block.get();
+    if (b == nullptr) {
+      return report(s, -7,
+                    "unable to allocate the statistics of the evaluation");
     }
-    h.initialize(*statistics);
-    q.parallel_for(range, Kernel{f, statistics, rdt0}).wait_and_throw();
-    return h.report(s, *statistics);
+    auto statistics = Statistics{};
+    h.initialize(statistics);
+    if (holdsEvents(*b)) {
+      // synchronous reset, after an event or at the first use
+      const auto neutral = getNeutralStatistics(statistics);
+      q.copy(&neutral, b->statistics, 1).wait_and_throw();
+      clearEvents(*b);
+    }
+    q.parallel_for(range, Kernel{f, b->statistics, &(b->events), rdt0})
+        .wait_and_throw();
+    if (!holdsEvents(*b)) {
+      return h.report(s, statistics);
+    }
+    auto block_statistics = Statistics{};
+    q.copy(b->statistics, &block_statistics, 1).wait_and_throw();
+    return h.report(s, mergeBlockStatistics(statistics, block_statistics));
   }  // end of apply
 
   /*!
    * \return the primitive of the backend, called by the functions of the
-   * interfaces (see for instance `mfront::gpb::integrateBatch`)
-   * \param[in] device_stack_size: minimal stack size of the threads of the
+   * interfaces (see for instance `mfront::gpmp::evaluateBatch`)
+   * \tparam device_stack_size: minimal stack size of the threads of the
    * device (see `apply`)
    */
-  inline auto makeApply(const std::size_t device_stack_size = 0) {
-    return [device_stack_size](auto& s, const size_type n, const auto& e,
-                               const auto& h, const auto& f) {
-      return sycl::apply(s, n, e, h, f, device_stack_size);
+  template <std::size_t device_stack_size = 0>
+  auto makeApply() {
+    return [](auto& s, const size_type n, const auto& e, const auto& h,
+              const auto& f) {
+      return sycl::apply<device_stack_size>(s, n, e, h, f);
     };
   }  // end of makeApply
 

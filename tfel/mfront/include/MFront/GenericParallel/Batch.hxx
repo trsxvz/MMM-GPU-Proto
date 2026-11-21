@@ -28,19 +28,21 @@
 
 /*!
  * The primitives of the backends (`apply`, see for instance
- * `MFront/GenericParallel/Arcane.hxx`) apply a function at the points of a
- * batch. This function returns the statistics of a point
+ * `MFront/GenericParallel/ParallelSTL.hxx`) apply a function at the points
+ * of a batch. This function returns the statistics of a point
  * (`BatchStatistics`). The primitives combine them, by atomic operations or
  * by reductions, and report the result through a handler of the statistics
- * given by the interface (`mfront::gpb::StatisticsHandler` for the behaviours
- * and the models, `mfront::gpmp::StatisticsHandler` for the material
- * properties), which provides:
+ * given by the interface (`mfront::gpmp::StatisticsHandler` for the
+ * material properties), which provides:
  *
  * - the type `OutputStatus` of the output status and the type `Statistics`
  *   of the statistics updated by the devices and given by the calling code
  *   (C structures of the interface);
  * - `initial()`: the statistics of a batch without event, neutral element of
  *   the reductions;
+ * - `hasEvents()`: false if the function applied at the points never reports
+ *   an event, in which case the statistics are neither combined nor
+ *   reported;
  * - `initialize(Statistics&)`: initialization of the statistics updated by
  *   the devices;
  * - `report(OutputStatus&, const Statistics&)`: report of the statistics
@@ -58,8 +60,12 @@ namespace mfront::generic_parallel {
   /*!
    * \brief statistics of the computations at one point or at a group of
    * points of a batch, combined by parallel reductions. The keys are built
-   * by `makeKey`. The material properties leave the time step scaling factor
-   * to its neutral value.
+   * by `makeKey`.
+   *
+   * The time step scaling factor is a statistics of the computations which
+   * may reduce the time step (see `hasTimeStepScalingFactor`): the material
+   * properties leave it to its neutral value.
+   *
    * \tparam real: numeric type of the time step scaling factor
    */
   template <typename real>
@@ -82,17 +88,18 @@ namespace mfront::generic_parallel {
     //! \brief number of points where the computations failed
     size_type number_of_failures = 0;
     //! \brief key of the first failure (see `makeKey`)
-    unsigned long long first_failure = no_event;
+    atomic_size_type first_failure = no_event;
     //! \brief number of points where the result is unreliable
     size_type number_of_unreliable_results = 0;
     //! \brief key of the first unreliable result (see `makeKey`)
-    unsigned long long first_unreliable_result = no_event;
+    atomic_size_type first_unreliable_result = no_event;
     //! \brief time step scaling factor
     real rdt = 1;
   };
 
   //! \brief function object combining two statistics
   struct CombineStatistics {
+    //! \return the combination of two statistics (see `combine`)
     template <typename real>
     TFEL_HOST_DEVICE constexpr BatchStatistics<real> operator()(
         const BatchStatistics<real>& a,
@@ -104,21 +111,20 @@ namespace mfront::generic_parallel {
   /*!
    * \return an unsigned integer whose ordering is the same as the ordering
    * of the given floating point values. This allows to compute the minimum
-   * of floating point values with an integer atomic operation. This is the
-   * encoding of the time step scaling factor in `mfront_gpb_Statistics`
-   * (see `mfront_gpb_initializeStatistics`), available in device code.
+   * of floating point values with an integer atomic operation, which is how
+   * the devices update the time step scaling factor.
    */
-  TFEL_HOST_DEVICE constexpr unsigned long long toOrderedKey(
+  TFEL_HOST_DEVICE constexpr atomic_size_type toOrderedKey(
       const double v) noexcept {
-    const auto b = std::bit_cast<unsigned long long>(v);
-    constexpr auto sign = 0x8000000000000000ull;
+    const auto b = std::bit_cast<atomic_size_type>(v);
+    constexpr auto sign = atomic_size_type{1} << 63;
     return (b & sign) ? ~b : (b | sign);
   }  // end of toOrderedKey
 
   /*!
    * \brief true if the statistics updated by the devices hold a time step
-   * scaling factor (behaviours and models), false otherwise (material
-   * properties)
+   * scaling factor, false otherwise, which is the case of the statistics of
+   * the material properties
    */
   template <typename Statistics>
   inline constexpr bool hasTimeStepScalingFactor =
@@ -131,34 +137,130 @@ namespace mfront::generic_parallel {
    * unreliable result, or a time step scaling factor lower than the initial
    * one.
    * \tparam Atomics: atomic operations of the backend, given by the static
-   * functions `add` and `min` on unsigned 64 bits integers
+   * functions `add` and `min` on values of type `atomic_size_type`
    * \param[in,out] s: shared statistics
    * \param[in] r: statistics of a point or of a group of points
    * \param[in] rdt0: ordered key of the initial time step scaling factor
    * (see `toOrderedKey`)
+   * \return true if the shared statistics were updated
    */
   template <typename Atomics, typename Statistics, typename real>
-  TFEL_HOST_DEVICE void updateStatistics(Statistics& s,
+  TFEL_HOST_DEVICE bool updateStatistics(Statistics& s,
                                          const BatchStatistics<real>& r,
-                                         const unsigned long long rdt0) {
+                                         const atomic_size_type rdt0) {
+    auto updated = false;
     if (r.number_of_failures != 0) {
       Atomics::add(&(s.number_of_failures),
-                   static_cast<unsigned long long>(r.number_of_failures));
+                   static_cast<atomic_size_type>(r.number_of_failures));
       Atomics::min(&(s.first_failure), r.first_failure);
+      updated = true;
     }
     if (r.number_of_unreliable_results != 0) {
       Atomics::add(
           &(s.number_of_unreliable_results),
-          static_cast<unsigned long long>(r.number_of_unreliable_results));
+          static_cast<atomic_size_type>(r.number_of_unreliable_results));
       Atomics::min(&(s.first_unreliable_result), r.first_unreliable_result);
+      updated = true;
     }
     if constexpr (hasTimeStepScalingFactor<Statistics>) {
       const auto rdt = toOrderedKey(r.rdt);
       if (rdt < rdt0) {
         Atomics::min(&(s.rdt), rdt);
+        updated = true;
       }
     }
+    return updated;
   }  // end of updateStatistics
+
+  /*!
+   * \brief block of statistics of the synchronous computations on a device,
+   * reused from one call to another (see `StatusBlockPool`).
+   *
+   * The block lives in pinned host memory, accessible by the host and by the
+   * device, and the statistics in device memory: the atomic operations of
+   * the kernels are thus performed in device memory, which every system
+   * supports. The atomic operations on host memory are not reliable: the
+   * PCI Express bus only provides the atomic addition, exchange and
+   * compare-and-swap operations, and the other ones are not performed on
+   * the AMD GPUs connected by PCI Express without page migration (XNACK),
+   * where managed memory is host memory. Managed memory may also not be
+   * accessed by the host while kernels run (devices without concurrent
+   * access to managed memory, for instance under Windows).
+   *
+   * A thread updating the statistics also sets `events`, by a plain store
+   * (see `signalEvents`). Once the computations are completed, the host
+   * reads the statistics only if `events` is set: a call without event
+   * performs neither copy nor additional synchronization. If `events` is
+   * not set, the statistics hold their neutral value (see
+   * `getNeutralStatistics`) and no transfer of the block is in progress:
+   * the copies of the block, performed after an event only, are
+   * synchronous. A block whose `events` is set, after an event or at its
+   * allocation, is reset to the neutral statistics before its use.
+   *
+   * \tparam Statistics: statistics updated by the devices
+   */
+  template <typename Statistics>
+  struct StatisticsBlock {
+    //! \brief statistics updated by the device, in device memory
+    Statistics* statistics;
+    //! \brief non zero if the statistics may differ from their neutral value
+    int events;
+  };
+
+  //! \brief signal that the statistics of a block were updated
+  TFEL_HOST_DEVICE inline void signalEvents(int* const events) noexcept {
+    if (events != nullptr) {
+      *static_cast<volatile int*>(events) = 1;
+    }
+  }  // end of signalEvents
+
+  /*!
+   * \return true if the statistics of a block may differ from their neutral
+   * value. The flag is read again at each call: it is written by the device.
+   */
+  template <typename Statistics>
+  bool holdsEvents(const StatisticsBlock<Statistics>& b) noexcept {
+    return *static_cast<const volatile int*>(&(b.events)) != 0;
+  }  // end of holdsEvents
+
+  //! \brief state that the statistics of a block hold their neutral value
+  template <typename Statistics>
+  void clearEvents(StatisticsBlock<Statistics>& b) noexcept {
+    *static_cast<volatile int*>(&(b.events)) = 0;
+  }  // end of clearEvents
+
+  /*!
+   * \return the neutral value of the statistics of a block: the initial
+   * statistics of a call, without event, except the time step scaling
+   * factor, which is set to the largest key. The devices only write a time
+   * step scaling factor lower than the initial one of the call (see
+   * `updateStatistics`), which is restored by `mergeBlockStatistics`.
+   * \param[in] s: initial statistics of a call
+   */
+  template <typename Statistics>
+  Statistics getNeutralStatistics(Statistics s) noexcept {
+    if constexpr (hasTimeStepScalingFactor<Statistics>) {
+      s.rdt = no_event;
+    }
+    return s;
+  }  // end of getNeutralStatistics
+
+  /*!
+   * \return the statistics of a call, given its initial statistics and the
+   * statistics of the block, read once the computations are completed
+   * \param[in] initial: initial statistics of the call
+   * \param[in] s: statistics of the block
+   */
+  template <typename Statistics>
+  Statistics mergeBlockStatistics(const Statistics& initial,
+                                  Statistics s) noexcept {
+    if constexpr (hasTimeStepScalingFactor<Statistics>) {
+      if (initial.rdt < s.rdt) {
+        s.rdt = initial.rdt;
+      }
+    }
+    return s;
+  }  // end of mergeBlockStatistics
 
   /*!
    * \brief execution of the computations on a batch, as given by the
@@ -215,7 +317,8 @@ namespace mfront::generic_parallel {
     struct ErrnoGuard {
       const int value = errno;
       ~ErrnoGuard() { errno = this->value; }
-    } const errno_guard;
+    };
+    [[maybe_unused]] const auto errno_guard = ErrnoGuard{};
     initialize(*s);
     try {
       return f();

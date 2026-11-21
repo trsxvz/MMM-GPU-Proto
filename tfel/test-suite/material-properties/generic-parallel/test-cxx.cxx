@@ -81,7 +81,9 @@
 #endif /* MFRONT_GPMP_TEST_BACKEND */
 #define MFRONT_GPMP_TEST_STRINGIFY2(x) #x
 #define MFRONT_GPMP_TEST_STRINGIFY(x) MFRONT_GPMP_TEST_STRINGIFY2(x)
-// clang-format off: the spaces would appear in the name of the header
+// the name of the header must not be formatted: the spaces would appear
+// in it
+// clang-format off
 #define MFRONT_GPMP_TEST_HEADER(name) \
   MFRONT_GPMP_TEST_STRINGIFY(name-generic-parallel-MFRONT_GPMP_TEST_BACKEND.hxx)
 // clang-format on
@@ -252,7 +254,8 @@ struct TestAllocator {
     // the allocators of Arccore take the size of the block to free it
     getAllocator()->deallocate(
         Arcane::MemoryAllocationArgs{},
-        Arcane::AllocatedMemoryInfo(p, static_cast<Arcane::Int64>(n * sizeof(T))));
+        Arcane::AllocatedMemoryInfo(p,
+                                    static_cast<Arcane::Int64>(n * sizeof(T))));
   }
   template <typename T2>
   bool operator==(const TestAllocator<T2>&) const noexcept {
@@ -427,7 +430,7 @@ struct BackendTest : public tfel::tests::TestCase {
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(4);
     const auto T = test_vector<double>{300, 500, 300, 800};
-    const auto args = std::array<const double *, 1u>{T.data()};
+    const auto args = std::array<const double*, 1u>{T.data()};
     const auto r = evaluate(Inconel600_YoungModulus_generic_parallel, output,
                             E.data(), 1, args, contiguous<1>(), 4,
                             mfront_gmp_OutOfBoundsPolicy{}, execution);
@@ -487,7 +490,7 @@ struct BackendTest : public tfel::tests::TestCase {
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(4);
     const auto T = test_vector<double>{300, -1, 500, 800};
-    const auto args = std::array<const double *, 1u>{T.data()};
+    const auto args = std::array<const double*, 1u>{T.data()};
     const auto r = evaluate(Inconel600_YoungModulus_generic_parallel, output,
                             E.data(), 1, args, contiguous<1>(), 4,
                             mfront_gmp_OutOfBoundsPolicy{}, execution);
@@ -523,7 +526,7 @@ struct BackendTest : public tfel::tests::TestCase {
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(2);
     const auto T = test_vector<double>{300, 500};
-    const auto args = std::array<const double *, 1u>{T.data()};
+    const auto args = std::array<const double*, 1u>{T.data()};
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     const auto preserve_policy = makeTestPolicy({.preserve_stack_size = true});
     const auto preserve = TestExecution{.policy = preserve_policy.get()};
@@ -541,8 +544,9 @@ struct BackendTest : public tfel::tests::TestCase {
       TFEL_TESTS_CHECK_EQUAL(evaluate(f, output, E.data(), 1, args,
                                       contiguous<1>(), 2, policy, preserve),
                              -7);
-      TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
-          "the stack size of the threads of the device must be at least"));
+      TFEL_TESTS_ASSERT(std::string(output.msg)
+                            .starts_with("the stack size of the threads of the "
+                                         "device must be at least"));
       TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
                                            initial_stack_size) == cudaSuccess);
     }
@@ -561,8 +565,9 @@ struct BackendTest : public tfel::tests::TestCase {
       TFEL_TESTS_CHECK_EQUAL(evaluate(f, output, E.data(), 1, args,
                                       contiguous<1>(), 2, policy, preserve),
                              -7);
-      TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
-          "the stack size of the threads of the device must be at least"));
+      TFEL_TESTS_ASSERT(std::string(output.msg)
+                            .starts_with("the stack size of the threads of the "
+                                         "device must be at least"));
       TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
                                            initial_stack_size) == cudaSuccess);
     }
@@ -571,20 +576,25 @@ struct BackendTest : public tfel::tests::TestCase {
     defined(MFRONT_GPMP_TEST_ARCANE_GPU_API)
     if (ArcaneTestRuntime::current->queue.isAcceleratorPolicy()) {
       auto initial_stack_size = std::size_t{};
-      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceGetLimit)(&initial_stack_size,
-                                           MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize)) == MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
+      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceGetLimit)(
+                            &initial_stack_size,
+                            MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize)) ==
+                        MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
       // the kernels require at least 1024 bytes (see
       // mfront::generic_parallel::gpu::ensureStackSize)
-      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceSetLimit)(MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize), 256) ==
-                        MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
+      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceSetLimit)(
+                            MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize),
+                            256) == MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
       TFEL_TESTS_CHECK_EQUAL(evaluate(f, output, E.data(), 1, args,
                                       contiguous<1>(), 2, policy, preserve),
                              -7);
       TFEL_TESTS_ASSERT(std::string(output.msg)
                             .starts_with("the stack size of the threads of the "
                                          "device must be at least"));
-      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceSetLimit)(MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize),
-                                           initial_stack_size) == MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
+      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceSetLimit)(
+                            MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize),
+                            initial_stack_size) ==
+                        MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
     }
 #endif /* defined(MFRONT_GPMP_TEST_USE_ARCANE) && \
           defined(MFRONT_GPMP_TEST_ARCANE_GPU_API) */
@@ -607,15 +617,15 @@ struct BackendTest : public tfel::tests::TestCase {
       TFEL_TESTS_CHECK_EQUAL(evaluate(f, output, E.data(), 1, args,
                                       contiguous<1>(), 2, policy, preserve),
                              -7);
-      TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
-          "unable to set the stack size of the threads"));
+      TFEL_TESTS_ASSERT(
+          std::string(output.msg)
+              .starts_with("unable to set the stack size of the threads"));
       TFEL_TESTS_ASSERT(accessOpenACCStackSize(initial_stack_size, true));
     }
 #endif /* __NVCOMPILER_OPENACC_GPU */
     // the stack size has been increased by the previous evaluations
-    const auto r =
-        evaluate(f, output, E.data(), 1, args, contiguous<1>(), 2, policy,
-                 preserve);
+    const auto r = evaluate(f, output, E.data(), 1, args, contiguous<1>(), 2,
+                            policy, preserve);
     TFEL_TESTS_CHECK_EQUAL(r, 0);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     for (std::size_t i = 0; i != E.size(); ++i) {
@@ -656,7 +666,7 @@ struct BackendTest : public tfel::tests::TestCase {
 TFEL_TESTS_GENERATE_PROXY(BackendTest, "BackendTest");
 
 /* coverity [UNCAUGHT_EXCEPT]*/
-int main(const int argc, const char *const *argv) {
+int main(const int argc, const char* const* argv) {
   if (argc != 2) {
     std::cerr << "no test name given on the command line (argc: " << argc
               << ")";
@@ -668,7 +678,7 @@ int main(const int argc, const char *const *argv) {
 #ifdef MFRONT_GPMP_TEST_USE_ARCANE
   const auto arcane = ArcaneTestRuntime{};
 #endif /* MFRONT_GPMP_TEST_USE_ARCANE */
-  auto &m = tfel::tests::TestManager::getTestManager();
+  auto& m = tfel::tests::TestManager::getTestManager();
   m.addTestOutput(std::cout);
   m.addXMLTestOutput(std::string{argv[1]} + ".xml");
   return m.execute().success() ? EXIT_SUCCESS : EXIT_FAILURE;

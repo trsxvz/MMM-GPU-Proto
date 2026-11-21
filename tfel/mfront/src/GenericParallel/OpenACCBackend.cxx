@@ -49,11 +49,9 @@ namespace mfront::generic_parallel {
   }  // end of getSharedDataCopy
 
   std::string OpenACCBackend::getApply() const {
-    if (this->device_stack_size == 0) {
-      return "mfront::generic_parallel::openacc::makeApply()";
-    }
-    return "mfront::generic_parallel::openacc::makeApply(" +
-           std::to_string(this->device_stack_size) + ")";
+    // the stack size is a template argument, as for the `stlpar` backend
+    return "mfront::generic_parallel::openacc::makeApply<" +
+           std::to_string(this->device_stack_size) + ">()";
   }  // end of getApply
 
   std::string OpenACCBackend::getMemorySpace() const {

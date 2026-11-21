@@ -268,6 +268,24 @@ configurations green except `openacc-nvhpc-gpu` and
 were using the GPU and pass alone
 (`results/generic-parallel-tests-2026-11-10-rebase-nvhpc-gpu-rerun-O3.txt`);
 see [JOURNAL.md](../JOURNAL.md), 09/11/2026.
+After the rebase of TFEL on its master `753cd76da` (12 patches) and the
+work of the night of 20 to 21/11 (statistics of the GPU backends, runtime
+of the behaviours on the GPU, grain law of the polycrystal, assembly of the
+stiffness matrices on the GPU), TFEL being reinstalled from the series:
+7922 tests of TFEL, 65 of MGIS, 399 of mfem-mgis, 25 of the examples, 21
+of mm-opera-hpc and 143 cases, all green; GPU suite of mfem-mgis with the
+kernels forced: 277 of 279, the two tests requiring the absence of a
+device failing as expected; `-O3` matrix: the 43 configurations pass
+(`results/generic-parallel-tests-2026-11-21-night-O3.txt` and
+`...-night-reruns-O3.txt`); compilation sweeps with nvcc and clang:
+596 OK each.
+Tests which failed while other suites used the GPU and passed alone:
+`HypreMGRTestP-gpu`, `PETScSolversTestP` (GPU suite) and the behaviours of
+`hip-clang-nvidia-platform`; the validation found three defects of the
+series of TFEL, fixed (test of the material properties of
+`openmp-host-gcc`, two stress criteria and `DDIF2Base` of the official
+master refused in device code); see [JOURNAL.md](../JOURNAL.md), 20 and
+21/11/2026.
 
 The tracked sweeps in `results/compile-sweep-*-2026-10-06.tsv` give
 the state of the morning of 06/10: 504 OK, 36 blocking user codes, 1 call

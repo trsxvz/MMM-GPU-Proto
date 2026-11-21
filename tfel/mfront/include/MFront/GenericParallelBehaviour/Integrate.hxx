@@ -128,42 +128,75 @@ namespace mfront::gpb {
 
     /*!
      * \brief copy the values of a field at the given point in an array
+     *
+     * All the values are read before being written: the compiler can't
+     * assume that the field and the array don't overlap, and would otherwise
+     * wait for each value before reading the next one.
+     *
+     * \tparam N: capacity of the array
      * \param[out] dest: array
      * \param[in] f: field
      * \param[in] i: index of the point
-     * \param[in] n: number of values
+     * \param[in] n: number of values, not greater than `N`
      */
-    template <typename FieldType>
+    template <size_type N, typename FieldType>
     TFEL_HOST_DEVICE constexpr void gatherValues(real* const dest,
                                                  const FieldType& f,
                                                  const size_type i,
                                                  const size_type n) noexcept {
-      if (f.values == nullptr) {
-        return;
-      }
-      const auto* const p = f.values + i * f.point_stride;
-      for (size_type j = 0; j != n; ++j) {
-        dest[j] = p[j * f.component_stride];
+      if constexpr (N != 0) {
+        if (f.values == nullptr) {
+          return;
+        }
+        const auto* const p = f.values + i * f.point_stride;
+        const auto stride = f.component_stride;
+        real values[N];
+        for (size_type j = 0; j != N; ++j) {
+          if (j < n) {
+            values[j] = p[j * stride];
+          }
+        }
+        for (size_type j = 0; j != N; ++j) {
+          if (j < n) {
+            dest[j] = values[j];
+          }
+        }
       }
     }  // end of gatherValues
 
     /*!
      * \brief copy the values of an array in a field at the given point
+     *
+     * All the values are read before being written (see `gatherValues`).
+     *
+     * \tparam N: capacity of the array
      * \param[out] f: field
      * \param[in] i: index of the point
      * \param[in] src: array
-     * \param[in] n: number of values
+     * \param[in] n: number of values, not greater than `N`
      */
+    template <size_type N>
     TFEL_HOST_DEVICE constexpr void scatterValues(const Field& f,
                                                   const size_type i,
                                                   const real* const src,
                                                   const size_type n) noexcept {
-      if (f.values == nullptr) {
-        return;
-      }
-      auto* const p = f.values + i * f.point_stride;
-      for (size_type j = 0; j != n; ++j) {
-        p[j * f.component_stride] = src[j];
+      if constexpr (N != 0) {
+        if (f.values == nullptr) {
+          return;
+        }
+        auto* const p = f.values + i * f.point_stride;
+        const auto stride = f.component_stride;
+        real values[N];
+        for (size_type j = 0; j != N; ++j) {
+          if (j < n) {
+            values[j] = src[j];
+          }
+        }
+        for (size_type j = 0; j != N; ++j) {
+          if (j < n) {
+            p[j * stride] = values[j];
+          }
+        }
       }
     }  // end of scatterValues
 
@@ -181,7 +214,7 @@ namespace mfront::gpb {
                                            const size_type i,
                                            const size_type n) noexcept {
       if constexpr (N != 0) {
-        gatherValues(dest.values, f, i, n);
+        gatherValues<N>(dest.values, f, i, n);
       }
     }  // end of gather
 
@@ -199,7 +232,7 @@ namespace mfront::gpb {
                                             const LocalValues<N>& src,
                                             const size_type n) noexcept {
       if constexpr (N != 0) {
-        scatterValues(f, i, src.values, n);
+        scatterValues<N>(f, i, src.values, n);
       }
     }  // end of scatter
 
@@ -564,17 +597,21 @@ namespace mfront::gpb {
     TFEL_HOST_DEVICE void scatterState() const noexcept {
       const auto& d = this->batch;
       const auto i = this->index;
-      internals::scatterValues(d.s1.thermodynamic_forces, i,
-                               this->data.s1.thermodynamic_forces,
-                               this->sizes.thermodynamic_forces);
-      internals::scatterValues(d.s1.internal_state_variables, i,
-                               this->data.s1.internal_state_variables,
-                               this->sizes.internal_state_variables);
+      constexpr auto c = internals::LocalCopies<PointTraits>::capacities;
+      internals::scatterValues<c.thermodynamic_forces>(
+          d.s1.thermodynamic_forces, i, this->data.s1.thermodynamic_forces,
+          this->sizes.thermodynamic_forces);
+      internals::scatterValues<c.internal_state_variables>(
+          d.s1.internal_state_variables, i,
+          this->data.s1.internal_state_variables,
+          this->sizes.internal_state_variables);
     }  // end of scatterState
     //! \brief copy back the tangent operator
     TFEL_HOST_DEVICE void scatterTangentOperator() const noexcept {
-      internals::scatterValues(this->batch.tangent_operators, this->index,
-                               this->data.K, this->sizes.tangent_operator);
+      constexpr auto c = internals::LocalCopies<PointTraits>::capacities;
+      internals::scatterValues<c.tangent_operator>(
+          this->batch.tangent_operators, this->index, this->data.K,
+          this->sizes.tangent_operator);
     }  // end of scatterTangentOperator
     //! \brief copy the energies at the end of the time step, if requested
     TFEL_HOST_DEVICE void scatterEnergies() const noexcept {
@@ -876,6 +913,11 @@ namespace mfront::gpb {
     constexpr BatchStatistics initial() const noexcept {
       return {.rdt = this->rdt0};
     }
+    /*!
+     * \return true: the integration at a point may always fail or reduce
+     * the time step scaling factor
+     */
+    constexpr bool hasEvents() const noexcept { return true; }
     //! \brief initialize the statistics updated by the devices
     void initialize(Statistics& s) const noexcept {
       mfront_gpb_initializeStatistics(&s, this->rdt0);
@@ -1286,8 +1328,8 @@ namespace mfront::gpb {
             Behaviour, PostProcessing, use_initial_state>(
             point_outputs, v.data, o, this->policy, this->parameters);
         if (status != -1) {
-          internals::scatterValues(this->outputs, i, point_outputs,
-                                   number_of_outputs);
+          internals::scatterValues<number_of_outputs>(
+              this->outputs, i, point_outputs, number_of_outputs);
           r.status = 1;
         }
       }

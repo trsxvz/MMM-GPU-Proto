@@ -45,7 +45,7 @@ namespace tfel::math::internals {
     template <typename T>
     TFEL_HOST_DEVICE static void exe(T&, T&, T&, const EigenValuesOrdering) {
     }  // end of exe
-  };  // end of struct SortEigenValues<1u>
+  };   // end of struct SortEigenValues<1u>
   //! \brief specialisation of `SortEigenValues` in 2D
   template <>
   struct SortEigenValues<2u> {

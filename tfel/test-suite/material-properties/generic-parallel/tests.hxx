@@ -41,7 +41,6 @@
 #include "TFEL/Tests/TestProxy.hxx"
 #include "MFront/GenericParallelMaterialProperty/PointStatus.hxx"
 #include "MFront/GenericParallel/ParallelSTLBackendExecutionPolicy.hxx"
-#include "MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx"
 #include "symbols.hxx"
 #include "batch.hxx"
 
@@ -82,6 +81,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     this->test15();
     this->test16();
     this->test17();
+    this->test18();
     TFEL_TESTS_ASSERT(
         checkGenericParallelSymbols(MFRONT_GPMP_TEST_BACKEND_NAME));
     return this->result;
@@ -477,21 +477,10 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
         {293.15, 493.15, 793.15, 893.15}, {240e9, 210e9, 175e9, 170e9});
   }
 
-  void test13() {
-    // material property calling another material property
-    const auto T = std::array<double, 4u>{300, 500, 300, 800};
-    auto G = std::array<double, 4u>{};
-    for (std::size_t i = 0; i != T.size(); ++i) {
-      G[i] = fct(T[i]) / (2 * (1 + 0.3));
-    }
-    this->checkTemperatureDependentMaterialProperty(
-        MaterialLawCallTest_generic_parallel, T, G);
-  }
-
   // bound violated with the warning policy: the result is computed at all
   // points and must be used with caution (status 1), as with the `generic`
   // interface
-  void test14() {
+  void test13() {
     constexpr auto eps = double{1e-2};
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(4);
@@ -518,7 +507,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
   }
 
   // report function: invalid and empty statistics
-  void test15() {
+  void test14() {
     auto output = mfront_gpmp_OutputStatus{};
     TFEL_TESTS_CHECK_EQUAL(
         Inconel600_YoungModulus_generic_parallel_report(&output, nullptr), -5);
@@ -533,7 +522,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
   }
 
   // bound violated with the strict policy: the evaluation fails
-  void test16() {
+  void test15() {
     constexpr auto eps = double{1e-2};
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(4);
@@ -564,21 +553,21 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
   // physical bounds on both arguments and on the output of
   // BoundsOrderTest, z = x - y): the first check making the evaluation fail
   // is retained, otherwise the last bound violated with the warning policy
-  void test17() {
+  void test16() {
     constexpr auto eps = double{1e-14};
     const auto f = BoundsOrderTest_generic_parallel;
-    auto evaluate_points =
-        [this, f](const test_vector<double>& x, const test_vector<double>& y,
-                  test_vector<double>& z, test_vector<int>& statuses,
-                  const mfront_gmp_OutOfBoundsPolicy p) {
-          auto output = mfront_gpmp_OutputStatus{};
-          const auto args = std::array<const double*, 2u>{x.data(), y.data()};
-          const auto r =
-              evaluate(f, output, z.data(), 1, args, contiguous<2>(), x.size(),
-                       p, testExecution(), statuses.data());
-          TFEL_TESTS_CHECK_EQUAL(r, output.status);
-          return output;
-        };
+    auto evaluate_points = [this, f](const test_vector<double>& x,
+                                     const test_vector<double>& y,
+                                     test_vector<double>& z,
+                                     test_vector<int>& statuses,
+                                     const mfront_gmp_OutOfBoundsPolicy p) {
+      auto output = mfront_gpmp_OutputStatus{};
+      const auto args = std::array<const double*, 2u>{x.data(), y.data()};
+      const auto r = evaluate(f, output, z.data(), 1, args, contiguous<2>(),
+                              x.size(), p, testExecution(), statuses.data());
+      TFEL_TESTS_CHECK_EQUAL(r, output.status);
+      return output;
+    };
     // success, bounds of both arguments (rank 2 retained), bounds of the
     // output (rank 3), physical bounds of the output (rank -3), physical
     // bounds of the first argument (rank -1)
@@ -631,6 +620,59 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     TFEL_TESTS_ASSERT(std::isnan(z2[0]));
   }
 
+  // successive evaluations: the result of an evaluation does not depend on
+  // the previous ones. The blocks of statistics reused by the synchronous
+  // evaluations of the backends are reset after an event (see
+  // `mfront::generic_parallel::StatisticsBlock`)
+  void test18() {
+    auto evaluate_points = [this](const test_vector<double>& T,
+                                  const mfront_gmp_OutOfBoundsPolicy p) {
+      auto output = mfront_gpmp_OutputStatus{};
+      auto E = test_vector<double>(T.size());
+      const auto f = test_vector<double>(T.size(), 0.1);
+      const auto args = std::array<const double*, 2u>{T.data(), f.data()};
+      const auto r = evaluate(UO2_YoungModulus_Martin1989_generic_parallel,
+                              output, E.data(), 1, args, contiguous<2>(),
+                              T.size(), p, testExecution());
+      TFEL_TESTS_CHECK_EQUAL(r, output.status);
+      return output;
+    };
+    constexpr auto strict = GENERIC_MATERIALPROPERTY_STRICT_POLICY;
+    constexpr auto warning = GENERIC_MATERIALPROPERTY_WARNING_POLICY;
+    // two failures, the first one at point 1
+    const auto o1 = evaluate_points({300, 3000, 300, 3000}, strict);
+    TFEL_TESTS_CHECK_EQUAL(o1.status, -1);
+    TFEL_TESTS_CHECK_EQUAL(o1.number_of_failures, mfront_gmp_size_type{2});
+    TFEL_TESTS_CHECK_EQUAL(o1.first_failure_index, mfront_gmp_size_type{1});
+    // one unreliable result at point 2
+    const auto o2 = evaluate_points({300, 500, 3000, 800}, warning);
+    TFEL_TESTS_CHECK_EQUAL(o2.status, 1);
+    TFEL_TESTS_CHECK_EQUAL(o2.number_of_failures, mfront_gmp_size_type{0});
+    TFEL_TESTS_CHECK_EQUAL(o2.number_of_unreliable_results,
+                           mfront_gmp_size_type{1});
+    TFEL_TESTS_CHECK_EQUAL(o2.first_unreliable_result_index,
+                           mfront_gmp_size_type{2});
+    // success
+    const auto o3 = evaluate_points({300, 500, 300, 800}, strict);
+    this->checkSuccess(o3, o3.status);
+    // one failure at point 3
+    const auto o4 = evaluate_points({300, 500, 300, 3000}, strict);
+    TFEL_TESTS_CHECK_EQUAL(o4.status, -1);
+    TFEL_TESTS_CHECK_EQUAL(o4.number_of_failures, mfront_gmp_size_type{1});
+    TFEL_TESTS_CHECK_EQUAL(o4.first_failure_index, mfront_gmp_size_type{3});
+  }
+
+  // material property calling another material property (`@MaterialLaw`)
+  void test17() {
+    const auto T = std::array<double, 4u>{300, 500, 300, 800};
+    auto G = std::array<double, 4u>{};
+    for (std::size_t i = 0; i != T.size(); ++i) {
+      G[i] = fct(T[i]) / (2 * (1 + 0.3));
+    }
+    this->checkTemperatureDependentMaterialProperty(
+        MaterialLawCallTest_generic_parallel, T, G);
+  }
+
   /*!
    * \brief evaluate a material property depending on the temperature at four
    * points and compare the results to reference values
@@ -659,6 +701,14 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
 
 TFEL_TESTS_GENERATE_PROXY(GenericParallelMaterialPropertyTest,
                           "GenericParallelMaterialPropertyTest");
+
+//! \brief execution policy of a backend which is not the one of the library
+struct OtherBackendExecutionPolicy final
+    : mfront::generic_parallel::AbstractBackendExecutionPolicy {
+  const char* getIdentifier() const noexcept override {
+    return "other backend";
+  }
+};
 
 //! \brief execution policies given to the generated functions
 struct ExecutionPolicyTest : public tfel::tests::TestCase {
@@ -700,7 +750,7 @@ struct ExecutionPolicyTest : public tfel::tests::TestCase {
     const auto other =
         stlpar
             ? std::unique_ptr<mgp::AbstractBackendExecutionPolicy>(
-                  std::make_unique<mgp::OpenMPBackendExecutionPolicy>())
+                  std::make_unique<OtherBackendExecutionPolicy>())
             : std::unique_ptr<mgp::AbstractBackendExecutionPolicy>(
                   std::make_unique<mgp::ParallelSTLBackendExecutionPolicy>());
     this->checkInvalidPolicy(

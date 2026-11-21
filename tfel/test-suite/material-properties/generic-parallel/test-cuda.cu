@@ -37,8 +37,8 @@
  * \param[in] values: values
  * \param[in] cycles: number of clock cycles of the delay
  */
-__global__ void writeAfterDelay(double *const T,
-                                const double *const values,
+__global__ void writeAfterDelay(double* const T,
+                                const double* const values,
                                 const long long cycles) {
   const auto start = clock64();
   while (clock64() - start < cycles) {
@@ -88,7 +88,8 @@ static TestExecution testExecution() {
  * \param[in] o: common options
  */
 static std::unique_ptr<mfront::generic_parallel::AbstractBackendExecutionPolicy>
-makeTestPolicy(const mfront::generic_parallel::BackendExecutionCommonPolicy& o) {
+makeTestPolicy(
+    const mfront::generic_parallel::BackendExecutionCommonPolicy& o) {
   using namespace mfront::generic_parallel;
   return std::make_unique<CUDABackendExecutionPolicy>(
       CUDABackendExecutionOptions{.common_options = o});
@@ -163,9 +164,9 @@ struct CUDATest : public tfel::tests::TestCase {
     TFEL_TESTS_ASSERT(cudaStreamCreateWithFlags(
                           &stream, cudaStreamNonBlocking) == cudaSuccess);
     mfront_gpmp_Statistics* statistics = nullptr;
-    TFEL_TESTS_ASSERT(cudaMallocManaged(&statistics,
-                                        sizeof(mfront_gpmp_Statistics)) ==
-                      cudaSuccess);
+    TFEL_TESTS_ASSERT(
+        cudaMallocManaged(&statistics, sizeof(mfront_gpmp_Statistics)) ==
+        cudaSuccess);
     mfront_gpmp_initializeStatistics(statistics);
     const auto T = thrust::host_vector<double>{300, -1, 500, 800};
     const thrust::device_vector<double> d_values(T);
@@ -182,8 +183,8 @@ struct CUDATest : public tfel::tests::TestCase {
     const auto execution_policy =
         mfront::generic_parallel::makeCUDABackendExecutionPolicy(
             {.common_options = {.asynchronous = true}, .stream = stream});
-    const auto execution = TestExecution{.statistics = statistics,
-                                         .policy = &execution_policy};
+    const auto execution =
+        TestExecution{.statistics = statistics, .policy = &execution_policy};
     auto output = mfront_gpmp_OutputStatus{};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output,
@@ -234,8 +235,7 @@ struct CUDATest : public tfel::tests::TestCase {
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     auto output = mfront_gpmp_OutputStatus{};
-    const auto preserve_policy =
-        makeTestPolicy({.preserve_stack_size = true});
+    const auto preserve_policy = makeTestPolicy({.preserve_stack_size = true});
     const auto preserve = TestExecution{.policy = preserve_policy.get()};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output,
@@ -243,8 +243,9 @@ struct CUDATest : public tfel::tests::TestCase {
                  T.size(), policy, preserve),
         -7);
     TFEL_TESTS_CHECK_EQUAL(output.status, -7);
-    TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
-        "the stack size of the threads of the device must be at least"));
+    TFEL_TESTS_ASSERT(std::string(output.msg)
+                          .starts_with("the stack size of the threads of the "
+                                       "device must be at least"));
     TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&stack_size, cudaLimitStackSize) ==
                       cudaSuccess);
     TFEL_TESTS_ASSERT(stack_size < 1024);

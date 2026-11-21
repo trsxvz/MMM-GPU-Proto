@@ -29,7 +29,8 @@ namespace mfront::generic_parallel::sycl {
   //! \brief a simple alias
   using size_type = std::size_t;
 
-  //! \brief policy for the transfer of the data of a batch or of a set of points
+  //! \brief policy for the transfer of the data of a batch or of a set of
+  //! points
   enum struct DataTransferPolicy {
     /*!
      * \brief the arrays which are not accessible by the device associated
@@ -102,9 +103,9 @@ namespace mfront::generic_parallel::sycl {
       using value_type =
           std::remove_const_t<std::remove_pointer_t<decltype(f.values)>>;
       const auto l = Layout{n, size, f.point_stride, f.component_stride};
-      f.values = static_cast<value_type*>(this->copy(
-          f.values, extent * sizeof(value_type), sizeof(value_type), output,
-          extent == n * size ? std::optional<Layout>{} : l));
+      f.values = static_cast<value_type*>(
+          this->copy(f.values, extent * sizeof(value_type), sizeof(value_type),
+                     output, extent == n * size ? std::optional<Layout>{} : l));
     }
     /*!
      * \brief copy an array in device memory if it is not accessible by the

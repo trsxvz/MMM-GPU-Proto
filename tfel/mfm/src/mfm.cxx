@@ -123,7 +123,8 @@ struct MFM : tfel::utilities::ArgumentParserBase<MFM>, mfront::MFrontDatabase {
     };
     this->registerCallBack(
         "--no-terminate-handler",
-        CallBack("don't set a terminate handler", []() noexcept {}, false));
+        CallBack(
+            "don't set a terminate handler", []() noexcept {}, false));
     this->registerCallBack("--regex-syntax",
                            CallBack("select the syntax used by "
                                     "regular expressions. "
@@ -201,7 +202,13 @@ struct MFM : tfel::utilities::ArgumentParserBase<MFM>, mfront::MFrontDatabase {
         }
         this->analyseLibrary(e);
       } else {
-        tfel::raise("'" + e + "' is neither a regular file nor a directory");
+        // an argument which is neither a file nor a directory is reported,
+        // unless no output is requested. Files which can't be analysed are
+        // silently ignored, as all the files of a directory may be given.
+        if (this->vlevel >= VERBOSE_LEVEL0) {
+          std::cerr << "mfm: '" << e
+                    << "' is neither a regular file nor a directory\n";
+        }
       }
     } catch (std::exception& error) {
       if (this->vlevel >= VERBOSE_DEBUG) {

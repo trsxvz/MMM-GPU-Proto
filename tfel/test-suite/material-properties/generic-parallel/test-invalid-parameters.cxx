@@ -31,7 +31,9 @@
 #endif /* MFRONT_GPMP_TEST_BACKEND */
 #define MFRONT_GPMP_TEST_STRINGIFY2(x) #x
 #define MFRONT_GPMP_TEST_STRINGIFY(x) MFRONT_GPMP_TEST_STRINGIFY2(x)
-// clang-format off: the spaces would appear in the name of the header
+// the name of the header must not be formatted: the spaces would appear
+// in it
+// clang-format off
 #define MFRONT_GPMP_TEST_HEADER(name) \
   MFRONT_GPMP_TEST_STRINGIFY(name-generic-parallel-MFRONT_GPMP_TEST_BACKEND.hxx)
 // clang-format on
@@ -46,13 +48,12 @@ struct InvalidParametersTest : public tfel::tests::TestCase {
   }  // end of InvalidParametersTest
 
   tfel::tests::TestResult execute() override {
-    // the file of parameters is read at the first call of the function:
-    // no other call is made by this test
+    // the file of parameters is read at the first call of the function: the
+    // following calls see the same invalid parameters
     const auto file = std::string{"UO2_YoungModulus_Martin1989-parameters.txt"};
     {
       auto out = std::ofstream{file};
-      // the invalid value is on the third line, after a comment and an
-      // empty line: the error gives this line
+      // invalid value after a comment and an empty line
       out << "# parameters\n\nf0 abc\n";
     }
     // nothing is computed: the output and the statuses of the points are
@@ -73,12 +74,19 @@ struct InvalidParametersTest : public tfel::tests::TestCase {
     TFEL_TESTS_ASSERT(std::string{output.msg}.find(
                           "can't convert 'abc' to floating point value") !=
                       std::string::npos);
+    // the error gives the line of the invalid value
     TFEL_TESTS_ASSERT(std::string{output.msg}.find("error at line '3'") !=
                       std::string::npos);
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_CHECK_EQUAL(E[i], 3.);
       TFEL_TESTS_CHECK_EQUAL(statuses[i], 12);
     }
+    // the invalid parameters are reported before the invalid fields of the
+    // batch (here, no output values)
+    TFEL_TESTS_CHECK_EQUAL(
+        evaluate(UO2_YoungModulus_Martin1989_generic_parallel, output, nullptr,
+                 1, args, contiguous<2>(), 2, mfront_gmp_OutOfBoundsPolicy{}),
+        -6);
     std::remove(file.c_str());
     return this->result;
   }  // end of execute

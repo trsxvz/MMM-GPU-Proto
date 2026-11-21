@@ -1,0 +1,883 @@
+From 44777b3c130f723d63324b88386948893f3e770e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 21 Nov 2026 07:19:05 +0100
+Subject: [PATCH] generic-parallel: RAJA backend
+
+RAJA::forall with the execution policy given by the execution_policy
+option, on a resource of camp, statistics in device memory (configurations
+raja and raja-host).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../configuration-files/config-raja-host.json |  20 ++
+ mfront/configuration-files/config-raja.json   |  20 ++
+ mfront/include/CMakeLists.txt                 |   6 +
+ .../include/MFront/GenericParallel/RAJA.hxx   | 236 ++++++++++++++++++
+ .../MFront/GenericParallel/RAJABackend.hxx    |  70 ++++++
+ .../RAJABackendExecutionPolicy.hxx            | 104 ++++++++
+ .../GenericParallel/RAJAExecutionPolicy.hxx   | 185 ++++++++++++++
+ .../MFront/GenericParallelBehaviour/RAJA.hxx  |  70 ++++++
+ mfront/src/CMakeLists.txt                     |   1 +
+ mfront/src/GenericParallel/RAJABackend.cxx    |  67 +++++
+ 10 files changed, 779 insertions(+)
+ create mode 100644 mfront/configuration-files/config-raja-host.json
+ create mode 100644 mfront/configuration-files/config-raja.json
+ create mode 100644 mfront/include/MFront/GenericParallel/RAJA.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/RAJABackend.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/RAJABackendExecutionPolicy.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/RAJAExecutionPolicy.hxx
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviour/RAJA.hxx
+ create mode 100644 mfront/src/GenericParallel/RAJABackend.cxx
+
+diff --git a/mfront/configuration-files/config-raja-host.json b/mfront/configuration-files/config-raja-host.json
+new file mode 100644
+index 000000000..01b8892e6
+--- /dev/null
++++ b/mfront/configuration-files/config-raja-host.json
+@@ -0,0 +1,20 @@
++dsl_options: {
++  disable_runtime_checks: false
++},
++interfaces_options: {
++  generic-parallel: {
++    backend: {raja: {
++        execution_policy: "mfront::generic_parallel::raja::DefaultHostExecutionPolicy"
++      }
++    }
++  }
++},
++compilation_options : {
++  cxx : {
++    compiler: "@TFEL_RAJA_CXX_COMPILER@",
++    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@"
++  }
++},
++linking_options : {
++  linker_flags: "@TFEL_RAJA_LINKER_FLAGS@"
++}
+diff --git a/mfront/configuration-files/config-raja.json b/mfront/configuration-files/config-raja.json
+new file mode 100644
+index 000000000..d59e1ceab
+--- /dev/null
++++ b/mfront/configuration-files/config-raja.json
+@@ -0,0 +1,20 @@
++dsl_options: {
++  disable_runtime_checks: false
++},
++interfaces_options: {
++  generic-parallel: {
++    backend: {raja: {
++        execution_policy: "mfront::generic_parallel::raja::DefaultExecutionPolicy"
++      }
++    }
++  }
++},
++compilation_options : {
++  cxx : {
++    compiler: "@TFEL_RAJA_CXX_COMPILER@",
++    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@"
++  }
++},
++linking_options : {
++  linker_flags: "@TFEL_RAJA_LINKER_FLAGS@"
++}
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index 73b81a09a..9e7aaa7cf 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -166,6 +166,12 @@ install_mfront_header(MFront/GenericParallel KokkosBackendExecutionPolicy.hxx)
+ install_mfront_header(MFront/GenericParallel KokkosBackend.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour Kokkos.hxx)
+ install_mfront_header(MFront/GenericParallel Kokkos.hxx)
++# RAJA backend
++install_mfront_header(MFront/GenericParallel RAJAExecutionPolicy.hxx)
++install_mfront_header(MFront/GenericParallel RAJABackendExecutionPolicy.hxx)
++install_mfront_header(MFront/GenericParallel RAJABackend.hxx)
++install_mfront_header(MFront/GenericParallelBehaviour RAJA.hxx)
++install_mfront_header(MFront/GenericParallel RAJA.hxx)
+ install_mfront_header(MFront GenericBehaviourInterface.hxx)
+ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
+ install_mfront_header(MFront GenericModelInterface.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/RAJA.hxx b/mfront/include/MFront/GenericParallel/RAJA.hxx
+new file mode 100644
+index 000000000..4893289f0
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/RAJA.hxx
+@@ -0,0 +1,236 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/RAJA.hxx
++ * \brief  This file declares the primitive of the `raja` backend of the
++ * `generic-parallel` interfaces.
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_RAJA_HXX
++#define LIB_MFRONT_GENERICPARALLEL_RAJA_HXX
++
++#include <new>
++#include "RAJA/RAJA.hpp"
++#include "MFront/GenericParallel/Batch.hxx"
++#include "MFront/GenericParallel/RAJAExecutionPolicy.hxx"
++#include "MFront/GenericParallel/RAJABackendExecutionPolicy.hxx"
++#include "MFront/GenericParallel/StatusBlockPool.hxx"
++
++namespace mfront::generic_parallel::raja {
++
++  namespace internals {
++
++    //! \brief atomic operations of the statistics
++    struct Atomics {
++      RAJA_HOST_DEVICE static void add(unsigned long long* const p,
++                                       const unsigned long long v) {
++        RAJA::atomicAdd<RAJA::auto_atomic>(p, v);
++      }
++      RAJA_HOST_DEVICE static void min(unsigned long long* const p,
++                                       const unsigned long long v) {
++        RAJA::atomicMin<RAJA::auto_atomic>(p, v);
++      }
++    };
++
++    /*!
++     * \brief function object applying a function at one point and updating
++     * the statistics of the batch by atomic operations, which are only
++     * performed if an event occurs at this point (see `updateStatistics`).
++     * \tparam Statistics: statistics updated by the devices
++     * \tparam PointFunction: function object applied at one point
++     */
++    template <typename Statistics, typename PointFunction>
++    struct AtomicUpdate {
++      //! \brief apply the function at the `i`-th point
++      RAJA_HOST_DEVICE void operator()(const size_type i) const {
++        const auto r = this->f(i);
++        if ((this->statistics != nullptr) &&
++            (updateStatistics<Atomics>(*(this->statistics), r, this->rdt0))) {
++          signalEvents(this->events);
++        }
++      }
++      //! \brief function object applied at one point
++      PointFunction f;
++      /*!
++       * \brief statistics, or null if the function never reports an event
++       * (see the `hasEvents` method of the handlers of the statistics)
++       */
++      Statistics* statistics;
++      //! \brief flag set when the statistics are updated (see
++      //! `StatisticsBlock`), or null
++      int* events;
++      //! \brief ordered key of the initial time step scaling factor
++      unsigned long long rdt0;
++    };
++
++    /*!
++     * \return a block of statistics (see `StatisticsBlock`), allocated in
++     * pinned host memory by a resource of camp, the statistics being
++     * allocated in the memory of its device. The block is reset before its
++     * first use. An exception is thrown if an allocation fails.
++     * \tparam Statistics: statistics updated by the devices
++     * \param[in] r: resource
++     */
++    template <typename Statistics, typename Resource>
++    StatisticsBlock<Statistics>* allocateStatisticsBlock(Resource& r) {
++      using camp::resources::MemoryAccess;
++      auto* const statistics =
++          r.template allocate<Statistics>(1, MemoryAccess::Device);
++      try {
++        auto* const block = r.template allocate<StatisticsBlock<Statistics>>(
++            1, MemoryAccess::Pinned);
++        return ::new (block)
++            StatisticsBlock<Statistics>{.statistics = statistics, .events = 1};
++      } catch (...) {
++        r.deallocate(statistics, MemoryAccess::Device);
++        throw;
++      }
++    }  // end of allocateStatisticsBlock
++
++    /*!
++     * \return the pool of blocks holding the statistics of the synchronous
++     * computations with the resources of the given type (see
++     * `StatisticsBlock`), by device, shared by all the functions of the
++     * library. The blocks are kept until the end of the process.
++     * \tparam Statistics: statistics updated by the devices
++     * \tparam Resource: resource of camp
++     */
++    template <typename Statistics, typename Resource>
++    auto& getStatisticsBlocks() noexcept {
++      using Pool = StatusBlockPool<StatisticsBlock<Statistics>, int>;
++      static auto pool = Pool{};
++      return pool;
++    }  // end of getStatisticsBlocks
++
++  }  // end of namespace internals
++
++  /*!
++   * \brief apply a function at the points of a batch and report the
++   * statistics of the batch.
++   *
++   * The statistics are updated by atomic operations, only performed if an
++   * event occurs at a point. If the calling code gives statistics, they are
++   * updated, and this function returns once the computations are submitted
++   * if the computations are asynchronous. Otherwise, the statistics are held
++   * by a local variable with an execution policy of the host, and otherwise
++   * by a block of a pool, the statistics being in the memory of the device
++   * of the resource (see `StatisticsBlock`), as by the GPU backends: a call
++   * without event performs neither copy nor additional synchronization. A
++   * synchronous computation waits for the completion of the computations.
++   *
++   * \tparam ExecutionPolicy: execution policy of RAJA
++   * \tparam StatisticsHandler: handler of the statistics (see
++   * `MFront/GenericParallel/Batch.hxx`)
++   * \tparam PointFunction: function object taking the index of a point and
++   * returning the statistics associated with this point
++   * \param[in,out] s: output status, which must have been initialized
++   * \param[in] n: number of points
++   * \param[in] e: execution of the batch. The policy is a
++   * `RAJABackendExecutionPolicy` holding a resource of camp matching the
++   * execution policy (`camp::resources::Cuda`, `Hip` or `Host`). If null,
++   * the default stream of the current device is used with CUDA and HIP, the
++   * default resource otherwise (see `getDefaultResource`).
++   * \param[in] h: handler of the statistics
++   * \param[in] f: function
++   * \return the status
++   */
++  template <typename ExecutionPolicy,
++            typename StatisticsHandler,
++            typename PointFunction>
++  int apply(typename StatisticsHandler::OutputStatus& s,
++            const size_type n,
++            const BatchExecution<typename StatisticsHandler::Statistics>& e,
++            const StatisticsHandler& h,
++            const PointFunction& f) {
++    using Statistics = typename StatisticsHandler::Statistics;
++    using Update = internals::AtomicUpdate<Statistics, PointFunction>;
++    using ResourceType = Resource<ExecutionPolicy>;
++    using BackendExecutionPolicy = RAJABackendExecutionPolicy<ResourceType>;
++    if (n == 0) {
++      return s.status;
++    }
++    const auto p = checkBackendExecutionPolicy<BackendExecutionPolicy>(
++        e.policy, e.statistics != nullptr);
++    if (p.error != nullptr) {
++      return report(s, -5, p.error);
++    }
++    const auto error = ensureStackSize<ExecutionPolicy>(
++        f, p.common_options.preserve_stack_size);
++    if (!error.empty()) {
++      return report(s, -7, error);
++    }
++    auto resource = p.policy == nullptr ? getDefaultResource<ExecutionPolicy>()
++                                        : p.policy->resource;
++    const auto range = RAJA::TypedRangeSegment<size_type>(0, n);
++    const auto rdt0 = toOrderedKey(h.initial().rdt);
++    if ((e.statistics != nullptr) || (!h.hasEvents())) {
++      // statistics given by the calling code: the result is given by the
++      // report function of the library. Without event, the statistics, if
++      // any, are not accessed by the kernel, as for the GPU backends
++      RAJA::forall<ExecutionPolicy>(resource, range,
++                                    Update{f, e.statistics, nullptr, rdt0});
++      if (!p.common_options.asynchronous) {
++        resource.wait();
++      }
++      return s.status;
++    }
++    // synchronous computations: the statistics are held by a local variable
++    // with an execution policy of the host, and otherwise by a block of the
++    // pool (see `StatisticsBlock`)
++    auto statistics = Statistics{};
++    h.initialize(statistics);
++    if constexpr (!isDeviceExecutionPolicy<ExecutionPolicy>) {
++      RAJA::forall<ExecutionPolicy>(resource, range,
++                                    Update{f, &statistics, nullptr, rdt0});
++      resource.wait();
++    } else {
++      const auto block =
++          internals::getStatisticsBlocks<Statistics, ResourceType>().acquire(
++              getDevice(resource), [&resource] {
++                return internals::allocateStatisticsBlock<Statistics>(resource);
++              });
++      auto* const b = block.get();
++      if (b == nullptr) {
++        return report(s, -7, "unable to allocate the statistics of the batch");
++      }
++      if (holdsEvents(*b)) {
++        // synchronous reset, after an event or at the first use
++        const auto neutral = getNeutralStatistics(statistics);
++        resource.memcpy(b->statistics, &neutral, sizeof(Statistics));
++        resource.wait();
++        clearEvents(*b);
++      }
++      RAJA::forall<ExecutionPolicy>(
++          resource, range, Update{f, b->statistics, &(b->events), rdt0});
++      resource.wait();
++      if (holdsEvents(*b)) {
++        auto block_statistics = Statistics{};
++        resource.memcpy(&block_statistics, b->statistics, sizeof(Statistics));
++        resource.wait();
++        statistics = mergeBlockStatistics(statistics, block_statistics);
++      }
++    }
++    return h.report(s, statistics);
++  }  // end of apply
++
++  /*!
++   * \return the primitive of the backend, called by the functions of the
++   * interfaces (see for instance `mfront::gpb::integrateBatch`)
++   * \tparam ExecutionPolicy: execution policy
++   */
++  template <typename ExecutionPolicy>
++  auto makeApply() {
++    return [](auto& s, const size_type n, const auto& e, const auto& h,
++              const auto& f) {
++      return raja::apply<ExecutionPolicy>(s, n, e, h, f);
++    };
++  }  // end of makeApply
++
++}  // end of namespace mfront::generic_parallel::raja
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_RAJA_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/RAJABackend.hxx b/mfront/include/MFront/GenericParallel/RAJABackend.hxx
+new file mode 100644
+index 000000000..d95b22659
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/RAJABackend.hxx
+@@ -0,0 +1,70 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/RAJABackend.hxx
++ * \brief  This file declares the RAJA backend of the `generic-parallel`
++ * interfaces
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_RAJABACKEND_HXX
++#define LIB_MFRONT_GENERICPARALLEL_RAJABACKEND_HXX
++
++#include "TFEL/Utilities/Data.hxx"
++#include "MFront/MFrontConfig.hxx"
++#include "MFront/GenericParallel/AbstractBackend.hxx"
++
++namespace mfront::generic_parallel {
++
++  /*!
++   * \brief backend based on RAJA.
++   *
++   * The generated library must be compiled with a compiler supporting the
++   * execution policy (for instance `nvcc` with extended lambdas for the
++   * policies of CUDA) and linked with RAJA.
++   *
++   * Options:
++   *
++   * - `execution_policy`: execution policy of RAJA
++   *   (`mfront::generic_parallel::raja::DefaultExecutionPolicy` by default,
++   *   see `MFront/GenericParallel/RAJAExecutionPolicy.hxx`), for instance
++   *   `RAJA::cuda_exec<128>` or `RAJA::omp_parallel_for_exec`. The
++   *   execution policies of OpenMP target and SYCL are not supported.
++   *
++   * The execution policy of the backend (`RAJABackendExecutionPolicy`)
++   * holds a resource of camp matching the execution policy of RAJA. With
++   * the default policy, the default stream of the current device is used
++   * with CUDA and HIP, the default resource of camp otherwise (see
++   * `mfront::generic_parallel::raja::getDefaultResource`).
++   */
++  struct MFRONT_VISIBILITY_EXPORT RAJABackend final : AbstractBackend {
++    /*!
++     * \brief constructor
++     * \param[in] opts: options
++     */
++    RAJABackend(const tfel::utilities::DataMap&);
++    //
++    [[nodiscard]] std::string getName() const override;
++    [[nodiscard]] std::string getSourceFileExtension() const override;
++    void writeSpecificIncludes(std::ostream&, const Runtime) const override;
++    [[nodiscard]] std::string getApply() const override;
++    [[nodiscard]] std::string getMemorySpace() const override;
++    [[nodiscard]] std::string getExecutionPolicyType() const override;
++    [[nodiscard]] std::string getSharedDataCopy(
++        std::string_view, std::string_view) const override;
++    //! \brief destructor
++    ~RAJABackend() noexcept override;
++
++   private:
++    //! \brief execution policy
++    std::string execution_policy =
++        "mfront::generic_parallel::raja::DefaultExecutionPolicy";
++  };  // end of RAJABackend
++
++}  // end of namespace mfront::generic_parallel
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_RAJABACKEND_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/RAJABackendExecutionPolicy.hxx b/mfront/include/MFront/GenericParallel/RAJABackendExecutionPolicy.hxx
+new file mode 100644
+index 000000000..b4faa5e70
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/RAJABackendExecutionPolicy.hxx
+@@ -0,0 +1,104 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/RAJABackendExecutionPolicy.hxx
++ * \brief  This file declares the execution policy of the `raja` backend of
++ * the `generic-parallel` interfaces: a class template on the resource of
++ * camp associated with the execution policy of RAJA selected by the
++ * backend, whose identifier is made of the name of the backend and of the
++ * platform of the resource.
++ * \date   22/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_RAJABACKENDEXECUTIONPOLICY_HXX
++#define LIB_MFRONT_GENERICPARALLEL_RAJABACKENDEXECUTIONPOLICY_HXX
++
++#include "MFront/GenericParallel/RAJAExecutionPolicy.hxx"
++#include "MFront/GenericParallel/BackendExecutionPolicyBase.hxx"
++
++namespace mfront::generic_parallel {
++
++  namespace raja {
++
++    /*!
++     * \brief identifier of the policies using a resource of camp, null for
++     * the resources which are not supported (see
++     * `isSupportedExecutionPolicy`)
++     */
++    template <typename ResourceType>
++    inline constexpr const char* policy_identifier = nullptr;
++    //! \brief specialisation for the host
++    template <>
++    inline constexpr const char* policy_identifier<camp::resources::Host> =
++        "raja:host";
++#if defined(RAJA_CUDA_ACTIVE)
++    //! \brief specialisation for CUDA
++    template <>
++    inline constexpr const char* policy_identifier<camp::resources::Cuda> =
++        "raja:cuda";
++#endif
++#if defined(RAJA_HIP_ACTIVE)
++    //! \brief specialisation for HIP
++    template <>
++    inline constexpr const char* policy_identifier<camp::resources::Hip> =
++        "raja:hip";
++#endif
++
++  }  // end of namespace raja
++
++  //! \brief options of the execution policy of the `raja` backend
++  template <typename ResourceType>
++  struct RAJABackendExecutionOptions {
++    //! \brief common options
++    BackendExecutionCommonPolicy common_options;
++    /*!
++     * \brief resource on which the loops are executed, the default resource
++     * by default (see `raja::getDefaultResourceOfType`)
++     */
++    ResourceType resource = raja::getDefaultResourceOfType<ResourceType>();
++  };  // end of struct RAJABackendExecutionOptions
++
++  /*!
++   * \brief execution policy of the `raja` backend
++   * \tparam ResourceType: resource of camp associated with the execution
++   * policy of RAJA selected by the `execution_policy` option of the backend
++   * (see `raja::Resource`)
++   */
++  template <typename ResourceType>
++  struct RAJABackendExecutionPolicy final : BackendExecutionPolicyBase {
++    static_assert(raja::policy_identifier<ResourceType> != nullptr,
++                  "unsupported resource");
++    //! \return the identifier of the policy, for instance "raja:cuda"
++    static constexpr const char* identifier() noexcept {
++      return raja::policy_identifier<ResourceType>;
++    }
++    /*!
++     * \brief constructor
++     * \param[in] opts: options
++     */
++    explicit RAJABackendExecutionPolicy(
++        const RAJABackendExecutionOptions<ResourceType>& opts = {})
++        : BackendExecutionPolicyBase(opts.common_options),
++          resource(opts.resource) {}
++    const char* getIdentifier() const noexcept override { return identifier(); }
++    //! \brief resource on which the loops are executed
++    ResourceType resource;
++  };  // end of struct RAJABackendExecutionPolicy
++
++  /*!
++   * \return an execution policy of the `raja` backend
++   * \param[in] opts: options
++   */
++  template <typename ResourceType>
++  RAJABackendExecutionPolicy<ResourceType> makeRAJABackendExecutionPolicy(
++      const RAJABackendExecutionOptions<ResourceType>& opts = {}) {
++    return RAJABackendExecutionPolicy<ResourceType>{opts};
++  }  // end of makeRAJABackendExecutionPolicy
++
++}  // end of namespace mfront::generic_parallel
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_RAJABACKENDEXECUTIONPOLICY_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/RAJAExecutionPolicy.hxx b/mfront/include/MFront/GenericParallel/RAJAExecutionPolicy.hxx
+new file mode 100644
+index 000000000..aba717d07
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/RAJAExecutionPolicy.hxx
+@@ -0,0 +1,185 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/RAJAExecutionPolicy.hxx
++ * \brief  This file declares the default execution policies of the raja
++ * backends of the `generic-parallel` interfaces, and the functions common to
++ * these backends.
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_RAJAEXECUTIONPOLICY_HXX
++#define LIB_MFRONT_GENERICPARALLEL_RAJAEXECUTIONPOLICY_HXX
++
++#include <string>
++#include <type_traits>
++#include "RAJA/RAJA.hpp"
++#if defined(RAJA_CUDA_ACTIVE) || defined(RAJA_HIP_ACTIVE)
++#include "MFront/GenericParallel/GPUStackSize.hxx"
++#endif
++
++namespace mfront::generic_parallel::raja {
++
++  /*!
++   * \brief default execution policy: the asynchronous loop of the GPU if the
++   * code is compiled for CUDA or HIP (128 threads per block, as the default
++   * of the `cuda` and `hip` backends), the parallel loop of OpenMP if RAJA
++   * is built with OpenMP, the sequential loop otherwise.
++   */
++#if defined(RAJA_CUDA_ACTIVE)
++  using DefaultExecutionPolicy = RAJA::cuda_exec_async<128>;
++#elif defined(RAJA_HIP_ACTIVE)
++  using DefaultExecutionPolicy = RAJA::hip_exec_async<128>;
++#elif defined(RAJA_ENABLE_OPENMP)
++  using DefaultExecutionPolicy = RAJA::omp_parallel_for_exec;
++#else
++  using DefaultExecutionPolicy = RAJA::seq_exec;
++#endif
++
++  /*!
++   * \brief default execution policy on the host: the parallel loop of
++   * OpenMP if RAJA is built with OpenMP, the sequential loop otherwise.
++   */
++#if defined(RAJA_ENABLE_OPENMP)
++  using DefaultHostExecutionPolicy = RAJA::omp_parallel_for_exec;
++#else
++  using DefaultHostExecutionPolicy = RAJA::seq_exec;
++#endif
++
++  /*!
++   * \brief true if the execution policy is supported by the raja backends:
++   * the policies of OpenMP target and SYCL are refused, since the resources
++   * of camp associated with them can't allocate the managed memory holding
++   * the statistics, and since the `raja` configuration of TFEL only
++   * compiles for CUDA and for the host
++   */
++  template <typename ExecutionPolicy>
++  inline constexpr bool isSupportedExecutionPolicy =
++      !(RAJA::type_traits::is_target_openmp_policy<ExecutionPolicy>::value ||
++        RAJA::type_traits::is_sycl_policy<ExecutionPolicy>::value);
++
++  /*!
++   * \brief true if the loops of the execution policy run on a GPU (CUDA,
++   * HIP), which may not access the memory of the host
++   */
++  template <typename ExecutionPolicy>
++  inline constexpr bool isDeviceExecutionPolicy =
++      RAJA::type_traits::is_device_exec_policy<ExecutionPolicy>::value;
++
++  /*!
++   * \brief resource of camp associated with an execution policy
++   * (`camp::resources::Cuda`, `camp::resources::Hip` or
++   * `camp::resources::Host`, for instance), held by the execution policies
++   * of the `raja` backend (see
++   * `MFront/GenericParallel/RAJABackendExecutionPolicy.hxx`)
++   */
++  template <typename ExecutionPolicy>
++  using Resource = RAJA::resources::resource_from_pol_t<ExecutionPolicy>;
++
++  /*!
++   * \return the default resource of a type: the default stream of the
++   * current device with CUDA and HIP, as for the `cuda` and `hip` backends
++   * (the default resource of camp is a stream created by camp on the device
++   * 0), the default resource of camp otherwise
++   * \tparam ResourceType: type of the resource
++   */
++  template <typename ResourceType>
++  ResourceType getDefaultResourceOfType() {
++#if defined(RAJA_CUDA_ACTIVE)
++    if constexpr (std::is_same_v<ResourceType, camp::resources::Cuda>) {
++      return camp::resources::Cuda::CudaFromStream(0);
++    }
++#endif
++#if defined(RAJA_HIP_ACTIVE)
++    if constexpr (std::is_same_v<ResourceType, camp::resources::Hip>) {
++      return camp::resources::Hip::HipFromStream(0);
++    }
++#endif
++    return ResourceType::get_default();
++  }  // end of getDefaultResourceOfType
++
++  /*!
++   * \return the resource used by the default execution policy of the `raja`
++   * backend (see `getDefaultResourceOfType`). The unsupported execution
++   * policies are refused at compile time (see `isSupportedExecutionPolicy`).
++   * \tparam ExecutionPolicy: execution policy
++   */
++  template <typename ExecutionPolicy>
++  Resource<ExecutionPolicy> getDefaultResource() {
++    static_assert(isSupportedExecutionPolicy<ExecutionPolicy>,
++                  "the execution policies of OpenMP target and SYCL are not "
++                  "supported by the raja backend");
++    return getDefaultResourceOfType<Resource<ExecutionPolicy>>();
++  }  // end of getDefaultResource
++
++  /*!
++   * \return the identifier of the device of a resource (CUDA and HIP), 0
++   * otherwise. The memory allocated by the resources (statistics, copies of
++   * the shared data) is distinguished by device.
++   * \param[in] r: resource
++   */
++  template <typename ResourceType>
++  int getDevice(const ResourceType& r) {
++    static_cast<void>(r);
++#if defined(RAJA_CUDA_ACTIVE)
++    if constexpr (std::is_same_v<ResourceType, camp::resources::Cuda>) {
++      return r.get_device();
++    }
++#endif
++#if defined(RAJA_HIP_ACTIVE)
++    if constexpr (std::is_same_v<ResourceType, camp::resources::Hip>) {
++      return r.get_device();
++    }
++#endif
++    return 0;
++  }  // end of getDevice
++
++#if defined(RAJA_CUDA_ACTIVE) || defined(RAJA_HIP_ACTIVE)
++
++  /*!
++   * \brief kernel which is never launched: its attributes give the stack
++   * size required to apply a function at one point. RAJA does not increase
++   * the stack size of the threads, which is too small by default for some
++   * behaviours.
++   */
++  template <typename Function>
++  __global__ void stackSizeProbe(const Function f) {
++    f(0);
++  }  // end of stackSizeProbe
++
++#endif /* defined(RAJA_CUDA_ACTIVE) || defined(RAJA_HIP_ACTIVE) */
++
++  /*!
++   * \brief increase the stack size of the threads of the device if the
++   * given function, applied at one point with the given execution policy,
++   * requires it. Nothing is done if the execution policy is not one of CUDA
++   * or HIP.
++   * \return an error message, empty on success
++   * \tparam ExecutionPolicy: execution policy
++   * \param[in] f: function applied at one point
++   * \param[in] preserve: if true, the stack size is not modified, and an
++   * error is returned if it is too small
++   */
++  template <typename ExecutionPolicy, typename Function>
++  std::string ensureStackSize(const Function& f, const bool preserve) {
++    static_cast<void>(f);
++    static_cast<void>(preserve);
++#if defined(RAJA_CUDA_ACTIVE) || defined(RAJA_HIP_ACTIVE)
++    if constexpr (RAJA::type_traits::is_device_exec_policy<
++                      ExecutionPolicy>::value) {
++      const auto r = gpu::ensureStackSize<stackSizeProbe<Function>>(preserve);
++      if (!r.succeeded()) {
++        return r.getErrorMessage();
++      }
++    }
++#endif
++    return {};
++  }  // end of ensureStackSize
++
++}  // end of namespace mfront::generic_parallel::raja
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_RAJAEXECUTIONPOLICY_HXX */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/RAJA.hxx b/mfront/include/MFront/GenericParallelBehaviour/RAJA.hxx
+new file mode 100644
+index 000000000..2e3391016
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviour/RAJA.hxx
+@@ -0,0 +1,70 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviour/RAJA.hxx
++ * \brief  This file declares the functions of the `raja` backend of the
++ * `generic-parallel` behaviour interface which are specific to the
++ * behaviours. The primitive of the backend is declared in
++ * `MFront/GenericParallel/RAJA.hxx`.
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_RAJA_HXX
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_RAJA_HXX
++
++#include <stdexcept>
++#include <type_traits>
++#include "MFront/GenericParallel/RAJA.hxx"
++#include "MFront/GenericParallelBehaviour/Integrate.hxx"
++
++namespace mfront::gpb::raja {
++
++  /*!
++   * \return a copy of a data in the memory of a resource (memory of the
++   * device of the resource for the policies of CUDA and HIP), kept until the
++   * end of the process
++   * \param[in] resource: resource
++   * \param[in] v: data
++   */
++  template <typename Resource, typename T>
++  const T* copyToDevice(Resource& resource, const T& v) {
++    static_assert(std::is_trivially_copyable_v<T>,
++                  "the shared data must be trivially copyable");
++    auto* const p =
++        resource.template allocate<T>(1, camp::resources::MemoryAccess::Device);
++    if (p == nullptr) {
++      throw std::runtime_error(
++          "mfront::gpb::raja::copyToDevice: allocation failed");
++    }
++    resource.memcpy(p, &v, sizeof(T));
++    resource.wait();
++    return p;
++  }  // end of copyToDevice
++
++  /*!
++   * \return a copy of a data shared by all the integration points (see the
++   * `@SharedData` keyword) in the memory of the default resource of an
++   * execution policy (memory of the current device for the policies of CUDA
++   * and HIP). A copy is made at the first call on each device and kept until
++   * the end of the process, as with the `cuda` and `hip` backends.
++   * \tparam ExecutionPolicy: execution policy
++   * \tparam get_shared_data: function returning the data
++   */
++  template <typename ExecutionPolicy, auto get_shared_data>
++  const auto* getSharedDataCopy() {
++    using T = std::remove_cvref_t<decltype(get_shared_data())>;
++    static auto copies = SharedDataCopies<T, int>{};
++    auto resource =
++        mfront::generic_parallel::raja::getDefaultResource<ExecutionPolicy>();
++    return copies.get(
++        mfront::generic_parallel::raja::getDevice(resource),
++        [&resource] { return copyToDevice(resource, get_shared_data()); });
++  }  // end of getSharedDataCopy
++
++}  // end of namespace mfront::gpb::raja
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_RAJA_HXX */
+diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
+index 742dbb569..856f0d479 100644
+--- a/mfront/src/CMakeLists.txt
++++ b/mfront/src/CMakeLists.txt
+@@ -241,6 +241,7 @@ set(TFELMFront_SOURCES
+     GenericParallel/GPUBackend.cxx
+     GenericParallel/KokkosBackend.cxx
+     GenericParallel/ParallelSTLBackend.cxx
++    GenericParallel/RAJABackend.cxx
+     GenericParallel/SYCLBackend.cxx
+     GenericBehaviourInterface.cxx
+     GenericParallelBehaviourInterface.cxx
+diff --git a/mfront/src/GenericParallel/RAJABackend.cxx b/mfront/src/GenericParallel/RAJABackend.cxx
+new file mode 100644
+index 000000000..c09755433
+--- /dev/null
++++ b/mfront/src/GenericParallel/RAJABackend.cxx
+@@ -0,0 +1,67 @@
++/*!
++ * \file   mfront/src/GenericParallel/RAJABackend.cxx
++ * \brief  This file implements the RAJA backend of the `generic-parallel`
++ * interfaces
++ * \date   20/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <ostream>
++#include "MFront/GenericParallel/BackendOptions.hxx"
++#include "MFront/GenericParallel/RAJABackend.hxx"
++
++namespace mfront::generic_parallel {
++
++  RAJABackend::RAJABackend(const tfel::utilities::DataMap& opts) {
++    auto validator = tfel::utilities::DataMapValidator{};
++    declareRAJAExecutionPolicyOption(validator);
++    validator.validate(opts);
++    this->execution_policy = getRAJAExecutionPolicy(opts);
++  }  // end of RAJABackend
++
++  std::string RAJABackend::getName() const { return "raja"; }
++
++  std::string RAJABackend::getSourceFileExtension() const { return "cxx"; }
++
++  void RAJABackend::writeSpecificIncludes(std::ostream& os,
++                                          const Runtime r) const {
++    os << "#include \"MFront/GenericParallel/RAJA.hxx\"\n";
++    if (r == Runtime::BEHAVIOURS) {
++      // copies of the shared data
++      os << "#include \"MFront/GenericParallelBehaviour/RAJA.hxx\"\n";
++    }
++  }  // end of writeSpecificIncludes
++
++  std::string RAJABackend::getApply() const {
++    return "mfront::generic_parallel::raja::makeApply<" +
++           this->execution_policy + ">()";
++  }  // end of getApply
++
++  std::string RAJABackend::getMemorySpace() const {
++    // the policies of CUDA and HIP may not access the memory of the host
++    return "(mfront::generic_parallel::raja::isDeviceExecutionPolicy<" +
++           this->execution_policy +
++           "> ? mfront::generic_parallel::device_memory_space : "
++           "mfront::generic_parallel::host_memory_space)";
++  }  // end of getMemorySpace
++
++  std::string RAJABackend::getExecutionPolicyType() const {
++    return "::mfront::generic_parallel::RAJABackendExecutionPolicy<"
++           "::mfront::generic_parallel::raja::Resource<" +
++           this->execution_policy + ">>";
++  }  // end of getExecutionPolicyType
++
++  std::string RAJABackend::getSharedDataCopy(const std::string_view getter,
++                                             const std::string_view) const {
++    return "mfront::gpb::raja::getSharedDataCopy<" + this->execution_policy +
++           ", " + std::string{getter} + ">()";
++  }  // end of getSharedDataCopy
++
++  RAJABackend::~RAJABackend() noexcept = default;
++
++}  // end of namespace mfront::generic_parallel
+-- 
+2.43.0
+

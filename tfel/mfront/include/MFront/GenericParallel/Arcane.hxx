@@ -14,6 +14,9 @@
 #ifndef LIB_MFRONT_GENERICPARALLEL_ARCANE_HXX
 #define LIB_MFRONT_GENERICPARALLEL_ARCANE_HXX
 
+#include <new>
+#include <arccore/accelerator/Atomic.h>
+#include <arccore/common/accelerator/Memory.h>
 #include "MFront/GenericParallel/Batch.hxx"
 #include "MFront/GenericParallel/StatusBlockPool.hxx"
 #include "MFront/GenericParallel/ArcaneUtilities.hxx"
@@ -23,15 +26,17 @@ namespace mfront::generic_parallel::arcane {
 
   namespace internals {
 
-    //! \brief atomic operations of the statistics
+    //! \brief atomic operations of the statistics, provided by Arccore
     struct Atomics {
       ARCCORE_HOST_DEVICE static void add(unsigned long long* const p,
                                           const unsigned long long v) {
-        ::mfront::generic_parallel::arcane::atomicAdd(p, v);
+        using ::Arcane::Accelerator::eAtomicOperation;
+        ::Arcane::Accelerator::doAtomic<eAtomicOperation::Add>(p, v);
       }
       ARCCORE_HOST_DEVICE static void min(unsigned long long* const p,
                                           const unsigned long long v) {
-        ::mfront::generic_parallel::arcane::atomicMin(p, v);
+        using ::Arcane::Accelerator::eAtomicOperation;
+        ::Arcane::Accelerator::doAtomic<eAtomicOperation::Min>(p, v);
       }
     };
 
@@ -46,26 +51,60 @@ namespace mfront::generic_parallel::arcane {
     struct AtomicUpdate {
       //! \brief apply the function at the `i`-th point
       ARCCORE_HOST_DEVICE void operator()(const size_type i) const {
-        updateStatistics<Atomics>(*(this->statistics), this->f(i), this->rdt0);
+        const auto r = this->f(i);
+        if ((this->statistics != nullptr) &&
+            (updateStatistics<Atomics>(*(this->statistics), r, this->rdt0))) {
+          signalEvents(this->events);
+        }
       }
       //! \brief function object applied at one point
       PointFunction f;
-      //! \brief statistics
+      /*!
+       * \brief statistics, or null if the function never reports an event
+       * (see the `hasEvents` method of the handlers of the statistics)
+       */
       Statistics* statistics;
+      //! \brief flag set when the statistics are updated (see
+      //! `StatisticsBlock`), or null
+      int* events;
       //! \brief ordered key of the initial time step scaling factor
       unsigned long long rdt0;
     };
 
     /*!
-     * \return the pool of blocks of unified memory holding the statistics
-     * of the synchronous computations, shared by all the functions of the
-     * library. The blocks are identified by the allocator of Arccore and
-     * are kept until the end of the process.
+     * \return a block of statistics (see `StatisticsBlock`), allocated in
+     * the pinned memory of the host, the statistics being allocated in the
+     * memory of the current device, or a null pointer if an allocation
+     * failed. The block is reset before its first use. The allocations are
+     * never freed.
+     * \tparam Statistics: statistics updated by the devices
+     */
+    template <typename Statistics>
+    StatisticsBlock<Statistics>* allocateStatisticsBlock() {
+      auto* const statistics = allocate<Statistics>(getDeviceMemoryAllocator());
+      if (statistics == nullptr) {
+        return nullptr;
+      }
+      auto* const block =
+          allocate<StatisticsBlock<Statistics>>(getPinnedMemoryAllocator());
+      if (block == nullptr) {
+        return nullptr;
+      }
+      return ::new (block)
+          StatisticsBlock<Statistics>{.statistics = statistics, .events = 1};
+    }  // end of allocateStatisticsBlock
+
+    /*!
+     * \return the pool of blocks holding the statistics of the synchronous
+     * computations on the accelerators (see `StatisticsBlock`), shared by all
+     * the functions of the library. The blocks are identified by the device
+     * of the queue and are kept until the end of the process.
      * \tparam Statistics: statistics updated by the devices
      */
     template <typename Statistics>
     auto& getStatisticsBlocks() noexcept {
-      using Pool = StatusBlockPool<Statistics, ::Arcane::IMemoryAllocator*>;
+      using Pool =
+          StatusBlockPool<StatisticsBlock<Statistics>, ::Arcane::Int32>;
       static auto pool = Pool{};
       return pool;
     }  // end of getStatisticsBlocks
@@ -107,9 +146,14 @@ namespace mfront::generic_parallel::arcane {
    * event occurs at a point. If the calling code gives statistics, they are
    * updated, and this function returns once the commands are launched if
    * the computations are asynchronous. Otherwise, the statistics are held
-   * by a block of unified memory, initialized and read by the host. In both
-   * cases, a synchronous computation waits for the completion of the
-   * commands of the queue (`barrier`).
+   * by a local variable with the queues of the host, and otherwise by a
+   * block of a pool, the statistics being in the memory of the device of the
+   * queue (see `StatisticsBlock`), as by the GPU backends: a call without
+   * event performs neither copy nor additional synchronization. A
+   * synchronous computation waits for the completion of the
+   * commands of the queue. The device of a CUDA or HIP queue is made the
+   * current device of the calling thread during the call (stack size of the
+   * threads, allocation of the blocks).
    *
    * \tparam StatisticsHandler: handler of the statistics (see
    * `MFront/GenericParallel/Batch.hxx`)
@@ -139,32 +183,60 @@ namespace mfront::generic_parallel::arcane {
       return report(s, -5, p.error);
     }
     auto queue = p.policy->queue;
+    const auto current_device = CurrentDeviceGuard(queue);
+    if (current_device.failed) {
+      return report(s, -7, "unable to select the device of the queue");
+    }
     const auto error =
         ensureStackSize(queue, f, p.common_options.preserve_stack_size);
     if (!error.empty()) {
       return report(s, -7, error);
     }
     const auto rdt0 = toOrderedKey(h.initial().rdt);
-    if (e.statistics != nullptr) {
-      launch(queue, n, Update{f, e.statistics, rdt0});
+    if ((e.statistics != nullptr) || (!h.hasEvents())) {
+      // statistics given by the calling code: the result is given by the
+      // report function of the library. Without event, the statistics, if
+      // any, are not accessed by the kernel, as for the GPU backends
+      launch(queue, n, Update{f, e.statistics, nullptr, rdt0});
       if (!p.common_options.asynchronous) {
         queue.barrier();
       }
       return s.status;
     }
-    // synchronous computations: the device only accesses the block if an
-    // event occurs, as for the GPU backends
-    auto* const allocator = getUnifiedMemoryAllocator();
+    // synchronous computations: the statistics are held by a local variable
+    // with the queues of the host, and otherwise by a block of the pool (see
+    // `StatisticsBlock`)
+    auto statistics = Statistics{};
+    h.initialize(statistics);
+    if (!queue.isAcceleratorPolicy()) {
+      launch(queue, n, Update{f, &statistics, nullptr, rdt0});
+      queue.barrier();
+      return h.report(s, statistics);
+    }
     const auto block = internals::getStatisticsBlocks<Statistics>().acquire(
-        allocator, [allocator] { return allocate<Statistics>(allocator); });
-    auto* const statistics = block.get();
-    if (statistics == nullptr) {
+        queue.deviceId().asInt32(),
+        internals::allocateStatisticsBlock<Statistics>);
+    auto* const b = block.get();
+    if (b == nullptr) {
       return report(s, -7, "unable to allocate the statistics of the batch");
     }
-    h.initialize(*statistics);
-    launch(queue, n, Update{f, statistics, rdt0});
+    // the copies of Arccore are synchronous
+    using ::Arcane::Accelerator::MemoryCopyArgs;
+    constexpr auto size = static_cast<::Arcane::Int64>(sizeof(Statistics));
+    if (holdsEvents(*b)) {
+      // reset, after an event or at the first use
+      const auto neutral = getNeutralStatistics(statistics);
+      queue.copyMemory(MemoryCopyArgs(b->statistics, &neutral, size));
+      clearEvents(*b);
+    }
+    launch(queue, n, Update{f, b->statistics, &(b->events), rdt0});
     queue.barrier();
-    return h.report(s, *statistics);
+    if (!holdsEvents(*b)) {
+      return h.report(s, statistics);
+    }
+    auto block_statistics = Statistics{};
+    queue.copyMemory(MemoryCopyArgs(&block_statistics, b->statistics, size));
+    return h.report(s, mergeBlockStatistics(statistics, block_statistics));
   }  // end of apply
 
   /*!

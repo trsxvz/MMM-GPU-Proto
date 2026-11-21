@@ -1,0 +1,1816 @@
+From 95179f67b22a26601c35484e64edfeaf2bc4cfa9 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 21 Nov 2026 07:19:04 +0100
+Subject: [PATCH] generic-parallel: runtime shared by the behaviours, the
+ models and the material properties
+
+- the backends of the generic-parallel interface for material
+  properties write the code of the behaviours and of the models too
+  (runtime of the interface, shared data copied to the device, names of
+  the generated files).
+- statistics of the synchronous computations held by blocks of a pool
+  (StatisticsBlock): the atomic operations are performed in device
+  memory, and the device signals an event to the host by a flag in
+  pinned memory, so that a call without event performs neither copy nor
+  additional synchronization.
+- function object of the CUDA kernels declared __grid_constant__: its
+  member functions take its address, which made each thread copy it in its
+  stack (more than a kilobyte per thread for a behaviour).
+- the material properties may also contain the function of the generic
+  interface (generic_functions option).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../GenericParallel/AbstractBackend.hxx       |  77 +++++--
+ .../BackendExecutionPolicyBase.hxx            |   6 +-
+ .../MFront/GenericParallel/BackendFactory.hxx |   6 +
+ .../MFront/GenericParallel/BackendOptions.hxx |  31 ++-
+ .../include/MFront/GenericParallel/Batch.hxx  | 108 +++++++++-
+ mfront/include/MFront/GenericParallel/GPU.hxx | 149 ++++++++-----
+ .../MFront/GenericParallel/GPUBackend.hxx     |   6 +-
+ .../MFront/GenericParallel/GPUStackSize.hxx   |  11 +-
+ .../MFront/GenericParallel/MemorySpace.hxx    |  34 ++-
+ .../GenericParallel/ParallelSTLBackend.hxx    |   2 +-
+ .../include/MFront/GenericParallel/SYCL.hxx   |  90 ++++++--
+ .../MFront/GenericParallel/SYCLBackend.hxx    |   6 +-
+ .../GenericParallel/SYCLDeviceCopies.hxx      |   5 +-
+ .../MFront/GenericParallel/StatisticsKeys.hxx |   4 +-
+ .../GenericParallel/StatusBlockPool.hxx       |   8 +-
+ .../MaterialProperty.h                        |  11 +-
+ ...nericParallelMaterialPropertyInterface.hxx |  28 +++
+ .../src/GenericParallel/AbstractBackend.cxx   |  66 +++++-
+ mfront/src/GenericParallel/BackendFactory.cxx |  39 ++++
+ mfront/src/GenericParallel/BackendOptions.cxx |  91 +++++++-
+ mfront/src/GenericParallel/GPUBackend.cxx     |  17 +-
+ .../GenericParallel/ParallelSTLBackend.cxx    |   3 +-
+ mfront/src/GenericParallel/SYCLBackend.cxx    |  33 ++-
+ ...nericParallelMaterialPropertyInterface.cxx | 201 ++++++++++++++----
+ 24 files changed, 846 insertions(+), 186 deletions(-)
+
+diff --git a/mfront/include/MFront/GenericParallel/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/AbstractBackend.hxx
+index c2e951311..42fa39390 100644
+--- a/mfront/include/MFront/GenericParallel/AbstractBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/AbstractBackend.hxx
+@@ -23,16 +23,25 @@
+ namespace mfront::generic_parallel {
+ 
+   /*!
+-   * \brief base class of the backends of the `generic-parallel` interfaces.
++   * \brief base class of the backends of the `generic-parallel` interfaces,
++   * shared by the interfaces for material properties, behaviours and models.
+    *
+    * The computations on a batch are implemented by function templates of
+-   * the runtime of an interface (`MFront/GenericParallelMaterialProperty`,
+-   * namespace `mfront::gpmp`, for the material properties), which take the
+-   * primitive of a backend as last argument (see
+-   * `MFront/GenericParallel/Batch.hxx`). A backend selects its headers and
+-   * writes the expression building its primitive.
++   * the runtime of an interface (see `Runtime`), which take the primitive of
++   * a backend as last argument (see `MFront/GenericParallel/Batch.hxx`). A
++   * backend selects its headers and writes the expression building its
++   * primitive.
+    */
+   struct MFRONT_VISIBILITY_EXPORT AbstractBackend {
++    /*!
++     * \brief runtime called by the generated functions: the one of the
++     * behaviours and of the models (`MFront/GenericParallelBehaviour`,
++     * namespace `mfront::gpb`), or the one of the material properties
++     * (`MFront/GenericParallelMaterialProperty`, namespace `mfront::gpmp`)
++     */
++    enum struct Runtime { BEHAVIOURS, MATERIAL_PROPERTIES };
++    //! \return the namespace of a runtime
++    static std::string_view getNamespace(const Runtime) noexcept;
+     /*!
+      * \return the name of the backend, which is used as a suffix for the
+      * names of the generated library and files
+@@ -40,13 +49,36 @@ namespace mfront::generic_parallel {
+     [[nodiscard]] virtual std::string getName() const = 0;
+     //! \return the extension of the generated source file
+     [[nodiscard]] virtual std::string getSourceFileExtension() const = 0;
++    /*!
++     * \return the name of the generated library
++     * \param[in] library: name of the library given by the user, if any
++     * \param[in] material: name of the material, if any
++     * \param[in] default_name: name used if neither the library nor the
++     * material is given
++     */
++    [[nodiscard]] std::string getLibraryName(std::string_view,
++                                             std::string_view,
++                                             std::string_view) const;
++    /*!
++     * \return the name of the generated header file
++     * \param[in] name: name of the material property, of the behaviour or
++     * of the model
++     */
++    [[nodiscard]] std::string getHeaderFileName(std::string_view) const;
++    /*!
++     * \return the name of the generated source file
++     * \param[in] name: name of the material property, of the behaviour or
++     * of the model
++     */
++    [[nodiscard]] std::string getSourceFileName(std::string_view) const;
+     /*!
+      * \brief write the headers required by the backend: the header of its
+      * primitive (`MFront/GenericParallel/<name>.hxx`) and, if the backend has
+-     * functions specific to the runtime of the interface, their header
++     * functions specific to the given runtime, their header
+      * \param[out] os: output stream
++     * \param[in] r: runtime
+      */
+-    virtual void writeSpecificIncludes(std::ostream&) const = 0;
++    virtual void writeSpecificIncludes(std::ostream&, const Runtime) const = 0;
+     /*!
+      * \brief write the symbols describing the generated library: name of
+      * the backend (`<f>_generic_parallel_backend`), memory space in which
+@@ -54,11 +86,26 @@ namespace mfront::generic_parallel {
+      * identifier of the execution policy
+      * (`<f>_generic_parallel_execution_policy`), and version of the data
+      * structures exchanged with the generated functions
+-     * (`<f>_generic_parallel_api_version`, see `MFRONT_GPMP_API_VERSION`)
++     * (`<f>_generic_parallel_api_version`, see `MFRONT_GPB_API_VERSION` and
++     * `MFRONT_GPMP_API_VERSION`)
+      * \param[out] os: output stream
+      * \param[in] f: basis of the names of the symbols
++     * \param[in] r: runtime
+      */
+-    void writeSymbols(std::ostream&, std::string_view) const;
++    void writeSymbols(std::ostream&, std::string_view, const Runtime) const;
++    /*!
++     * \return an expression returning a pointer to a copy of a data shared
++     * by all the integration points (see the `@SharedData` keyword), in a
++     * memory accessible by the device. By default, the copy is allocated on
++     * the heap, which is accessible by the device if the memory is unified
++     * or managed.
++     * \param[in] getter: address of the static function returning the data
++     * (a non-type template argument identifying the data)
++     * \param[in] execution: expression giving the execution policy (see
++     * the `execution_policy` member of `mfront_gpb_BatchData`)
++     */
++    [[nodiscard]] virtual std::string getSharedDataCopy(std::string_view,
++                                                        std::string_view) const;
+     /*!
+      * \return an expression building the primitive of the backend (see the
+      * `makeApply` functions of the `MFront/GenericParallel` headers)
+@@ -75,22 +122,28 @@ namespace mfront::generic_parallel {
+      * \return the type of the execution policy of the backend (see
+      * `MFront/GenericParallel/AbstractBackendExecutionPolicy.hxx`), checked
+      * by the generated functions. Its header is included by the header of
+-     * the primitive of the backend (see `writeSpecificIncludes`).
++     * the backend (see `writeSpecificIncludes`).
+      */
+     [[nodiscard]] virtual std::string getExecutionPolicyType() const = 0;
+     /*!
+      * \brief write the statement returning the result of a function of the
+-     * runtime of the interface, for instance `evaluateBatch` of
++     * runtime: `integrateBatch`, `executeInitializeFunctionOnBatch`,
++     * `executePostProcessingOnBatch` or `rotateBatch` of
++     * `MFront/GenericParallelBehaviour/Integrate.hxx`, `evaluateBatch` of
+      * `MFront/GenericParallelMaterialProperty/Evaluate.hxx`. The primitive
+      * of the backend is appended to the given arguments.
+      *
+      * \param[out] os: output stream
++     * \param[in] r: runtime
+      * \param[in] f: name of the function
++     * \param[in] template_arguments: template arguments, if any
+      * \param[in] status: name of the output status, which is the first
+      * argument
+      * \param[in] arguments: other arguments
+      */
+     virtual void writeCall(std::ostream&,
++                           const Runtime,
++                           std::string_view,
+                            std::string_view,
+                            std::string_view,
+                            std::string_view) const;
+diff --git a/mfront/include/MFront/GenericParallel/BackendExecutionPolicyBase.hxx b/mfront/include/MFront/GenericParallel/BackendExecutionPolicyBase.hxx
+index d1f2fdf1c..0b2182a1c 100644
+--- a/mfront/include/MFront/GenericParallel/BackendExecutionPolicyBase.hxx
++++ b/mfront/include/MFront/GenericParallel/BackendExecutionPolicyBase.hxx
+@@ -36,9 +36,9 @@ namespace mfront::generic_parallel {
+      * the computations, once they are submitted to the queue of the policy.
+      * The calling code then synchronizes the queue before reading the
+      * outputs and the statistics. An asynchronous computation requires
+-     * statistics (invalid arguments otherwise). The `stlpar` backend, even
+-     * when it computes on a device, and the `sycl` backend when it transfers
+-     * data, compute synchronously.
++     * statistics (invalid arguments otherwise). The `stlpar`, `openmp` and
++     * `openacc` backends, even when they compute on a device, and the `sycl`
++     * backend when it transfers data, compute synchronously.
+      */
+     bool asynchronous = false;
+   };  // end of struct BackendExecutionCommonPolicy
+diff --git a/mfront/include/MFront/GenericParallel/BackendFactory.hxx b/mfront/include/MFront/GenericParallel/BackendFactory.hxx
+index 84cd4904b..44394822b 100644
+--- a/mfront/include/MFront/GenericParallel/BackendFactory.hxx
++++ b/mfront/include/MFront/GenericParallel/BackendFactory.hxx
+@@ -50,6 +50,12 @@ namespace mfront::generic_parallel {
+      */
+     std::unique_ptr<AbstractBackend> generate(std::string_view,
+                                               const DataMap&) const;
++    /*!
++     * \return the backend selected by the `backend` option of an interface,
++     * or a null pointer if this option is not given
++     * \param[in] opts: options of the interface
++     */
++    std::unique_ptr<AbstractBackend> generate(const DataMap&) const;
+ 
+    private:
+     //! \brief default constructor
+diff --git a/mfront/include/MFront/GenericParallel/BackendOptions.hxx b/mfront/include/MFront/GenericParallel/BackendOptions.hxx
+index eb122ab6c..6d04f660e 100644
+--- a/mfront/include/MFront/GenericParallel/BackendOptions.hxx
++++ b/mfront/include/MFront/GenericParallel/BackendOptions.hxx
+@@ -1,7 +1,7 @@
+ /*!
+  * \file   mfront/include/MFront/GenericParallel/BackendOptions.hxx
+  * \brief  This file declares the options shared by the backends of the
+- * `generic-parallel` interface for material properties.
++ * `generic-parallel` interfaces for material properties and behaviours.
+  * \date   06/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+@@ -48,6 +48,35 @@ namespace mfront::generic_parallel {
+    */
+   MFRONT_VISIBILITY_EXPORT int getDeviceStackSize(
+       const tfel::utilities::DataMap&);
++  /*!
++   * \brief declare the `execution_space` option of the Kokkos backends
++   * \param[in,out] v: validator of the options of a backend
++   */
++  MFRONT_VISIBILITY_EXPORT void declareKokkosExecutionSpaceOption(
++      tfel::utilities::DataMapValidator&);
++  /*!
++   * \return the Kokkos execution space given by the `execution_space`
++   * option (`Kokkos::DefaultExecutionSpace` by default), which must be a
++   * qualified C++ identifier
++   * \param[in] opts: options of a backend
++   */
++  MFRONT_VISIBILITY_EXPORT std::string getKokkosExecutionSpace(
++      const tfel::utilities::DataMap&);
++  /*!
++   * \brief declare the `execution_policy` option of the RAJA backends
++   * \param[in,out] v: validator of the options of a backend
++   */
++  MFRONT_VISIBILITY_EXPORT void declareRAJAExecutionPolicyOption(
++      tfel::utilities::DataMapValidator&);
++  /*!
++   * \return the RAJA execution policy given by the `execution_policy`
++   * option (`mfront::generic_parallel::raja::DefaultExecutionPolicy` by
++   * default), which must be a C++ type made of qualified identifiers,
++   * integers and template arguments (for instance `RAJA::cuda_exec<128>`)
++   * \param[in] opts: options of a backend
++   */
++  MFRONT_VISIBILITY_EXPORT std::string getRAJAExecutionPolicy(
++      const tfel::utilities::DataMap&);
+   /*!
+    * \brief declare the `data_transfer_policy` option of the SYCL backends
+    * \param[in,out] v: validator of the options of a backend
+diff --git a/mfront/include/MFront/GenericParallel/Batch.hxx b/mfront/include/MFront/GenericParallel/Batch.hxx
+index 16f1da48f..e25901f51 100644
+--- a/mfront/include/MFront/GenericParallel/Batch.hxx
++++ b/mfront/include/MFront/GenericParallel/Batch.hxx
+@@ -1,8 +1,9 @@
+ /*!
+  * \file   mfront/include/MFront/GenericParallel/Batch.hxx
+  * \brief  This file declares the statistics, the execution and the report
+- * of the computations on a batch of points, shared by the primitives of the
+- * backends of the `generic-parallel` interfaces.
++ * of the computations on a batch of points, shared by the
++ * `generic-parallel` interfaces for material properties, behaviours and
++ * models, and by the primitives of their backends.
+  * \date   09/11/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+@@ -126,9 +127,8 @@ namespace mfront::generic_parallel {
+    * the material properties
+    */
+   template <typename Statistics>
+-  inline constexpr bool hasTimeStepScalingFactor = requires(Statistics& s) {
+-    s.rdt;
+-  };
++  inline constexpr bool hasTimeStepScalingFactor =
++      requires(Statistics& s) { s.rdt; };
+ 
+   /*!
+    * \brief update the statistics shared by the threads with the statistics
+@@ -142,30 +142,126 @@ namespace mfront::generic_parallel {
+    * \param[in] r: statistics of a point or of a group of points
+    * \param[in] rdt0: ordered key of the initial time step scaling factor
+    * (see `toOrderedKey`)
++   * \return true if the shared statistics were updated
+    */
+   template <typename Atomics, typename Statistics, typename real>
+-  TFEL_HOST_DEVICE void updateStatistics(Statistics& s,
++  TFEL_HOST_DEVICE bool updateStatistics(Statistics& s,
+                                          const BatchStatistics<real>& r,
+                                          const atomic_size_type rdt0) {
++    auto updated = false;
+     if (r.number_of_failures != 0) {
+       Atomics::add(&(s.number_of_failures),
+                    static_cast<atomic_size_type>(r.number_of_failures));
+       Atomics::min(&(s.first_failure), r.first_failure);
++      updated = true;
+     }
+     if (r.number_of_unreliable_results != 0) {
+       Atomics::add(
+           &(s.number_of_unreliable_results),
+           static_cast<atomic_size_type>(r.number_of_unreliable_results));
+       Atomics::min(&(s.first_unreliable_result), r.first_unreliable_result);
++      updated = true;
+     }
+     if constexpr (hasTimeStepScalingFactor<Statistics>) {
+       const auto rdt = toOrderedKey(r.rdt);
+       if (rdt < rdt0) {
+         Atomics::min(&(s.rdt), rdt);
++        updated = true;
+       }
+     }
++    return updated;
+   }  // end of updateStatistics
+ 
++  /*!
++   * \brief block of statistics of the synchronous computations on a device,
++   * reused from one call to another (see `StatusBlockPool`).
++   *
++   * The block lives in pinned host memory, accessible by the host and by the
++   * device, and the statistics in device memory: the atomic operations of
++   * the kernels are thus performed in device memory, which every system
++   * supports. The atomic operations on host memory are not reliable: the
++   * PCI Express bus only provides the atomic addition, exchange and
++   * compare-and-swap operations, and the other ones are not performed on
++   * the AMD GPUs connected by PCI Express without page migration (XNACK),
++   * where managed memory is host memory. Managed memory may also not be
++   * accessed by the host while kernels run (devices without concurrent
++   * access to managed memory, for instance under Windows).
++   *
++   * A thread updating the statistics also sets `events`, by a plain store
++   * (see `signalEvents`). Once the computations are completed, the host
++   * reads the statistics only if `events` is set: a call without event
++   * performs neither copy nor additional synchronization. If `events` is
++   * not set, the statistics hold their neutral value (see
++   * `getNeutralStatistics`) and no transfer of the block is in progress:
++   * the copies of the block, performed after an event only, are
++   * synchronous. A block whose `events` is set, after an event or at its
++   * allocation, is reset to the neutral statistics before its use.
++   *
++   * \tparam Statistics: statistics updated by the devices
++   */
++  template <typename Statistics>
++  struct StatisticsBlock {
++    //! \brief statistics updated by the device, in device memory
++    Statistics* statistics;
++    //! \brief non zero if the statistics may differ from their neutral value
++    int events;
++  };
++
++  //! \brief signal that the statistics of a block were updated
++  TFEL_HOST_DEVICE inline void signalEvents(int* const events) noexcept {
++    if (events != nullptr) {
++      *static_cast<volatile int*>(events) = 1;
++    }
++  }  // end of signalEvents
++
++  /*!
++   * \return true if the statistics of a block may differ from their neutral
++   * value. The flag is read again at each call: it is written by the device.
++   */
++  template <typename Statistics>
++  bool holdsEvents(const StatisticsBlock<Statistics>& b) noexcept {
++    return *static_cast<const volatile int*>(&(b.events)) != 0;
++  }  // end of holdsEvents
++
++  //! \brief state that the statistics of a block hold their neutral value
++  template <typename Statistics>
++  void clearEvents(StatisticsBlock<Statistics>& b) noexcept {
++    *static_cast<volatile int*>(&(b.events)) = 0;
++  }  // end of clearEvents
++
++  /*!
++   * \return the neutral value of the statistics of a block: the initial
++   * statistics of a call, without event, except the time step scaling
++   * factor, which is set to the largest key. The devices only write a time
++   * step scaling factor lower than the initial one of the call (see
++   * `updateStatistics`), which is restored by `mergeBlockStatistics`.
++   * \param[in] s: initial statistics of a call
++   */
++  template <typename Statistics>
++  Statistics getNeutralStatistics(Statistics s) noexcept {
++    if constexpr (hasTimeStepScalingFactor<Statistics>) {
++      s.rdt = no_event;
++    }
++    return s;
++  }  // end of getNeutralStatistics
++
++  /*!
++   * \return the statistics of a call, given its initial statistics and the
++   * statistics of the block, read once the computations are completed
++   * \param[in] initial: initial statistics of the call
++   * \param[in] s: statistics of the block
++   */
++  template <typename Statistics>
++  Statistics mergeBlockStatistics(const Statistics& initial,
++                                  Statistics s) noexcept {
++    if constexpr (hasTimeStepScalingFactor<Statistics>) {
++      if (initial.rdt < s.rdt) {
++        s.rdt = initial.rdt;
++      }
++    }
++    return s;
++  }  // end of mergeBlockStatistics
++
+   /*!
+    * \brief execution of the computations on a batch, as given by the
+    * calling code: the policy, checked by the backend against its own policy
+diff --git a/mfront/include/MFront/GenericParallel/GPU.hxx b/mfront/include/MFront/GenericParallel/GPU.hxx
+index 2299dd42d..77de529f1 100644
+--- a/mfront/include/MFront/GenericParallel/GPU.hxx
++++ b/mfront/include/MFront/GenericParallel/GPU.hxx
+@@ -19,6 +19,7 @@
+ #ifndef LIB_MFRONT_GENERICPARALLEL_GPU_HXX
+ #define LIB_MFRONT_GENERICPARALLEL_GPU_HXX
+ 
++#include <new>
+ #include <limits>
+ #include <string>
+ #include <cstdint>
+@@ -31,6 +32,23 @@
+ #include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
+ #endif
+ 
++/*!
++ * \brief qualifier of the function object passed by value to the kernels.
++ *
++ * The member functions of this object take its address. The CUDA compilers
++ * then copy it in the stack of each thread (local memory), i.e. more than a
++ * kilobyte per thread for a behaviour, unless the parameter is declared
++ * `__grid_constant__` (compute capability 7.0 or later): the threads then
++ * read it in place. The HIP compilers for AMD GPUs always read the kernel
++ * parameters in place.
++ */
++#if (!defined(__HIP_PLATFORM_AMD__)) && \
++    ((!defined(__CUDA_ARCH__)) || (__CUDA_ARCH__ >= 700))
++#define MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT __grid_constant__
++#else
++#define MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT
++#endif
++
+ namespace mfront::generic_parallel::gpu {
+ 
+   namespace internals {
+@@ -127,17 +145,21 @@ namespace mfront::generic_parallel::gpu {
+      * point, and update the statistics of the batch. The number of threads
+      * per block must be a multiple of the warp size.
+      *
+-     * \param[in] f: function
++     * \param[in] f: function (see `MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT`)
+      * \param[in] n: number of points
+      * \param[out] s: statistics, or null if the function never reports an
+      * event (see the `hasEvents` method of the handlers of the statistics)
++     * \param[out] events: flag set when the statistics are updated (see
++     * `StatisticsBlock`), or null
+      * \param[in] rdt0: ordered key of the initial time step scaling factor
+      */
+     template <typename Statistics, typename PointFunction>
+-    __global__ void apply(const PointFunction f,
+-                          const size_type n,
+-                          Statistics* const s,
+-                          const atomic_size_type rdt0) {
++    __global__ void apply(
++        const MFRONT_GENERIC_PARALLEL_GPU_GRID_CONSTANT PointFunction f,
++        const size_type n,
++        Statistics* const s,
++        int* const events,
++        const atomic_size_type rdt0) {
+       const auto i = static_cast<size_type>(blockIdx.x) * blockDim.x +
+                      static_cast<size_type>(threadIdx.x);
+       auto failures = 0u;
+@@ -182,12 +204,43 @@ namespace mfront::generic_parallel::gpu {
+             atomicMin(&(s->rdt), rdt);
+           }
+         }
++        signalEvents(events);
+       }
+     }  // end of apply
+ 
+     /*!
+-     * \return the pool of blocks of device memory holding the statistics of
+-     * the synchronous computations of a function of the generated library
++     * \return a block of statistics (see `StatisticsBlock`), allocated in
++     * pinned host memory, the statistics being allocated in the memory of the
++     * current device, or a null pointer if an allocation failed. The block is
++     * reset before its first use.
++     * \tparam Statistics: statistics updated by the devices
++     */
++    template <typename Statistics>
++    StatisticsBlock<Statistics>* allocateStatisticsBlock() noexcept {
++      void* statistics = nullptr;
++      if (MFRONT_GENERIC_PARALLEL_GPU_API(Malloc)(&statistics,
++                                                  sizeof(Statistics)) !=
++          MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
++        return nullptr;
++      }
++      // portable and mapped: accessible by all the devices
++      void* block = nullptr;
++      if (MFRONT_GENERIC_PARALLEL_GPU_API(HostAlloc)(
++              &block, sizeof(StatisticsBlock<Statistics>),
++              MFRONT_GENERIC_PARALLEL_GPU_API(HostAllocPortable) |
++                  MFRONT_GENERIC_PARALLEL_GPU_API(HostAllocMapped)) !=
++          MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
++        static_cast<void>(MFRONT_GENERIC_PARALLEL_GPU_API(Free)(statistics));
++        return nullptr;
++      }
++      return ::new (block) StatisticsBlock<Statistics>{
++          .statistics = static_cast<Statistics*>(statistics), .events = 1};
++    }  // end of allocateStatisticsBlock
++
++    /*!
++     * \return the pool of blocks holding the statistics of the synchronous
++     * computations of a function of the generated library (see
++     * `StatisticsBlock`)
+      * \tparam Statistics: statistics updated by the devices
+      * \tparam PointFunction: function applied at the points, which is
+      * specific to a generated function
+@@ -201,7 +254,7 @@ namespace mfront::generic_parallel::gpu {
+      */
+     template <typename Statistics, typename PointFunction>
+     auto& getStatisticsBlocks() noexcept {
+-      using Pool = StatusBlockPool<Statistics, int>;
++      using Pool = StatusBlockPool<StatisticsBlock<Statistics>, int>;
+       static auto pool = Pool{};
+       return pool;
+     }  // end of getStatisticsBlocks
+@@ -217,13 +270,11 @@ namespace mfront::generic_parallel::gpu {
+    * kernel is launched. Otherwise, it waits for its completion.
+    *
+    * Without statistics given by the calling code, the statistics are held by
+-   * a block of device memory of a pool of blocks (see `StatusBlockPool`): no
+-   * memory is allocated per call. Local statistics are initialized on the
+-   * host, copied to the block just before the launch and copied back once
+-   * the computations are completed: the host never accesses the block,
+-   * which the device may not share with the host while kernels run (devices
+-   * without concurrent access to managed memory). The device only accesses
+-   * the block if an event occurs at a point.
++   * a block of a pool (see `StatisticsBlock` and `StatusBlockPool`): no
++   * memory is allocated per call. The device only accesses the statistics,
++   * in device memory, if an event occurs at a point, and then signals it to
++   * the host: a call without event performs neither copy nor additional
++   * synchronization.
+    *
+    * If the function never reports an event (see the `hasEvents` method of
+    * the handler), the statistics are neither combined nor reported, and no
+@@ -299,73 +350,69 @@ namespace mfront::generic_parallel::gpu {
+     const auto stream = p.policy == nullptr ? Stream{} : p.policy->stream;
+     const auto rdt0 = toOrderedKey(h.initial().rdt);
+     // launch the kernel and return the error of the launch
+-    auto launch = [&k, &f, n, nblocks, nthreads, stream,
+-                   rdt0](Statistics* const statistics) {
++    auto launch = [&k, &f, n, nblocks, nthreads, stream, rdt0](
++                      Statistics* const statistics, int* const events) {
+       // an error left by a previous call of the calling code must not be
+       // taken for an error of the launch
+       static_cast<void>(MFRONT_GENERIC_PARALLEL_GPU_API(GetLastError)());
+       k<<<static_cast<unsigned int>(nblocks), nthreads, 0, stream>>>(
+-          f, n, statistics, rdt0);
++          f, n, statistics, events, rdt0);
+       return MFRONT_GENERIC_PARALLEL_GPU_API(GetLastError)();
+     };
+     if ((e.statistics != nullptr) || (!h.hasEvents())) {
+       // statistics given by the calling code: the result is given by the
+       // report function of the library. Without event, the statistics, if
+       // any, are not accessed by the kernel
+-      if (failed(s, launch(e.statistics)) || p.common_options.asynchronous) {
++      if (failed(s, launch(e.statistics, nullptr)) ||
++          p.common_options.asynchronous) {
+         return s.status;
+       }
+       failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream));
+       return s.status;
+     }
+-    // synchronous computations: the statistics are held by a block of the
+-    // pool, initialized after the checks: a copy still in progress when the
+-    // block is given back to the pool would overwrite the statistics of the
+-    // next call using it
++    // synchronous computations: block of statistics of the pool (see
++    // `StatisticsBlock`)
+     const auto block =
+         internals::getStatisticsBlocks<Statistics, PointFunction>().acquire(
+-            device, [] {
+-              Statistics* ptr = nullptr;
+-              const auto r = MFRONT_GENERIC_PARALLEL_GPU_API(Malloc)(
+-                  reinterpret_cast<void**>(&ptr), sizeof(Statistics));
+-              return r == MFRONT_GENERIC_PARALLEL_GPU_API(Success) ? ptr
+-                                                                   : nullptr;
+-            });
+-    auto* const statistics = block.get();
+-    if (statistics == nullptr) {
++            device, internals::allocateStatisticsBlock<Statistics>);
++    auto* const b = block.get();
++    if (b == nullptr) {
+       return report(s, -7,
+                     "unable to allocate the statistics of the evaluation");
+     }
+-    auto host_statistics = Statistics{};
+-    h.initialize(host_statistics);
+-    if (MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyAsync)(
+-            statistics, &host_statistics, sizeof(Statistics),
+-            MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyHostToDevice),
+-            stream) != MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
+-      return report(s, -7,
+-                    "unable to initialize the statistics of the evaluation");
++    auto statistics = Statistics{};
++    h.initialize(statistics);
++    if (holdsEvents(*b)) {
++      // synchronous reset, after an event or at the first use
++      const auto neutral = getNeutralStatistics(statistics);
++      if ((MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyAsync)(
++               b->statistics, &neutral, sizeof(Statistics),
++               MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyHostToDevice),
++               stream) != MFRONT_GENERIC_PARALLEL_GPU_API(Success)) ||
++          (MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream) !=
++           MFRONT_GENERIC_PARALLEL_GPU_API(Success))) {
++        return report(s, -7,
++                      "unable to initialize the statistics of the evaluation");
++      }
++      clearEvents(*b);
+     }
+-    if (const auto le = launch(statistics);
+-        le != MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
+-      // the copy of the statistics must be completed before the block is
+-      // given back to the pool
+-      static_cast<void>(
+-          MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream));
+-      failed(s, le);
++    if (failed(s, launch(b->statistics, &(b->events))) ||
++        failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream))) {
+       return s.status;
+     }
+-    if (failed(s, MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream))) {
+-      return s.status;
++    if (!holdsEvents(*b)) {
++      return h.report(s, statistics);
+     }
++    auto block_statistics = Statistics{};
+     if ((MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyAsync)(
+-             &host_statistics, statistics, sizeof(Statistics),
++             &block_statistics, b->statistics, sizeof(Statistics),
+              MFRONT_GENERIC_PARALLEL_GPU_API(MemcpyDeviceToHost),
+              stream) != MFRONT_GENERIC_PARALLEL_GPU_API(Success)) ||
+         (MFRONT_GENERIC_PARALLEL_GPU_API(StreamSynchronize)(stream) !=
+          MFRONT_GENERIC_PARALLEL_GPU_API(Success))) {
+       return report(s, -7, "unable to copy the statistics of the evaluation");
+     }
+-    return h.report(s, host_statistics);
++    return h.report(s, mergeBlockStatistics(statistics, block_statistics));
+   }  // end of apply
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericParallel/GPUBackend.hxx b/mfront/include/MFront/GenericParallel/GPUBackend.hxx
+index 44e43549d..35f704eea 100644
+--- a/mfront/include/MFront/GenericParallel/GPUBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/GPUBackend.hxx
+@@ -36,7 +36,9 @@ namespace mfront::generic_parallel {
+      */
+     GPUBackend(const tfel::utilities::DataMap&);
+     //
+-    void writeSpecificIncludes(std::ostream&) const override;
++    void writeSpecificIncludes(std::ostream&, const Runtime) const override;
++    [[nodiscard]] std::string getSharedDataCopy(
++        std::string_view, std::string_view) const override;
+     [[nodiscard]] std::string getApply() const override;
+     [[nodiscard]] std::string getMemorySpace() const override;
+     //! \brief destructor
+@@ -63,7 +65,7 @@ namespace mfront::generic_parallel {
+     [[nodiscard]] std::string getName() const override;
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+     [[nodiscard]] std::string getExecutionPolicyType() const override;
+-    void writeSpecificIncludes(std::ostream&) const override;
++    void writeSpecificIncludes(std::ostream&, const Runtime) const override;
+     //! \brief destructor
+     ~HIPBackend() noexcept override;
+   };  // end of HIPBackend
+diff --git a/mfront/include/MFront/GenericParallel/GPUStackSize.hxx b/mfront/include/MFront/GenericParallel/GPUStackSize.hxx
+index 3cc9431a7..88dd087dd 100644
+--- a/mfront/include/MFront/GenericParallel/GPUStackSize.hxx
++++ b/mfront/include/MFront/GenericParallel/GPUStackSize.hxx
+@@ -1,11 +1,12 @@
+ /*!
+  * \file   mfront/include/MFront/GenericParallel/GPUStackSize.hxx
+  * \brief  This file declares a function adapting the stack size of the
+- * threads of the device to a CUDA or HIP kernel, used by the
+- * `generic-parallel` interface for material properties. This file must be
+- * compiled by a CUDA or a HIP compiler. The HIP runtime is used if the
+- * `hip/hip_runtime.h` header has been included before this file or if the HIP
+- * language is enabled, the CUDA runtime otherwise.
++ * threads of the device to a CUDA or HIP kernel, shared by the
++ * `generic-parallel` interfaces for behaviours and for material
++ * properties. This file must be compiled by a CUDA or a HIP compiler. The
++ * HIP runtime is used if the `hip/hip_runtime.h` header has been included
++ * before this file or if the HIP language is enabled, the CUDA runtime
++ * otherwise.
+  * \date   08/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+diff --git a/mfront/include/MFront/GenericParallel/MemorySpace.hxx b/mfront/include/MFront/GenericParallel/MemorySpace.hxx
+index 0ad0a8389..0f922d1c2 100644
+--- a/mfront/include/MFront/GenericParallel/MemorySpace.hxx
++++ b/mfront/include/MFront/GenericParallel/MemorySpace.hxx
+@@ -28,7 +28,8 @@ namespace mfront::generic_parallel {
+    * the ordinary memory of the host: the fields must be accessible by the
+    * device (memory of the device or shared memory). The library can't
+    * assume that the device accesses the ordinary memory of the host, even
+-   * if the device is a CPU (`sycl` backend without data transfers).
++   * if the device is a CPU (`sycl` backend without data transfers, `arcane`
++   * backend with a queue of the host).
+    */
+   inline constexpr const char* device_memory_space = "device";
+   /*!
+@@ -39,8 +40,9 @@ namespace mfront::generic_parallel {
+ 
+   /*!
+    * \return the memory space of the computations offloaded by `nvc++` (C++
+-   * parallel algorithms with `-stdpar=gpu`): with the unified memory mode,
+-   * the device accesses the whole memory of the host.
++   * parallel algorithms with `-stdpar=gpu`, OpenMP with `-mp=gpu`, OpenACC
++   * with `-acc=gpu`): with the unified memory mode, the device accesses the
++   * whole memory of the host.
+    */
+   constexpr const char* getNVHPCOffloadMemorySpace() noexcept {
+ #if defined(__NVCOMPILER_GPU_UNIFIED_MEM)
+@@ -59,6 +61,32 @@ namespace mfront::generic_parallel {
+ #endif
+   }  // end of getParallelSTLMemorySpace
+ 
++  //! \return the memory space of the computations offloaded by OpenMP
++  constexpr const char* getOpenMPOffloadMemorySpace() noexcept {
++#if defined(__NVCOMPILER_OPENMP_GPU)
++    return getNVHPCOffloadMemorySpace();
++#else
++    return device_memory_space;
++#endif
++  }  // end of getOpenMPOffloadMemorySpace
++
++  /*!
++   * \return the memory space of the computations of OpenACC: the one of the
++   * computations offloaded by `nvc++` if the code is compiled for a GPU
++   * (`-acc=gpu`), the memory of the host if it is compiled for the cores of
++   * the host only (`-acc=multicore`). With the other compilers, the device
++   * is only known at runtime: the fields must be accessible by the device.
++   */
++  constexpr const char* getOpenACCMemorySpace() noexcept {
++#if defined(__NVCOMPILER_OPENACC_GPU)
++    return getNVHPCOffloadMemorySpace();
++#elif defined(__NVCOMPILER_OPENACC_MULTICORE)
++    return host_memory_space;
++#else
++    return device_memory_space;
++#endif
++  }  // end of getOpenACCMemorySpace
++
+ }  // end of namespace mfront::generic_parallel
+ 
+ #endif /* LIB_MFRONT_GENERICPARALLEL_MEMORYSPACE_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/ParallelSTLBackend.hxx
+index a6e85e5a1..8a01e5b38 100644
+--- a/mfront/include/MFront/GenericParallel/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/ParallelSTLBackend.hxx
+@@ -46,7 +46,7 @@ namespace mfront::generic_parallel {
+     //
+     [[nodiscard]] std::string getName() const override;
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+-    void writeSpecificIncludes(std::ostream&) const override;
++    void writeSpecificIncludes(std::ostream&, const Runtime) const override;
+     [[nodiscard]] std::string getApply() const override;
+     [[nodiscard]] std::string getMemorySpace() const override;
+     [[nodiscard]] std::string getExecutionPolicyType() const override;
+diff --git a/mfront/include/MFront/GenericParallel/SYCL.hxx b/mfront/include/MFront/GenericParallel/SYCL.hxx
+index 284c79dd6..8e4b20955 100644
+--- a/mfront/include/MFront/GenericParallel/SYCL.hxx
++++ b/mfront/include/MFront/GenericParallel/SYCL.hxx
+@@ -14,6 +14,7 @@
+ #ifndef LIB_MFRONT_GENERICPARALLEL_SYCL_HXX
+ #define LIB_MFRONT_GENERICPARALLEL_SYCL_HXX
+ 
++#include <new>
+ #include <cstddef>
+ #include <utility>
+ #include <sycl/sycl.hpp>
+@@ -61,8 +62,9 @@ namespace mfront::generic_parallel::sycl {
+       //! \brief apply the function at the `i`-th point
+       void operator()(const ::sycl::id<1> i) const {
+         const auto r = this->f(i[0]);
+-        if (this->statistics != nullptr) {
+-          updateStatistics<Atomics>(*(this->statistics), r, this->rdt0);
++        if ((this->statistics != nullptr) &&
++            (updateStatistics<Atomics>(*(this->statistics), r, this->rdt0))) {
++          signalEvents(this->events);
+         }
+       }
+       //! \brief function object applied at one point
+@@ -70,15 +72,47 @@ namespace mfront::generic_parallel::sycl {
+       //! \brief statistics, accessible by the device, or null if the
+       //! function never reports an event
+       Statistics* statistics;
++      //! \brief flag set when the statistics are updated (see
++      //! `StatisticsBlock`), or null
++      int* events;
+       //! \brief ordered key of the initial time step scaling factor
+       atomic_size_type rdt0;
+     };
+ 
+     /*!
+-     * \return the pool of blocks of device memory holding the statistics
+-     * of the synchronous computations of a function of the generated
+-     * library. The blocks are identified by the device and the context of
+-     * the queue.
++     * \return a block of statistics (see `StatisticsBlock`), allocated in
++     * host memory, the statistics being allocated in the memory of the device
++     * of the queue, or a null pointer if an allocation failed. The block is
++     * reset before its first use.
++     * \tparam Statistics: statistics updated by the devices
++     * \param[in] q: queue
++     */
++    template <typename Statistics>
++    StatisticsBlock<Statistics>* allocateStatisticsBlock(
++        const ::sycl::queue& q) noexcept {
++      try {
++        auto* const statistics = ::sycl::malloc_device<Statistics>(1, q);
++        if (statistics == nullptr) {
++          return nullptr;
++        }
++        auto* const block =
++            ::sycl::malloc_host<StatisticsBlock<Statistics>>(1, q);
++        if (block == nullptr) {
++          ::sycl::free(statistics, q);
++          return nullptr;
++        }
++        return ::new (block)
++            StatisticsBlock<Statistics>{.statistics = statistics, .events = 1};
++      } catch (...) {
++      }
++      return nullptr;
++    }  // end of allocateStatisticsBlock
++
++    /*!
++     * \return the pool of blocks holding the statistics of the synchronous
++     * computations of a function of the generated library (see
++     * `StatisticsBlock`). The blocks are identified by the device and the
++     * context of the queue.
+      * \tparam Statistics: statistics updated by the devices
+      * \tparam PointFunction: function applied at the points, which is
+      * specific to a generated function, so that each generated library has
+@@ -86,7 +120,7 @@ namespace mfront::generic_parallel::sycl {
+      */
+     template <typename Statistics, typename PointFunction>
+     auto& getStatisticsBlocks() noexcept {
+-      using Pool = StatusBlockPool<Statistics,
++      using Pool = StatusBlockPool<StatisticsBlock<Statistics>,
+                                    std::pair<::sycl::device, ::sycl::context>>;
+       static auto pool = Pool{};
+       return pool;
+@@ -141,10 +175,11 @@ namespace mfront::generic_parallel::sycl {
+    * are submitted to the queue. Otherwise, it waits for their completion.
+    *
+    * Without statistics given by the calling code, the statistics are held by
+-   * a block of device memory of a pool of blocks (see `StatusBlockPool`): no
+-   * memory is allocated per call. Local statistics are initialized on the
+-   * host, copied to the block before the computations and copied back once
+-   * they are completed: the host never accesses the block.
++   * a block of a pool (see `StatisticsBlock` and `StatusBlockPool`): no
++   * memory is allocated per call. The device only accesses the statistics,
++   * in device memory, if an event occurs at a point, and then signals it to
++   * the host: a call without event performs neither copy nor additional
++   * synchronization.
+    *
+    * If the function never reports an event (see the `hasEvents` method of
+    * the handler), the statistics are neither combined nor reported, and no
+@@ -210,28 +245,39 @@ namespace mfront::generic_parallel::sycl {
+       // report function of the library. Without event, the statistics, if
+       // any, are not accessed by the kernel
+       auto* const statistics = h.hasEvents() ? e.statistics : nullptr;
+-      auto event = q.parallel_for(range, Kernel{f, statistics, rdt0});
++      auto event = q.parallel_for(range, Kernel{f, statistics, nullptr, rdt0});
+       if (!p.common_options.asynchronous) {
+         event.wait_and_throw();
+       }
+       return s.status;
+     }
+-    // synchronous computations
++    // synchronous computations: block of statistics of the pool (see
++    // `StatisticsBlock`)
+     const auto block =
+         internals::getStatisticsBlocks<Statistics, PointFunction>().acquire(
+             {q.get_device(), q.get_context()},
+-            [&q] { return ::sycl::malloc_device<Statistics>(1, q); });
+-    auto* const statistics = block.get();
+-    if (statistics == nullptr) {
++            [&q] { return internals::allocateStatisticsBlock<Statistics>(q); });
++    auto* const b = block.get();
++    if (b == nullptr) {
+       return report(s, -7,
+                     "unable to allocate the statistics of the evaluation");
+     }
+-    auto host_statistics = Statistics{};
+-    h.initialize(host_statistics);
+-    q.copy(&host_statistics, statistics, 1).wait_and_throw();
+-    q.parallel_for(range, Kernel{f, statistics, rdt0}).wait_and_throw();
+-    q.copy(statistics, &host_statistics, 1).wait_and_throw();
+-    return h.report(s, host_statistics);
++    auto statistics = Statistics{};
++    h.initialize(statistics);
++    if (holdsEvents(*b)) {
++      // synchronous reset, after an event or at the first use
++      const auto neutral = getNeutralStatistics(statistics);
++      q.copy(&neutral, b->statistics, 1).wait_and_throw();
++      clearEvents(*b);
++    }
++    q.parallel_for(range, Kernel{f, b->statistics, &(b->events), rdt0})
++        .wait_and_throw();
++    if (!holdsEvents(*b)) {
++      return h.report(s, statistics);
++    }
++    auto block_statistics = Statistics{};
++    q.copy(b->statistics, &block_statistics, 1).wait_and_throw();
++    return h.report(s, mergeBlockStatistics(statistics, block_statistics));
+   }  // end of apply
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericParallel/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/SYCLBackend.hxx
+index 3b5baacb0..f513a57b0 100644
+--- a/mfront/include/MFront/GenericParallel/SYCLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/SYCLBackend.hxx
+@@ -44,11 +44,15 @@ namespace mfront::generic_parallel {
+     //
+     [[nodiscard]] std::string getName() const override;
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+-    void writeSpecificIncludes(std::ostream&) const override;
++    void writeSpecificIncludes(std::ostream&, const Runtime) const override;
+     [[nodiscard]] std::string getApply() const override;
+     [[nodiscard]] std::string getMemorySpace() const override;
+     [[nodiscard]] std::string getExecutionPolicyType() const override;
++    [[nodiscard]] std::string getSharedDataCopy(
++        std::string_view, std::string_view) const override;
+     void writeCall(std::ostream&,
++                   const Runtime,
++                   std::string_view,
+                    std::string_view,
+                    std::string_view,
+                    std::string_view) const override;
+diff --git a/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
+index 375fb0e63..3cd3c4692 100644
+--- a/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
++++ b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
+@@ -1,8 +1,9 @@
+ /*!
+  * \file   mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
+  * \brief  This file declares the copies in device memory of the arrays which
+- * are not accessible by the device associated with a SYCL queue, used by
+- * the `generic-parallel` interface for material properties.
++ * are not accessible by the device associated with a SYCL queue, shared by
++ * the `generic-parallel` interfaces for behaviours and for material
++ * properties.
+  * \date   08/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+diff --git a/mfront/include/MFront/GenericParallel/StatisticsKeys.hxx b/mfront/include/MFront/GenericParallel/StatisticsKeys.hxx
+index 175ed5e3c..2595f465b 100644
+--- a/mfront/include/MFront/GenericParallel/StatisticsKeys.hxx
++++ b/mfront/include/MFront/GenericParallel/StatisticsKeys.hxx
+@@ -1,8 +1,8 @@
+ /*!
+  * \file   mfront/include/MFront/GenericParallel/StatisticsKeys.hxx
+  * \brief  This file declares the opaque keys of the statistics of the
+- * computations on a batch of points, used by the `generic-parallel`
+- * interface for material properties.
++ * computations on a batch of points, shared by the `generic-parallel`
++ * interfaces for material properties, behaviours and models.
+  * \date   21/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+diff --git a/mfront/include/MFront/GenericParallel/StatusBlockPool.hxx b/mfront/include/MFront/GenericParallel/StatusBlockPool.hxx
+index 116d420d9..6291f42f8 100644
+--- a/mfront/include/MFront/GenericParallel/StatusBlockPool.hxx
++++ b/mfront/include/MFront/GenericParallel/StatusBlockPool.hxx
+@@ -25,11 +25,9 @@ namespace mfront::generic_parallel {
+    * of synchronous computations performed on a device.
+    *
+    * The kernels only write in a block when an event occurs (failure at a
+-   * point, bound violated, etc.). The primitives of the backends allocate
+-   * the blocks in device memory, initialize them by a copy before the
+-   * computations and copy them back once the computations are completed:
+-   * the host never accesses a block, which the device may not share with
+-   * the host while kernels run.
++   * point, bound violated, etc.). The primitives of the backends use blocks
++   * of statistics (see `StatisticsBlock`): a call reads the statistics of
++   * its block only if the device signalled an event.
+    *
+    * The blocks are allocated at their first use on a device and reused by
+    * the following calls: no memory is allocated per call. A block is used
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+index b943ccf8b..31e4ff953 100644
+--- a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+@@ -42,9 +42,10 @@ extern "C" {
+  *
+  * The device only updates them when an event occurs at a point (failure or
+  * bound violated with the warning policy), with integer atomic operations
+- * (`cuda`, `hip` and `sycl` backends), whose cost is null when the
+- * evaluation succeeds. The `stlpar` backend merges the statuses of the points
+- * by a reduction, whose result is copied to the host at each call.
++ * (`cuda`, `hip`, `sycl`, `kokkos`, `raja` and `arcane` backends), whose cost
++ * is null when the evaluation succeeds. The `stlpar`, `openmp` and `openacc`
++ * backends merge the statuses of the points by a reduction, whose result is
++ * copied to the host at each call.
+  *
+  * The statistics are initialized by `mfront_gpmp_initializeStatistics` and
+  * analysed by the `<name>_generic_parallel_report` function of the same
+@@ -162,8 +163,8 @@ typedef struct mfront_gpmp_BatchData {
+    * performed (managed or shared memory if the memory space of the library
+    * is `device`): the kernels update it, and the
+    * `<name>_generic_parallel_report` function reads it on the host (the
+-   * `stlpar` backend also merges the statuses of the points in it on the
+-   * host). The output status then only reports the
++   * `stlpar`, `openmp` and `openacc` backends also merge the statuses of the
++   * points in it on the host). The output status then only reports the
+    * errors of the batch (statuses `-5`, `-6` and `-7`), and the
+    * `<name>_generic_parallel_report` function gives the result once the
+    * computations are completed. With the `sycl` backend, asynchronous
+diff --git a/mfront/include/MFront/GenericParallelMaterialPropertyInterface.hxx b/mfront/include/MFront/GenericParallelMaterialPropertyInterface.hxx
+index de1b96868..b97e8a424 100644
+--- a/mfront/include/MFront/GenericParallelMaterialPropertyInterface.hxx
++++ b/mfront/include/MFront/GenericParallelMaterialPropertyInterface.hxx
+@@ -111,8 +111,36 @@ namespace mfront {
+      */
+     void writeSrcFile(const MaterialPropertyDescription&,
+                       const FileDescription&) const override;
++    //! \return the name of the source file of the function of a point
++    [[nodiscard]] virtual std::string getPointwiseSourceFileName(
++        const std::string&) const;
++    /*!
++     * \brief write the source file of the function evaluating the material
++     * property at a point with the conventions of the `generic` interface
++     * (`generic_functions` option)
++     * \param[in] mpd: material property description
++     * \param[in] fd: mfront file description
++     */
++    virtual void writePointwiseSourceFile(const MaterialPropertyDescription&,
++                                          const FileDescription&) const;
++    /*!
++     * \return the names and the types of the function of the `generic`
++     * interface
++     */
++    [[nodiscard]] static PointwiseFunctionDescription
++    getGenericPointwiseFunctionDescription();
++
+     //! \brief backend to be used
+     std::unique_ptr<const AbstractBackend> backend;
++    /*!
++     * \brief if true, the library also contains the function of the
++     * `generic` interface evaluating the material property at a point
++     * (`generic_functions` option, false by default). The library then
++     * exports `Generic` as interface: the function of a point is available,
++     * as in a library of the `generic` interface, as well as the functions of
++     * batches of points.
++     */
++    bool generic_functions = false;
+ 
+   };  // end of MfrontGenericParallelMaterialPropertyInterface
+ 
+diff --git a/mfront/src/GenericParallel/AbstractBackend.cxx b/mfront/src/GenericParallel/AbstractBackend.cxx
+index ee60f1af3..10e46bf42 100644
+--- a/mfront/src/GenericParallel/AbstractBackend.cxx
++++ b/mfront/src/GenericParallel/AbstractBackend.cxx
+@@ -18,28 +18,74 @@
+ 
+ namespace mfront::generic_parallel {
+ 
++  std::string_view AbstractBackend::getNamespace(const Runtime r) noexcept {
++    return r == Runtime::BEHAVIOURS ? "mfront::gpb" : "mfront::gpmp";
++  }  // end of getNamespace
++
++  std::string AbstractBackend::getLibraryName(
++      const std::string_view library,
++      const std::string_view material,
++      const std::string_view default_name) const {
++    const auto base = !library.empty()    ? library
++                      : !material.empty() ? material
++                                          : default_name;
++    return "GenericParallel" + std::string{base} + '-' + this->getName();
++  }  // end of getLibraryName
++
++  std::string AbstractBackend::getHeaderFileName(
++      const std::string_view name) const {
++    return std::string{name} + "-generic-parallel-" + this->getName() + ".hxx";
++  }  // end of getHeaderFileName
++
++  std::string AbstractBackend::getSourceFileName(
++      const std::string_view name) const {
++    return std::string{name} + "-generic-parallel-" + this->getName() + '.' +
++           this->getSourceFileExtension();
++  }  // end of getSourceFileName
++
+   void AbstractBackend::writeSymbols(std::ostream& os,
+-                                     const std::string_view f) const {
++                                     const std::string_view f,
++                                     const Runtime r) const {
+     const auto n = std::string{f} + "_generic_parallel_";
+     exportStringSymbol(os, n + "backend", this->getName());
+-    // version of the data structures exchanged with the generated functions
+-    exportSymbol(os, "unsigned short", n + "api_version",
+-                 "MFRONT_GPMP_API_VERSION");
+     exportSymbol(os, "const char*", n + "memory_space", this->getMemorySpace());
+-    // identifier of the execution policy expected by the generated
+-    // functions. The expression is enclosed in parentheses: the type of a
+-    // policy may contain commas, which would split the arguments of the
+-    // macro exporting the symbol.
++    // identifier of the execution policy expected by the generated functions.
++    // As for the memory space, the expression is enclosed in parentheses:
++    // the type of the policy may contain commas (for instance, a policy of
++    // RAJA with several template arguments), which would split the arguments
++    // of the macro exporting the symbol.
+     exportSymbol(os, "const char*", n + "execution_policy",
+                  "(" + this->getExecutionPolicyType() + "::identifier())");
++    // the version is defined in `MFront/GenericParallelBehaviour/BatchData.h`
++    // or in `MFront/GenericParallelMaterialProperty/MaterialProperty.h`, and
++    // shifted for a numerical type other than double (see
++    // `MFront/GenericBehaviour/Types.h` and
++    // `MFront/GenericMaterialProperty/Types.h`)
++    exportSymbol(os, "unsigned short", n + "api_version",
++                 r == Runtime::BEHAVIOURS
++                     ? "MFRONT_GPB_API_VERSION + "
++                       "MFRONT_GB_REAL_TYPE_API_VERSION_OFFSET"
++                     : "MFRONT_GPMP_API_VERSION + "
++                       "MFRONT_GMP_REAL_TYPE_API_VERSION_OFFSET");
+   }  // end of writeSymbols
+ 
++  std::string AbstractBackend::getSharedDataCopy(const std::string_view getter,
++                                                 const std::string_view) const {
++    return "mfront::gpb::getSharedDataCopy<" + std::string{getter} + ">()";
++  }  // end of getSharedDataCopy
++
+   void AbstractBackend::writeCall(std::ostream& os,
++                                  const Runtime r,
+                                   const std::string_view f,
++                                  const std::string_view template_arguments,
+                                   const std::string_view status,
+                                   const std::string_view arguments) const {
+-    os << "return mfront::gpmp::" << f << "(" << status << ", " << arguments
+-       << ", " << this->getApply() << ");\n";
++    os << "return " << getNamespace(r) << "::" << f;
++    if (!template_arguments.empty()) {
++      os << "<" << template_arguments << ">";
++    }
++    os << "(" << status << ", " << arguments << ", " << this->getApply()
++       << ");\n";
+   }  // end of writeCall
+ 
+   AbstractBackend::~AbstractBackend() noexcept = default;
+diff --git a/mfront/src/GenericParallel/BackendFactory.cxx b/mfront/src/GenericParallel/BackendFactory.cxx
+index cc60738ef..62ae2c0e9 100644
+--- a/mfront/src/GenericParallel/BackendFactory.cxx
++++ b/mfront/src/GenericParallel/BackendFactory.cxx
+@@ -14,7 +14,13 @@
+ 
+ #include <utility>
+ #include "TFEL/Raise.hxx"
++#include "MFront/MFrontLogStream.hxx"
++#include "MFront/GenericParallel/ArcaneBackend.hxx"
+ #include "MFront/GenericParallel/GPUBackend.hxx"
++#include "MFront/GenericParallel/KokkosBackend.hxx"
++#include "MFront/GenericParallel/OpenMPBackend.hxx"
++#include "MFront/GenericParallel/OpenACCBackend.hxx"
++#include "MFront/GenericParallel/RAJABackend.hxx"
+ #include "MFront/GenericParallel/ParallelSTLBackend.hxx"
+ #include "MFront/GenericParallel/SYCLBackend.hxx"
+ #include "MFront/GenericParallel/BackendFactory.hxx"
+@@ -27,12 +33,27 @@ namespace mfront::generic_parallel {
+   }  // end of get
+ 
+   BackendFactory::BackendFactory() {
++    this->add("arcane", [](const DataMap& opts) {
++      return std::make_unique<ArcaneBackend>(opts);
++    });
+     this->add("cuda", [](const DataMap& opts) {
+       return std::make_unique<CUDABackend>(opts);
+     });
+     this->add("hip", [](const DataMap& opts) {
+       return std::make_unique<HIPBackend>(opts);
+     });
++    this->add("kokkos", [](const DataMap& opts) {
++      return std::make_unique<KokkosBackend>(opts);
++    });
++    this->add("openmp", [](const DataMap& opts) {
++      return std::make_unique<OpenMPBackend>(opts);
++    });
++    this->add("openacc", [](const DataMap& opts) {
++      return std::make_unique<OpenACCBackend>(opts);
++    });
++    this->add("raja", [](const DataMap& opts) {
++      return std::make_unique<RAJABackend>(opts);
++    });
+     this->add("stlpar", [](const DataMap& opts) {
+       return std::make_unique<ParallelSTLBackend>(opts);
+     });
+@@ -67,6 +88,24 @@ namespace mfront::generic_parallel {
+     }
+   }  // end of generate
+ 
++  std::unique_ptr<AbstractBackend> BackendFactory::generate(
++      const DataMap& opts) const {
++    using tfel::utilities::DataStructure;
++    auto validator = tfel::utilities::DataMapValidator{};
++    validator.addDataTypeValidator<DataStructure>("backend");
++    validator.validate(opts);
++    if (!contains(opts, "backend")) {
++      return {};
++    }
++    const auto ds =
++        DataStructure::convert(tfel::utilities::get(opts, "backend"));
++    if (getVerboseMode() >= VERBOSE_DEBUG) {
++      getLogStream() << "BackendFactory::generate: creating backend '"
++                     << ds.name << "'\n";
++    }
++    return this->generate(ds.name, ds.data);
++  }  // end of generate
++
+   BackendFactory::~BackendFactory() = default;
+ 
+ }  // end of namespace mfront::generic_parallel
+diff --git a/mfront/src/GenericParallel/BackendOptions.cxx b/mfront/src/GenericParallel/BackendOptions.cxx
+index 15fbb05c4..de9575dd1 100644
+--- a/mfront/src/GenericParallel/BackendOptions.cxx
++++ b/mfront/src/GenericParallel/BackendOptions.cxx
+@@ -1,7 +1,7 @@
+ /*!
+  * \file   mfront/src/GenericParallel/BackendOptions.cxx
+  * \brief  This file implements the options shared by the backends of the
+- * `generic-parallel` interface for material properties.
++ * `generic-parallel` interfaces for material properties and behaviours.
+  * \date   06/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+@@ -12,6 +12,7 @@
+  */
+ 
+ #include "TFEL/Raise.hxx"
++#include "TFEL/Utilities/CxxTokenizer.hxx"
+ #include "MFront/GenericParallel/BackendOptions.hxx"
+ 
+ namespace mfront::generic_parallel {
+@@ -52,6 +53,94 @@ namespace mfront::generic_parallel {
+     return get<int>(opts, "device_stack_size");
+   }  // end of getDeviceStackSize
+ 
++  void declareKokkosExecutionSpaceOption(tfel::utilities::DataMapValidator& v) {
++    v.addDataTypeValidator<std::string>("execution_space");
++  }  // end of declareKokkosExecutionSpaceOption
++
++  std::string getKokkosExecutionSpace(const tfel::utilities::DataMap& opts) {
++    if (!contains(opts, "execution_space")) {
++      return "Kokkos::DefaultExecutionSpace";
++    }
++    // the execution space is written in the generated code
++    const auto s = get<std::string>(opts, "execution_space");
++    auto valid = !s.empty();
++    for (auto p = std::string::size_type{}; valid;) {
++      const auto e = s.find("::", p);
++      const auto n = s.substr(p, e == std::string::npos ? e : e - p);
++      valid = tfel::utilities::CxxTokenizer::isValidIdentifier(n, false);
++      if (e == std::string::npos) {
++        break;
++      }
++      p = e + 2;
++    }
++    if (!valid) {
++      tfel::raise("getKokkosExecutionSpace: invalid execution space '" + s +
++                  "'");
++    }
++    return s;
++  }  // end of getKokkosExecutionSpace
++
++  void declareRAJAExecutionPolicyOption(tfel::utilities::DataMapValidator& v) {
++    v.addDataTypeValidator<std::string>("execution_policy");
++  }  // end of declareRAJAExecutionPolicyOption
++
++  std::string getRAJAExecutionPolicy(const tfel::utilities::DataMap& opts) {
++    if (!contains(opts, "execution_policy")) {
++      return "mfront::generic_parallel::raja::DefaultExecutionPolicy";
++    }
++    // the execution policy is written in the generated code: it must be
++    // made of qualified identifiers, integers, template arguments separated
++    // by commas, and spaces
++    const auto p = get<std::string>(opts, "execution_policy");
++    auto valid = !p.empty();
++    auto depth = 0;
++    auto token = std::string{};
++    auto check_token = [&valid, &token] {
++      if (token.empty()) {
++        return;
++      }
++      // integers and booleans, for instance the number of threads per block
++      // and the asynchronous flag of `RAJA::cuda_exec<128, true>`
++      const auto is_literal =
++          (token.find_first_not_of("0123456789") == std::string::npos) ||
++          (token == "true") || (token == "false");
++      if ((!is_literal) &&
++          (!tfel::utilities::CxxTokenizer::isValidIdentifier(token, false))) {
++        valid = false;
++      }
++      token.clear();
++    };
++    for (auto pos = std::string::size_type{}; valid && (pos != p.size());
++         ++pos) {
++      const auto c = p[pos];
++      if ((c == ':') && (pos + 1 != p.size()) && (p[pos + 1] == ':')) {
++        check_token();
++        ++pos;
++      } else if ((c == '<') || (c == ',') || (c == ' ')) {
++        check_token();
++        if (c == '<') {
++          ++depth;
++        } else if ((c == ',') && (depth == 0)) {
++          valid = false;
++        }
++      } else if (c == '>') {
++        check_token();
++        if (depth == 0) {
++          valid = false;
++        }
++        --depth;
++      } else {
++        token += c;
++      }
++    }
++    check_token();
++    if ((!valid) || (depth != 0)) {
++      tfel::raise("getRAJAExecutionPolicy: invalid execution policy '" + p +
++                  "'");
++    }
++    return p;
++  }  // end of getRAJAExecutionPolicy
++
+   void declareDataTransferPolicyOption(tfel::utilities::DataMapValidator& v) {
+     v.addDataTypeValidator<std::string>("data_transfer_policy");
+   }  // end of declareDataTransferPolicyOption
+diff --git a/mfront/src/GenericParallel/GPUBackend.cxx b/mfront/src/GenericParallel/GPUBackend.cxx
+index 57e16829b..7c6bb3590 100644
+--- a/mfront/src/GenericParallel/GPUBackend.cxx
++++ b/mfront/src/GenericParallel/GPUBackend.cxx
+@@ -27,10 +27,20 @@ namespace mfront::generic_parallel {
+     }
+   }  // end of GPUBackend
+ 
+-  void GPUBackend::writeSpecificIncludes(std::ostream& os) const {
++  void GPUBackend::writeSpecificIncludes(std::ostream& os,
++                                         const Runtime r) const {
+     os << "#include \"MFront/GenericParallel/GPU.hxx\"\n";
++    if (r == Runtime::BEHAVIOURS) {
++      // copies of the shared data
++      os << "#include \"MFront/GenericParallelBehaviour/GPU.hxx\"\n";
++    }
+   }  // end of writeSpecificIncludes
+ 
++  std::string GPUBackend::getSharedDataCopy(const std::string_view getter,
++                                            const std::string_view) const {
++    return "mfront::gpb::gpu::getSharedDataCopy<" + std::string{getter} + ">()";
++  }  // end of getSharedDataCopy
++
+   std::string GPUBackend::getApply() const {
+     return "mfront::generic_parallel::gpu::makeApply(" +
+            std::to_string(this->number_of_threads_per_block) + ")";
+@@ -60,10 +70,11 @@ namespace mfront::generic_parallel {
+     return "::mfront::generic_parallel::HIPBackendExecutionPolicy";
+   }  // end of getExecutionPolicyType
+ 
+-  void HIPBackend::writeSpecificIncludes(std::ostream& os) const {
++  void HIPBackend::writeSpecificIncludes(std::ostream& os,
++                                         const Runtime r) const {
+     // selects the HIP runtime, even on NVIDIA GPUs
+     os << "#include \"hip/hip_runtime.h\"\n";
+-    GPUBackend::writeSpecificIncludes(os);
++    GPUBackend::writeSpecificIncludes(os, r);
+   }  // end of writeSpecificIncludes
+ 
+   HIPBackend::~HIPBackend() noexcept = default;
+diff --git a/mfront/src/GenericParallel/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/ParallelSTLBackend.cxx
+index 0481c3a6d..56eb18477 100644
+--- a/mfront/src/GenericParallel/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/ParallelSTLBackend.cxx
+@@ -35,7 +35,8 @@ namespace mfront::generic_parallel {
+     return "cxx";
+   }  // end of getSourceFileExtension
+ 
+-  void ParallelSTLBackend::writeSpecificIncludes(std::ostream& os) const {
++  void ParallelSTLBackend::writeSpecificIncludes(std::ostream& os,
++                                                 const Runtime) const {
+     os << "#include <execution>\n"
+        << "#include \"MFront/GenericParallel/ParallelSTL.hxx\"\n";
+   }  // end of writeSpecificIncludes
+diff --git a/mfront/src/GenericParallel/SYCLBackend.cxx b/mfront/src/GenericParallel/SYCLBackend.cxx
+index caf4de4a5..35d767046 100644
+--- a/mfront/src/GenericParallel/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/SYCLBackend.cxx
+@@ -31,11 +31,16 @@ namespace mfront::generic_parallel {
+ 
+   std::string SYCLBackend::getSourceFileExtension() const { return "cxx"; }
+ 
+-  void SYCLBackend::writeSpecificIncludes(std::ostream& os) const {
+-    // primitive of the backend and functions transferring the fields of the
+-    // batches
+-    os << "#include \"MFront/GenericParallel/SYCL.hxx\"\n"
+-       << "#include \"MFront/GenericParallelMaterialProperty/SYCL.hxx\"\n";
++  void SYCLBackend::writeSpecificIncludes(std::ostream& os,
++                                          const Runtime r) const {
++    // functions transferring the fields of the batches and, for the
++    // behaviours, copying the shared data
++    os << "#include \"MFront/GenericParallel/SYCL.hxx\"\n";
++    if (r == Runtime::BEHAVIOURS) {
++      os << "#include \"MFront/GenericParallelBehaviour/SYCL.hxx\"\n";
++    } else {
++      os << "#include \"MFront/GenericParallelMaterialProperty/SYCL.hxx\"\n";
++    }
+   }  // end of writeSpecificIncludes
+ 
+   std::string SYCLBackend::getApply() const {
+@@ -59,15 +64,27 @@ namespace mfront::generic_parallel {
+     return "::mfront::generic_parallel::SyclBackendExecutionPolicy";
+   }  // end of getExecutionPolicyType
+ 
++  std::string SYCLBackend::getSharedDataCopy(
++      const std::string_view getter, const std::string_view execution) const {
++    return "mfront::gpb::sycl::getSharedDataCopy<" + std::string{getter} +
++           ">(" + std::string{execution} + ")";
++  }  // end of getSharedDataCopy
++
+   void SYCLBackend::writeCall(std::ostream& os,
++                              const Runtime r,
+                               const std::string_view f,
++                              const std::string_view template_arguments,
+                               const std::string_view status,
+                               const std::string_view arguments) const {
+     // the functions of the SYCL backend transfer the fields which are not
+     // accessible by the device before calling the generic ones
+-    const auto ns = std::string{"mfront::gpmp::sycl::"};
+-    os << "return " << ns << f << "(" << status << ", " << arguments << ", "
+-       << ns << "DataTransferPolicy::"
++    const auto ns = std::string{getNamespace(r)} + "::sycl::";
++    os << "return " << ns << f;
++    if (!template_arguments.empty()) {
++      os << "<" << template_arguments << ">";
++    }
++    os << "(" << status << ", " << arguments << ", " << ns
++       << "DataTransferPolicy::"
+        << (this->automatic_data_transfers ? "AUTOMATIC" : "NONE") << ", "
+        << this->getApply() << ");\n";
+   }  // end of writeCall
+diff --git a/mfront/src/GenericParallelMaterialPropertyInterface.cxx b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+index 7ce463da6..c80467a97 100644
+--- a/mfront/src/GenericParallelMaterialPropertyInterface.cxx
++++ b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+@@ -63,10 +63,12 @@ namespace mfront {
+    * \param[out] os: output stream
+    * \param[in] mpd: material property description
+    * \param[in] name: name of the material property
++   * \param[in] status: type of the output status
+    */
+   static void writeDeclarations(std::ostream& os,
+                                 const MaterialPropertyDescription& mpd,
+-                                const std::string& name) {
++                                const std::string& name,
++                                const std::string& status) {
+     os << "/*!\n"
+        << " * \\brief compute the value of '" << mpd.className
+        << "' material property on a batch of points (see "
+@@ -77,7 +79,7 @@ namespace mfront {
+        << " * \\return the status, also given by the output status\n"
+        << " */\n"
+        << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel(\n"
+-       << "mfront_gpmp_OutputStatus* const,\n"
++       << status << "* const,\n"
+        << "const mfront_gpmp_BatchData* const);\n\n"
+        << "/*!\n"
+        << " * \\brief analyse the statistics of an evaluation of '"
+@@ -91,7 +93,7 @@ namespace mfront {
+        << " * \\return the status, also given by the output status\n"
+        << " */\n"
+        << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel_report(\n"
+-       << "mfront_gpmp_OutputStatus* const,\n"
++       << status << "* const,\n"
+        << "const mfront_gpmp_Statistics* const);\n\n";
+   }  // end of writeDeclarations
+ 
+@@ -352,6 +354,7 @@ namespace mfront {
+       const generic_parallel::AbstractBackend& backend,
+       const MaterialPropertyDescription& mpd,
+       const std::string& name) {
++    using Runtime = generic_parallel::AbstractBackend::Runtime;
+     const auto nargs = mpd.inputs.size();
+     const auto checks = !areRuntimeChecksDisabled(mpd);
+     // the identifier of a check is stored in 16 bits of the keys of the
+@@ -400,7 +403,8 @@ namespace mfront {
+          << '"';
+     }
+     os << "};\n";
+-    backend.writeCall(os, "evaluateBatch", "*mfront_output_status",
++    backend.writeCall(os, Runtime::MATERIAL_PROPERTIES, "evaluateBatch", "",
++                      "*mfront_output_status",
+                       "*mfront_batch, " + evaluation +
+                           ", mfront_arguments_names, " +
+                           (checks ? "true" : "false") + ", &" + name +
+@@ -415,39 +419,22 @@ namespace mfront {
+ 
+   GenericParallelMaterialPropertyInterface::
+       GenericParallelMaterialPropertyInterface()
+-      : backend(std::make_unique<
+-                ::mfront::generic_parallel::ParallelSTLBackend>()) {
++      : backend(std::make_unique<generic_parallel::ParallelSTLBackend>()) {
+   }  // end of GenericParallelMaterialPropertyInterface
+ 
+   void GenericParallelMaterialPropertyInterface::setOptions(
+       const DataMap& opts) {
+-    using ::mfront::generic_parallel::BackendFactory;
+-    using tfel::utilities::DataStructure;
+-    auto validator = tfel::utilities::DataMapValidator{};
+-    validator.addDataTypeValidator<DataStructure>("backend");
+-    validator.validate(opts);
+-    if (getVerboseMode() >= VERBOSE_DEBUG) {
+-      getLogStream()
+-          << "GenericParallelMaterialPropertyInterface::setOptions: begin\n";
++    using generic_parallel::BackendFactory;
++    // options of the interface, the other ones being the ones of the
++    // backend, as for the behaviours
++    auto backend_options = opts;
++    if (contains(opts, "generic_functions")) {
++      this->generic_functions = get<bool>(opts, "generic_functions");
++      backend_options.erase("generic_functions");
+     }
+-    const auto ds = [&opts]() -> tfel::utilities::DataStructure {
+-      if (contains(opts, "backend")) {
+-        return DataStructure::convert(get(opts, "backend"));
+-      }
+-      auto r = DataStructure{};
+-      r.name = "stlpar";
+-      return r;
+-    }();
+-    if (getVerboseMode() >= VERBOSE_DEBUG) {
+-      getLogStream() << "GenericParallelMaterialPropertyInterface::setOptions: "
+-                        "creating backend '"
+-                     << ds.name << "'\n";
+-    }
+-    auto& f = BackendFactory::get();
+-    this->backend = f.generate(ds.name, ds.data);
+-    if (getVerboseMode() >= VERBOSE_DEBUG) {
+-      getLogStream()
+-          << "GenericParallelMaterialPropertyInterface::setOptions: end\n";
++    if (auto b = BackendFactory::get().generate(backend_options);
++        b != nullptr) {
++      this->backend = std::move(b);
+     }
+   }  // end of setOptions
+ 
+@@ -463,6 +450,11 @@ namespace mfront {
+ 
+   std::vector<std::string>
+   GenericParallelMaterialPropertyInterface::getInterfaceHeaderFiles() const {
++    if (this->generic_functions) {
++      return {"MFront/GenericMaterialProperty/Types.h",
++              "MFront/GenericMaterialProperty/MaterialProperty.h",
++              "MFront/GenericParallelMaterialProperty/MaterialProperty.h"};
++    }
+     return {"MFront/GenericMaterialProperty/Types.h",
+             "MFront/GenericParallelMaterialProperty/MaterialProperty.h"};
+   }  // end of getInterfaceHeaderFiles
+@@ -522,6 +514,10 @@ namespace mfront {
+     insert_if(l.link_libraries, "m");
+ #endif /* !((defined _WIN32) && (defined _MSC_VER)) */
+     insert_if(l.epts, name + "_generic_parallel");
++    if (this->generic_functions) {
++      insert_if(l.sources, this->getPointwiseSourceFileName(name));
++      insert_if(l.epts, name);
++    }
+     d.headers.push_back(this->getHeaderFileName(name));
+   }  // end of getLibraryDescription
+ 
+@@ -549,21 +545,45 @@ namespace mfront {
+ 
+   std::string GenericParallelMaterialPropertyInterface::getHeaderFileName(
+       const std::string& name) const {
+-    const auto i = this->getInterfaceName();
+-    return name + '-' + i + '-' + this->backend->getName() + ".hxx";
++    return this->backend->getHeaderFileName(name);
+   }
+ 
+   std::string GenericParallelMaterialPropertyInterface::getSourceFileName(
+       const std::string& name) const {
++    return this->backend->getSourceFileName(name);
++  }
++
++  std::string
++  GenericParallelMaterialPropertyInterface::getPointwiseSourceFileName(
++      const std::string& name) const {
+     const auto i = this->getInterfaceName();
+-    return name + '-' + i + '-' + this->backend->getName() + '.' +
+-           this->backend->getSourceFileExtension();
++    return name + '-' + i + '-' + this->backend->getName() + "-generic.cxx";
+   }
+ 
++  GenericMaterialPropertyInterfaceBase::PointwiseFunctionDescription
++  GenericParallelMaterialPropertyInterface::
++      getGenericPointwiseFunctionDescription() {
++    auto d = PointwiseFunctionDescription{};
++    d.types.real_type = "mfront_gmp_real";
++    d.types.integer_type = "mfront_gmp_size_type";
++    d.types.out_of_bounds_policy_type = "mfront_gmp_OutOfBoundsPolicy";
++    d.types.output_status_type = "mfront_gmp_OutputStatus";
++    // the parameters handler is the one of the functions of batches of
++    // points: the library has one set of parameters
++    d.interface_namespace = "generic_parallel";
++    // each part of the library follows the macro of its interface
++    d.bounds_check_macro = "NO_GENERIC_BOUNDS_CHECK";
++    d.out_of_bounds_policy_prefix = "GENERIC_MATERIALPROPERTY";
++    return d;
++  }  // end of getGenericPointwiseFunctionDescription
++
+   void GenericParallelMaterialPropertyInterface::writeOutputFiles(
+       const MaterialPropertyDescription& mpd, const FileDescription& fd) const {
+     this->writeHeaderFile(mpd, fd);
+     this->writeSrcFile(mpd, fd);
++    if (this->generic_functions) {
++      this->writePointwiseSourceFile(mpd, fd);
++    }
+   }  // end of writeOutputFiles
+ 
+   void GenericParallelMaterialPropertyInterface::writeHeaderFile(
+@@ -606,17 +626,28 @@ namespace mfront {
+                        makeUpperCase(this->backend->getName()) + "_HH";
+     os << "#ifndef " << guard << "\n"
+        << "#define " << guard << "\n\n";
++    writeRealTypeDefinitions(os, mpd);
+     writeExportDirectives(os);
+ 
+     for (const auto& header : this->getInterfaceHeaderFiles()) {
+       os << "#include \"" << header << "\"\n\n";
+     }
+-
+     os << "#ifdef __cplusplus\n"
+        << "extern \"C\"{\n"
+        << "#endif /* __cplusplus */\n\n";
+ 
+-    writeDeclarations(os, mpd, name);
++    writeDeclarations(os, mpd, name,
++                      this->getTypesDescription().output_status_type);
++
++    if (this->generic_functions) {
++      // function of a point, as declared by the `generic` interface
++      const auto gtypes = getGenericPointwiseFunctionDescription().types;
++      os << "MFRONT_SHAREDOBJ " << gtypes.real_type << "\n"
++         << name << "(" << gtypes.output_status_type << "* const,"
++         << "const " << gtypes.real_type << "* const,"
++         << "const " << gtypes.integer_type << ","
++         << "const " << gtypes.out_of_bounds_policy_type << ");\n\n";
++    }
+ 
+     writeParametersSetterFunctionDeclaration(
+         os, mpd,
+@@ -641,6 +672,7 @@ namespace mfront {
+       getLogStream() << "GenericParallelMaterialPropertyInterface::"
+                         "writeSrcFile: begin\n";
+     }
++    const auto types = this->getTypesDescription();
+     const auto nname = this->getInterfaceInternalNamespace();
+     const auto name = this->getFunctionName(mpd);
+     const auto fn = "src/" + this->getSourceFileName(name);
+@@ -671,6 +703,7 @@ namespace mfront {
+       os << "* \\date " << date << '\n';
+     }
+     os << " */\n\n";
++    writeRealTypeDefinitions(os, mpd);
+     os << "#include<algorithm>\n"
+        << "#include<iterator>\n"
+        << "#include<iostream>\n"
+@@ -683,7 +716,8 @@ namespace mfront {
+        << "#include<vector>\n"
+        << "#include<locale>\n"
+        << "#include<cmath>\n"
+-       << "#include<limits>\n";
++       << "#include<limits>\n"
++       << "#include<optional>\n";
+     os << "#include\"TFEL/Config/TFELTypes.hxx\"\n"
+        << "#include\"TFEL/PhysicalConstants.hxx\"\n"
+        << "#include\"TFEL/Math/General/IEEE754.hxx\"\n"
+@@ -700,7 +734,8 @@ namespace mfront {
+     }
+     // primitive of the backend. Its header includes the header of the
+     // execution policy of the backend
+-    this->backend->writeSpecificIncludes(os);
++    this->backend->writeSpecificIncludes(
++        os, generic_parallel::AbstractBackend::Runtime::MATERIAL_PROPERTIES);
+     os << '\n';
+ 
+     writeMaterialPropertyParametersHandler(os, mpd,
+@@ -721,12 +756,20 @@ namespace mfront {
+     writeCompatibilityModeSymbol(os, name, mpd);
+     writeBuildIdentifierSymbol(os, name, mpd);
+     writeEntryPointSymbol(os, name);
++    writeRealSizeSymbol(os, name, types.real_type);
+     writeTFELVersionSymbol(os, name);
+     writeUnitSystemSymbol(os, name, mpd);
+-    writeInterfaceSymbol(os, name, this->getInterfaceNameInCamelCase());
++    // a library containing the function of a point exports `Generic` as
++    // interface, as a library of the `generic` interface
++    writeInterfaceSymbol(os, name,
++                         this->generic_functions
++                             ? std::string{"Generic"}
++                             : this->getInterfaceNameInCamelCase());
+     // backend, version of the generated functions, memory space and
+     // execution policy
+-    this->backend->writeSymbols(os, name);
++    this->backend->writeSymbols(
++        os, name,
++        generic_parallel::AbstractBackend::Runtime::MATERIAL_PROPERTIES);
+     writeLawSymbol(os, name, mpd.law);
+     writeMaterialSymbol(os, name, mpd.material);
+     writeMaterialKnowledgeTypeSymbol(os, name,
+@@ -757,6 +800,80 @@ namespace mfront {
+     }
+   }  // end of GenericParallelMaterialPropertyInterface::writeSrcFile
+ 
++  void GenericParallelMaterialPropertyInterface::writePointwiseSourceFile(
++      const MaterialPropertyDescription& mpd, const FileDescription& fd) const {
++    const auto name = this->getFunctionName(mpd);
++    const auto fn = "src/" + this->getPointwiseSourceFileName(name);
++    const auto d = getGenericPointwiseFunctionDescription();
++    std::ofstream os{fn};
++    tfel::raise_if(!os,
++                   "GenericParallelMaterialPropertyInterface::"
++                   "writePointwiseSourceFile: unable to open '" +
++                       fn + "'");
++    os.exceptions(std::ios::badbit | std::ios::failbit);
++    os.precision(14);
++    os << "/*!\n"
++       << "* \\file   " << fn << '\n'
++       << "* \\brief  "
++       << "this file implements the function of the generic interface\n"
++       << "*         evaluating the " << name << " MaterialLaw at a point.\n"
++       << "*         File generated by " << MFrontHeader::getVersionName()
++       << " "
++       << "version " << MFrontHeader::getVersionNumber() << '\n';
++    if (!fd.authorName.empty()) {
++      os << "* \\author " << fd.authorName << '\n';
++    }
++    if (!fd.date.empty()) {
++      os << "* \\date " << fd.date << '\n';
++    }
++    os << " */\n\n";
++    writeRealTypeDefinitions(os, mpd);
++    // the header of the library is not included: it may hold declarations
++    // specific to the compiler of the backend
++    writeExportDirectives(os);
++    os << "#include<algorithm>\n"
++       << "#include<iterator>\n"
++       << "#include<iostream>\n"
++       << "#include<sstream>\n"
++       << "#include<fstream>\n"
++       << "#include<cstring>\n"
++       << "#include<cstdlib>\n"
++       << "#include<cerrno>\n"
++       << "#include<string>\n"
++       << "#include<vector>\n"
++       << "#include<locale>\n"
++       << "#include<cmath>\n"
++       << "#include\"TFEL/Config/TFELTypes.hxx\"\n"
++       << "#include\"TFEL/PhysicalConstants.hxx\"\n"
++       << "#include\"TFEL/Math/General/IEEE754.hxx\"\n"
++       << "#include\"TFEL/Math/General/DerivativeType.hxx\"\n"
++       << "#include\"MFront/GenericMaterialProperty/MaterialProperty.h\"\n";
++    if (useQuantities(mpd)) {
++      os << "#include\"TFEL/Math/qt.hxx\"\n"
++         << "#include\"TFEL/Math/Quantity/qtIO.hxx\"\n";
++    }
++    os << '\n';
++    if (!mpd.includes.empty()) {
++      os << mpd.includes << "\n\n";
++    }
++    // same definition of the parameters handler as in the source of the
++    // functions of batches of points: the library has a single instance of
++    // the parameters, changed by `<name>_setParameter`
++    writeMaterialPropertyParametersHandler(
++        os, mpd,
++        {.material_property_name = name,
++         .floating_point_type = "double",
++         .interface_namespace = d.interface_namespace});
++    os << "#ifdef __cplusplus\n"
++       << "extern \"C\"{\n"
++       << "#endif /* __cplusplus */\n\n";
++    writePointwiseFunction(os, mpd, fd, name, d);
++    os << "#ifdef __cplusplus\n"
++       << "} // end of extern \"C\"\n"
++       << "#endif /* __cplusplus */\n\n";
++    os.close();
++  }  // end of writePointwiseSourceFile
++
+   GenericParallelMaterialPropertyInterface::
+       ~GenericParallelMaterialPropertyInterface() = default;
+ 
+-- 
+2.43.0
+

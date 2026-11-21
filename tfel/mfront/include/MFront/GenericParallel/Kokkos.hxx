@@ -14,15 +14,12 @@
 #ifndef LIB_MFRONT_GENERICPARALLEL_KOKKOS_HXX
 #define LIB_MFRONT_GENERICPARALLEL_KOKKOS_HXX
 
+#include <new>
 #include <Kokkos_Core.hpp>
 #include "MFront/GenericParallel/Batch.hxx"
 #include "MFront/GenericParallel/KokkosStackSize.hxx"
 #include "MFront/GenericParallel/StatusBlockPool.hxx"
 #include "MFront/GenericParallel/KokkosBackendExecutionPolicy.hxx"
-
-static_assert(Kokkos::has_shared_space,
-              "the Kokkos backend of the generic-parallel interface requires "
-              "a shared memory space (Kokkos::SharedSpace)");
 
 namespace mfront::generic_parallel::kokkos {
 
@@ -51,26 +48,63 @@ namespace mfront::generic_parallel::kokkos {
     struct AtomicUpdate {
       //! \brief apply the function at the `i`-th point
       KOKKOS_FUNCTION void operator()(const size_type i) const {
-        updateStatistics<Atomics>(*(this->statistics), this->f(i), this->rdt0);
+        const auto r = this->f(i);
+        if ((this->statistics != nullptr) &&
+            (updateStatistics<Atomics>(*(this->statistics), r, this->rdt0))) {
+          signalEvents(this->events);
+        }
       }
       //! \brief function object applied at one point
       PointFunction f;
-      //! \brief statistics
+      /*!
+       * \brief statistics, or null if the function never reports an event
+       * (see the `hasEvents` method of the handlers of the statistics)
+       */
       Statistics* statistics;
+      //! \brief flag set when the statistics are updated (see
+      //! `StatisticsBlock`), or null
+      int* events;
       //! \brief ordered key of the initial time step scaling factor
       unsigned long long rdt0;
     };
 
     /*!
-     * \return the pool of blocks of shared memory holding the statistics of
-     * the synchronous computations, shared by all the functions of the
-     * library. Kokkos uses one device per process. The blocks are freed when
-     * Kokkos is finalized.
+     * \return a block of statistics (see `StatisticsBlock`), allocated in
+     * the pinned memory of the host (`Kokkos::SharedHostPinnedSpace`), the
+     * statistics being allocated in the given memory space. The block is reset
+     * before its first use. The allocations are freed when Kokkos is
+     * finalized. An exception is thrown if an allocation fails.
      * \tparam Statistics: statistics updated by the devices
+     * \tparam MemorySpace: memory space of the statistics
      */
-    template <typename Statistics>
+    template <typename Statistics, typename MemorySpace>
+    StatisticsBlock<Statistics>* allocateStatisticsBlock() {
+      auto* const statistics =
+          static_cast<Statistics*>(Kokkos::kokkos_malloc<MemorySpace>(
+              "mfront::generic_parallel::kokkos::statistics",
+              sizeof(Statistics)));
+      Kokkos::push_finalize_hook(
+          [statistics] { Kokkos::kokkos_free<MemorySpace>(statistics); });
+      auto* const block = Kokkos::kokkos_malloc<Kokkos::SharedHostPinnedSpace>(
+          "mfront::generic_parallel::kokkos::statistics_block",
+          sizeof(StatisticsBlock<Statistics>));
+      Kokkos::push_finalize_hook([block] {
+        Kokkos::kokkos_free<Kokkos::SharedHostPinnedSpace>(block);
+      });
+      return ::new (block)
+          StatisticsBlock<Statistics>{.statistics = statistics, .events = 1};
+    }  // end of allocateStatisticsBlock
+
+    /*!
+     * \return the pool of blocks holding the statistics of the synchronous
+     * computations in a memory space (see `StatisticsBlock`), shared by all
+     * the functions of the library. Kokkos uses one device per process.
+     * \tparam Statistics: statistics updated by the devices
+     * \tparam MemorySpace: memory space of the statistics
+     */
+    template <typename Statistics, typename MemorySpace>
     auto& getStatisticsBlocks() noexcept {
-      using Pool = StatusBlockPool<Statistics, int>;
+      using Pool = StatusBlockPool<StatisticsBlock<Statistics>, int>;
       static auto pool = Pool{};
       return pool;
     }  // end of getStatisticsBlocks
@@ -86,8 +120,12 @@ namespace mfront::generic_parallel::kokkos {
    * a point. If the calling code gives statistics, they are updated, and
    * this function returns once the computations are submitted if the
    * computations are asynchronous. Otherwise, the statistics are held by a
-   * block of shared memory, initialized and read by the host. In both cases,
-   * a synchronous computation waits for the completion of the computations.
+   * local variable if the execution space accesses the memory of the host,
+   * and otherwise by a block of a pool, the statistics being in the memory
+   * space of the execution space (see `StatisticsBlock`), as by the GPU
+   * backends: a call without event performs neither copy nor additional
+   * synchronization. A synchronous computation waits for the completion of
+   * the computations.
    *
    * \tparam ExecutionSpace: execution space
    * \tparam StatisticsHandler: handler of the statistics (see
@@ -136,35 +174,69 @@ namespace mfront::generic_parallel::kokkos {
         Kokkos::RangePolicy<ExecutionSpace, Kokkos::IndexType<size_type>>(space,
                                                                           0, n);
     const auto rdt0 = toOrderedKey(h.initial().rdt);
-    if (e.statistics != nullptr) {
+    if ((e.statistics != nullptr) || (!h.hasEvents())) {
+      // statistics given by the calling code: the result is given by the
+      // report function of the library. Without event, the statistics, if
+      // any, are not accessed by the kernel, as for the GPU backends
       Kokkos::parallel_for("mfront::generic_parallel::kokkos::apply", range,
-                           Update{f, e.statistics, rdt0});
+                           Update{f, e.statistics, nullptr, rdt0});
       if (!p.common_options.asynchronous) {
         space.fence();
       }
       return s.status;
     }
-    // synchronous computations: the device only accesses the block if an
-    // event occurs, as for the GPU backends
-    const auto block =
-        internals::getStatisticsBlocks<Statistics>().acquire(0, [] {
-          auto* const p = static_cast<Statistics*>(
-              Kokkos::kokkos_malloc<Kokkos::SharedSpace>(
-                  "mfront::generic_parallel::kokkos::statistics",
-                  sizeof(Statistics)));
-          Kokkos::push_finalize_hook(
-              [p] { Kokkos::kokkos_free<Kokkos::SharedSpace>(p); });
-          return p;
-        });
-    auto* const statistics = block.get();
-    if (statistics == nullptr) {
-      return report(s, -7, "unable to allocate the statistics of the batch");
+    // synchronous computations: the statistics are held by a local variable
+    // if the execution space accesses the memory of the host, and otherwise
+    // by a block of the pool (see `StatisticsBlock`)
+    auto statistics = Statistics{};
+    h.initialize(statistics);
+    if constexpr (Kokkos::SpaceAccessibility<ExecutionSpace,
+                                             Kokkos::HostSpace>::accessible) {
+      Kokkos::parallel_for("mfront::generic_parallel::kokkos::apply", range,
+                           Update{f, &statistics, nullptr, rdt0});
+      space.fence();
+    } else {
+      using MemorySpace = typename ExecutionSpace::memory_space;
+      static_assert(
+          Kokkos::SpaceAccessibility<ExecutionSpace,
+                                     Kokkos::SharedHostPinnedSpace>::accessible,
+          "the kokkos backend requires a pinned memory space of the host "
+          "accessible by the execution space (Kokkos::SharedHostPinnedSpace)");
+      using Bytes = Kokkos::View<char*, MemorySpace, Kokkos::MemoryUnmanaged>;
+      using HostBytes =
+          Kokkos::View<char*, Kokkos::HostSpace, Kokkos::MemoryUnmanaged>;
+      const auto block =
+          internals::getStatisticsBlocks<Statistics, MemorySpace>().acquire(
+              0, internals::allocateStatisticsBlock<Statistics, MemorySpace>);
+      auto* const b = block.get();
+      if (b == nullptr) {
+        return report(s, -7, "unable to allocate the statistics of the batch");
+      }
+      const auto device =
+          Bytes(reinterpret_cast<char*>(b->statistics), sizeof(Statistics));
+      if (holdsEvents(*b)) {
+        // synchronous reset, after an event or at the first use
+        auto neutral = getNeutralStatistics(statistics);
+        Kokkos::deep_copy(
+            space, device,
+            HostBytes(reinterpret_cast<char*>(&neutral), sizeof(Statistics)));
+        space.fence();
+        clearEvents(*b);
+      }
+      Kokkos::parallel_for("mfront::generic_parallel::kokkos::apply", range,
+                           Update{f, b->statistics, &(b->events), rdt0});
+      space.fence();
+      if (holdsEvents(*b)) {
+        auto block_statistics = Statistics{};
+        Kokkos::deep_copy(space,
+                          HostBytes(reinterpret_cast<char*>(&block_statistics),
+                                    sizeof(Statistics)),
+                          device);
+        space.fence();
+        statistics = mergeBlockStatistics(statistics, block_statistics);
+      }
     }
-    h.initialize(*statistics);
-    Kokkos::parallel_for("mfront::generic_parallel::kokkos::apply", range,
-                         Update{f, statistics, rdt0});
-    space.fence();
-    return h.report(s, *statistics);
+    return h.report(s, statistics);
   }  // end of apply
 
   /*!

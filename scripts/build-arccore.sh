@@ -27,9 +27,12 @@
 # define `__HIP__`), so the kernels of the behaviours would never run on the
 # GPU.
 # oneTBB (Thread queues) and GLib (libglib2.0-dev) are the ones of the
-# system. The sources are a shallow clone of the arcane-v4.1.16.0 tag of the
-# Arcane framework, made in deps/arcane-framework if no source directory is
-# given.
+# system. The sources are the main branch of the Arcane framework at the
+# merge of its PR #2861 (16/11/2026), fetched in deps/arcane-framework if no
+# source directory is given: the arcane backend requires
+# `RunQueue::deviceId()` (PR #2859) and the atomic operations of the
+# accelerators on `unsigned long long` (PR #2861), which are not in a
+# release of Arcane yet. A given source directory must provide them.
 # usage: [ARCCORE_MODE=cuda|hip-amd|sycl] [HIP_ARCH=gfx1036] \
 #   scripts/build-arccore.sh [source directory]
 set -e
@@ -38,9 +41,21 @@ V=$P/deps/spack/mmm-gpu/.spack-env/view
 CUDA=/home/t/Bureau/spack-mmm-externals/cuda-12.9.1
 SRC=${1:-$P/deps/arcane-framework}
 MODE=${ARCCORE_MODE:-cuda}
+COMMIT=51b90b87ba1e26550dba034a904146e8dd2f9e09
 if [ ! -d "$SRC" ]; then
-  git clone --depth 1 --branch arcane-v4.1.16.0 \
-    https://github.com/arcaneframework/framework.git "$SRC"
+  git init -q "$SRC"
+  git -C "$SRC" fetch -q --depth 1 \
+    https://github.com/arcaneframework/framework.git "$COMMIT"
+  git -C "$SRC" checkout -q FETCH_HEAD
+fi
+common_dir=$SRC/arccore/src/common/arccore/common/accelerator
+accelerator_dir=$SRC/arccore/src/accelerator/arccore/accelerator
+if ! grep -q "DeviceId deviceId() const" "$common_dir/RunQueue.h" ||
+   ! grep -q "std::same_as<T, unsigned long long>" "$accelerator_dir/Atomic.h"; then
+  echo "$SRC: the sources of Arcane do not provide RunQueue::deviceId()" \
+    "and the atomic operations on unsigned long long (main branch of" \
+    "Arcane from $COMMIT)" >&2
+  exit 1
 fi
 # architecture of the NVIDIA GPU of the machine (12.0 gives 120)
 nvidia_architecture() {

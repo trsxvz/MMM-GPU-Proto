@@ -15,6 +15,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include "MFront/LibraryDescription.hxx"
+#include "MFront/SpecificTargetDescription.hxx"
 #include "MFront/TargetsDescription.hxx"
 
 static std::vector<std::string> TargetsDescription_getHeaders(
@@ -23,7 +24,7 @@ static std::vector<std::string> TargetsDescription_getHeaders(
 }
 
 static void TargetsDescription_setHeaders(mfront::TargetsDescription& t,
-                                           const std::vector<std::string>& h) {
+                                          const std::vector<std::string>& h) {
   t.headers = h;
 }
 
@@ -38,6 +39,16 @@ void declareTargetsDescription(pybind11::module_& m) {
   using namespace mfront;
   using LibraryAccess =
       LibraryDescription& (TargetsDescription::*)(const std::string&);
+  pybind11::class_<SpecificTargetDescription>(
+      m, "SpecificTargetDescription",
+      "Structure describing a specific target defined by an MFront\n"
+      "interface: its sources, its dependencies to other targets, its\n"
+      "dependencies to MFront generated libraries and its commands")
+      .def(pybind11::init<>())
+      .def_readwrite("sources", &SpecificTargetDescription::sources)
+      .def_readwrite("deps", &SpecificTargetDescription::deps)
+      .def_readwrite("libraries", &SpecificTargetDescription::libraries)
+      .def_readwrite("cmds", &SpecificTargetDescription::cmds);
   pybind11::class_<mfront::TargetsDescription>(
       m, "TargetsDescription",
       "Structure containing the results of the analysis of a\n"
@@ -49,7 +60,7 @@ void declareTargetsDescription(pybind11::module_& m) {
            static_cast<LibraryAccess>(&TargetsDescription::getLibrary),
            pybind11::arg("n"))
       .def_property("headers", TargetsDescription_getHeaders,
-                     TargetsDescription_setHeaders)
+                    TargetsDescription_setHeaders)
       .def("getLibraries", TargetsDescription_getLibraries)
       .def_property_readonly("libraries", &TargetsDescription_getLibraries)
       .def_readwrite("specific_targets", &TargetsDescription::specific_targets)
@@ -58,7 +69,7 @@ void declareTargetsDescription(pybind11::module_& m) {
         os << l;
         return os.str();
       });
-  m.def("describes", mfront::describes);
+  m.def("describes", mfront::describes, pybind11::arg("t"), pybind11::arg("n"));
   m.def("mergeTargetsDescription", mfront::mergeTargetsDescription,
         pybind11::arg("d"), pybind11::arg("s"), pybind11::arg("b"));
 }

@@ -58,7 +58,7 @@ namespace mfront::gpmp {
     const auto failure = s.isFailure();
     const auto unreliable = s.status == 1;
     const auto key = s.hasEvent()
-                         ? makeKey(static_cast<unsigned long long>(i), s.check)
+                         ? makeKey(static_cast<atomic_size_type>(i), s.check)
                          : no_event;
     return {.number_of_failures = failure ? 1u : 0u,
             .first_failure = failure ? key : no_event,
@@ -95,6 +95,12 @@ namespace mfront::gpmp {
     using Statistics = ::mfront::gpmp::Statistics;
     //! \return the statistics of a batch without event
     constexpr BatchStatistics initial() const noexcept { return {}; }
+    /*!
+     * \return false if the evaluation at one point never reports an event,
+     * which is the case if the runtime checks are disabled: the primitives
+     * then neither combine nor report the statistics
+     */
+    constexpr bool hasEvents() const noexcept { return this->runtime_checks; }
     //! \brief initialize the statistics updated by the devices
     void initialize(Statistics& s) const noexcept {
       mfront_gpmp_initializeStatistics(&s);
@@ -132,6 +138,8 @@ namespace mfront::gpmp {
     }
     //! \brief report function of the material property
     ReportFunction report_function;
+    //! \brief if false, the runtime checks are disabled
+    bool runtime_checks;
   };  // end of struct StatisticsHandler
 
   /*!
@@ -145,16 +153,26 @@ namespace mfront::gpmp {
    */
   template <typename Evaluation, size_type N>
   struct PointEvaluator {
-    //! \brief evaluate the material property at the `i`-th point
-    TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
-      auto values = std::array<real, N>{};
-      // `std::array<T, 0>::operator[]` is not available in device code
-      if constexpr (N != 0) {
-        for (size_type j = 0; j != N; ++j) {
-          const auto& a = this->arguments[j];
-          values[j] = a.values[a.point_stride * i];
-        }
-      }
+    /*!
+     * \brief evaluate the material property at the `i`-th point
+     * \note the `inline` keyword is not redundant. It is an inlining hint:
+     * `clang` only gives one to the functions explicitly declared `inline`,
+     * and may otherwise leave a function call per point in the loop over
+     * the points.
+     */
+    TFEL_HOST_DEVICE inline BatchStatistics operator()(
+        const size_type i) const {
+      // The arguments are read by a pack expansion rather than by a loop: a
+      // loop over the arguments, nested in the loop over the points, may
+      // prevent the inlining of this function or the vectorisation of the
+      // loop over the points. No element of an empty array is accessed if
+      // `N` is zero.
+      const auto read =
+          [ this, i ]<std::size_t... J>(std::index_sequence<J...>) {
+        return std::array<real, N>{
+            this->arguments[J].values[this->arguments[J].point_stride * i]...};
+      };
+      const auto values = read(std::make_index_sequence<N>{});
       const auto r = this->evaluation(values, this->out_of_bounds_policy);
       this->output.values[this->output.point_stride * i] = r.value;
       if (this->statuses != nullptr) {
@@ -211,15 +229,14 @@ namespace mfront::gpmp {
    * \param[out] s: output status
    * \param[in] d: batch data
    * \param[in] names: names of the arguments, for the error messages
-   * \param[in] check_number_of_arguments: if true, the number of arguments
-   * is checked (as with the `generic` interface, it is not checked if the
-   * runtime checks are disabled)
+   * \param[in] runtime_checks: if false, the runtime checks are disabled:
+   * as with the `generic` interface, the number of arguments is not checked
    */
   template <size_type N>
   bool check(OutputStatus& s,
              const BatchData& d,
              const std::array<const char*, N>& names,
-             const bool check_number_of_arguments) {
+             const bool runtime_checks) {
     const auto n = d.number_of_points;
     auto error = [&s](const std::string& msg) {
       report(s, -5, msg);
@@ -237,7 +254,7 @@ namespace mfront::gpmp {
           "one (" +
           std::to_string(n) + " given)");
     }
-    if ((check_number_of_arguments) && (d.number_of_arguments != N)) {
+    if ((runtime_checks) && (d.number_of_arguments != N)) {
       return error("invalid number of arguments (" +
                    std::to_string(d.number_of_arguments) + " given, " +
                    std::to_string(N) + " expected)");
@@ -273,8 +290,10 @@ namespace mfront::gpmp {
    * \param[in] d: batch data
    * \param[in] evaluation: evaluation at one point
    * \param[in] names: names of the arguments, for the error messages
-   * \param[in] check_number_of_arguments: if true, the number of arguments
-   * is checked
+   * \param[in] runtime_checks: if false, the runtime checks are disabled:
+   * the number of arguments is not checked, and the statistics are neither
+   * combined nor reported, the evaluation at one point never reporting an
+   * event
    * \param[in] report_function: report function of the material property
    * \param[in] apply: primitive of the backend
    * \return the status
@@ -284,10 +303,10 @@ namespace mfront::gpmp {
                     const BatchData& d,
                     const Evaluation& evaluation,
                     const std::array<const char*, N>& names,
-                    const bool check_number_of_arguments,
+                    const bool runtime_checks,
                     const ReportFunction report_function,
                     const Apply& apply) {
-    if (!check(s, d, names, check_number_of_arguments)) {
+    if (!check(s, d, names, runtime_checks)) {
       return s.status;
     }
     // the fields of the arguments are copied in the function object: the
@@ -301,7 +320,8 @@ namespace mfront::gpmp {
         s, d.number_of_points,
         BatchExecution{.policy = d.execution_policy,
                        .statistics = d.statistics},
-        StatisticsHandler{report_function},
+        StatisticsHandler{.report_function = report_function,
+                          .runtime_checks = runtime_checks},
         PointEvaluator<Evaluation, N>{evaluation, d.output, arguments,
                                       d.statuses, d.out_of_bounds_policy});
   }  // end of evaluateBatch

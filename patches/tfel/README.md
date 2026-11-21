@@ -1,120 +1,108 @@
 # Patches
 
-Series of patches giving this tree from TFEL master, commit `60a42dd12`
-(08/11/2026):
+Series of patches giving this tree from TFEL master, commit `753cd76da`
+(20/11/2026):
 
 ```bash
 git clone <official TFEL repository> tfel && cd tfel
-git checkout 60a42dd12
+git checkout 753cd76da
 git am --keep-cr /path/to/patches/*.patch
 ```
 
 `--keep-cr` keeps the CRLF line endings of some files of TFEL (test
 behaviours), without which some patches do not apply.
 
-Patches, by subject (independently of their numbers; the details and
-their justifications are in `docs/tfel.md` of the prototype):
+The series is written by subject: each patch gathers the changes of one
+subject, whatever the order in which they were developed (the history of
+the developments is in the journal of the prototype; the details and their
+justifications are in `docs/tfel.md`). Each changed file belongs to one
+patch, except the lists of `mfront/include/CMakeLists.txt` and
+`mfront/src/CMakeLists.txt`, whose lines are given by the patch of the
+files they name.
 
-- device code in the headers of TFEL: mathematical and material headers,
-  finite strain tools, rotations, constant objects (slip systems),
-  trivially copyable tensors, eigenvalues and eigenvectors without
-  recursion nor assertion (Jacobi algorithm for multiple eigenvalues),
-  tensor accessors, cubic splines, consistent host and device annotations
-  (checked by compiling each header with clang CUDA), device code
-  selection for single pass compilers, portable error reporting,
-  workarounds of compiler defects;
-- generated code compatible with device code: behaviours without virtual
-  functions, integration drivers of the `generic` interface split into
-  device capable cores, rotation functions, behaviour variables, models
-  and porous flows of the StandardElastoViscoPlasticity brick, parameters
-  of the behaviour variables, data shared by all the integration points
-  (`@SharedData`), static variables written `TFEL_STATIC_VARIABLE(v)`
-  (Runge-Kutta DSLs and material properties included), type of the
-  tangent operator checked before its conversion;
-- `generic-parallel` interface for behaviours and models: CUDA, HIP, C++
-  standard parallelism, Kokkos, RAJA, SYCL, OpenMP (host and offloading)
-  and OpenACC backends, standalone models, finite strain behaviours, initialize
-  functions, post-processings, rotation of all the tangent operator
-  blocks, versioned C data structures, symbols of the interface, of the
-  backend and of the memory space, execution options shared by the
-  backends, asynchronous execution, error reporting without cost on
-  success, shared data copied on each device, statistics;
-- `generic-parallel` interface for material properties: fixes, Kokkos, RAJA,
-  OpenMP and OpenACC backends, properties using data or other laws,
-  asynchronous evaluation, statistics, symbols, statuses in reused blocks,
-  status of the `Warning` policy, physical bounds. Patch 0118 gives
-  version 3 of the functions: one function per property taking the data
-  of a batch, evaluation at each point identical to the `generic`
-  interface (statuses of the points, `NaN` where it fails), output status
-  and statistics modelled on the behaviours, errors of the batch `-5`,
-  `-6` and `-7`. Patch 0119 writes the tests once for all the backends
-  and compares them with the `generic` interface at each point. Patch
-  0117: the device implementation of a material law returns `NaN` for a
-  result which is not finite;
-- `generic-parallel` interface for behaviours (patches 0115 and 0116):
-  models executed when a prediction is computed, one definition of the
-  time step scaling factor of the statistics;
-- tests of both interfaces against the `generic` interface for all the
-  configurations (TDLS, isotropic DSLs, parameters changed at run time,
-  static variables), and documentation (web pages, keyword pages,
-  incompatibilities, effect of the single pass compilers);
-- build and configuration files: linker flags after the object files,
-  headers of HIP given to hipcc, configuration files of the backends and
-  of the compilers (`nvc++ -stdpar=gpu` without relocatable device code,
-  optimisation flags);
-- fixes of the existing code, which may change the results on CPU: bounds
-  checks of the generic models and messages of the bounds of the material
-  properties, Poisson ratio of the stress update algorithm of the
-  isotropic DSLs (and the test Plasticity8, which depends on it), DDIF2
-  brick (non constant fracture stresses and energies, checks of the
-  options), error normalization factor of `rkCastem`. Patch 0126: line of
-  the errors of the files of parameters, `errno` restored after reading
-  the file of parameters of a material property, option `shall_fail` of
-  `tfel-check` refusing a command which succeeds;
-- single precision (patches 0099 to 0107): DSL option `real_type`
-  (numerical type of the `generic` and `generic-parallel` interfaces,
-  symbols `<f>_real_size`, API versions shifted for `float`), other
-  interfaces refusing `float`, `IsAssignableTo` for floating point types,
-  MTest checking the numerical type, convergence criteria bounded at the
-  generation with warnings, documentation;
-- displacement gradient (patches 0108 to 0112): Green-Lagrange tensor
-  computed from the displacement gradient, `LogarithmicStrainHandler`
-  built from the Green-Lagrange tensor and divided differences without
-  cancellation, displacement gradient given to the finite strain
-  behaviours by the `generic` interfaces, axial deformation gradient of
-  plane stress computed by the behaviour;
-- RAJA backend (patch 0113): execution policy given as an option and
-  checked before being copied in the generated code, resource of camp as
-  queue, `raja` and `raja-host` configurations, tests;
-- OpenACC backend (patch 0114): `parallel loop` with reductions, memory
-  space deduced from the compilation macros, stack size set through the
-  CUDA driver, `openacc-nvhpc-gpu` and `openacc-nvhpc-multicore`
-  configurations, tests;
-- common contract of the behaviours and of the models (patches 0120 and
-  0122): functions named after the ones of the `generic` interface
-  followed by `_generic_parallel`, version 3 of the data structures,
-  report function exported by each library, errors of the batch `-5`,
-  `-6` and `-7`;
-- interfaces built on the `generic` interfaces and `generic_functions`
-  option (patches 0121 and 0123 to 0125): code evaluating a material
-  property at a point written once, libraries also containing the
-  functions of the `generic` interface, with one set of parameters and,
-  for a behaviour, one out of bounds policy (release notes: patch 0127);
-- workaround of a defect of nvc++ `-stdpar=gpu` (patch 0128): the
-  execution of an initialize function at a point is not inlined in the
-  reduction kernel;
-- execution policies (patches 0129 to 0131): one C++ class per backend
-  deriving from `AbstractBackendExecutionPolicy` (identifier checked by
-  the generated functions), common options (preserve the stack size,
-  asynchronous computation), `MFrontGenericParallelRuntime` library,
-  statistics and execution policy in the data of the batches (version 4
-  of the data structures), identifier of the expected policy exported by
-  each library (initialized statically, except with Kokkos), tests of the
-  rules for all the functions;
-- `arcane` backend (patch 0132): accelerator API of Arccore, the core
-  component of the Arcane framework, with a queue selecting the GPU or the
-  cores of the host at runtime, native atomic operations, unified memory
-  of Arccore, `arcane` configuration (Arccore built with CUDA, clang as a
-  CUDA compiler), tests on CUDA, `Thread` and `Sequential` queues;
-- documentation: the pages and comments of the changed code, checked
-  against it.
+The `generic-parallel` interface for material properties of the master of
+TFEL is the reviewed version of the one of the prototype (pull requests
+#1088 and #1415: version 1 of the functions, runtime of the backends in
+`MFront/GenericParallel`). The series is based on it and only adds the
+behaviours and the models on the same runtime, the additional backends,
+the libraries also containing the functions of the `generic` interface,
+the numerical type of the generic interfaces and the material laws called
+in device code.
+
+1. TFEL, device code support in the mathematical and material libraries:
+   `TFEL_DEVICE_CODE` macro and device code selection for single pass
+   compilers, host and device annotations (checked by compiling each
+   header with clang CUDA), portable error reporting (`tfel::fail`,
+   contract violations), eigenvalues and eigenvectors without recursion
+   nor assertion (Jacobi algorithm for multiple eigenvalues), finite strain
+   tools, rotations, cubic splines, behaviours without virtual functions,
+   slip systems built at compile time (`getConstantObject`), trivially
+   copyable tensors (`TrivialGenTypeBase`, values built in place),
+   `IsAssignableTo` for floating
+   point types, size of the numerical type of a library read by
+   `ExternalLibraryManager`, workarounds of compiler defects.
+2. MFront, generated code compatible with device code and numerical type
+   of the generic interfaces: integration drivers of the `generic`
+   interface split into device capable cores, rotation functions,
+   behaviour variables, models and porous flows of the
+   StandardElastoViscoPlasticity brick, data shared by all the integration
+   points (`@SharedData`), static variables written
+   `TFEL_STATIC_VARIABLE(v)`, comparison to a numerical jacobian and
+   profiling on the host only; DSL option `real_type` (symbols
+   `<f>_real_size`, API versions shifted for `float`, other interfaces and
+   MTest refusing `float`, convergence criteria bounded at the generation
+   with warnings); displacement gradient given to the finite strain
+   behaviours by the `generic` interfaces and axial deformation gradient
+   of plane stress computed by the behaviour; fixes of the existing code,
+   which may change the results on CPU (bounds checks of the generic
+   models, Poisson ratio of the stress update algorithm of the isotropic
+   DSLs, DDIF2 brick, error normalization factor of `rkCastem`).
+3. `generic-parallel`, runtime shared by the behaviours, the models and
+   the material properties: the backends of the interface for material
+   properties also write the code of the behaviours and of the models
+   (runtime of the interface, shared data copied on each device, names of
+   the generated files, function object of the `CUDA` kernels declared
+   `__grid_constant__` instead of being copied in the stack of each thread),
+   libraries of material properties also containing the function of the
+   `generic` interface (`generic_functions` option).
+4. MFront, `generic-parallel` interface for behaviours and models:
+   integration of a batch, initialize functions, post-processings,
+   rotation of all the tangent operator blocks, standalone models, finite
+   strain behaviours, values of a point copied with all the reads before the
+   writes, versioned C data structures (`MFRONT_GPB_API_VERSION`
+   4), output status, statistics and execution policies of the interface
+   for material properties, report function exported by each library,
+   errors of the batch `-5`, `-6` and `-7`.
+5. Kokkos backend: `Kokkos::parallel_for` in the execution space given as
+   an option, statistics in the memory space of the execution space,
+   `kokkos` and `kokkos-host` configurations.
+6. RAJA backend: execution policy given as an option and checked before
+   being copied in the generated code, resource of camp as queue,
+   statistics in device memory, `raja` and `raja-host` configurations.
+7. OpenMP backend: offloading (`target teams distribute parallel for`) or
+   threads of the host, `openmp-offload-nvhpc-gpu` and `openmp-host-gcc`
+   configurations.
+8. OpenACC backend: `parallel loop` with reductions, memory space deduced
+   from the compilation macros, stack size set through the CUDA driver,
+   `openacc-nvhpc-gpu` and `openacc-nvhpc-multicore` configurations.
+9. Arcane backend: accelerator API of Arccore, the core component of the
+   Arcane framework, with a queue selecting the GPU or the cores of the
+   host at runtime, atomic operations of Arccore, statistics in the memory
+   of the device of the queue, made the current device during the call,
+   `arcane` configuration (Arccore of the main branch of Arcane from its
+   commit `51b90b8`, built with CUDA, clang as a CUDA compiler).
+10. CMake, configurations of the `generic-parallel` interfaces: detection
+    of the compilers and of the libraries (Kokkos, RAJA, Arccore, nvc++,
+    path of CUDA for clang), flags of the configuration files (`nvc++
+    -stdpar=gpu` without relocatable device code, optimisation flags,
+    precise floating point model of `icpx`), components of `tfel-check`.
+11. Tests of the `generic-parallel` interfaces against the `generic`
+    interface for all the configurations (behaviours, models, TDLS,
+    isotropic DSLs, parameters changed at run time, static variables,
+    libraries also containing the functions of the `generic` interface,
+    material property calling another material property, additional
+    backends).
+12. Documentation: page of the `generic-parallel` interface for behaviours,
+    additional backends and options of the interface for material
+    properties, pages of the keywords and of the DSL options, release
+    notes.
