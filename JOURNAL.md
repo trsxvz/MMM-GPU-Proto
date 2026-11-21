@@ -8236,6 +8236,23 @@ in double precision), and the conversion of the tangent operator to
 `DPK1_DF` (16 % of the time; a direct conversion was slower than the
 existing chain and miscompiled by nvcc 13.0 in this kernel: abandoned).
 
+**Registers of the kernels of the behaviours on the MI300A** (code generated
+by the `hip` backend, compiled for `gfx942` in double precision by the ROCm
+of the workstation, `-Rpass-analysis=kernel-resource-usage`): without
+`__launch_bounds__`, the AMD compiler must allow blocks of 1024 threads and
+limits each lane to 128 VGPRs, whereas the polycrystal launches blocks of 64
+threads (`config-hip-hipcc.json`); NVIDIA has no such limit (255 registers).
+Integration kernel of the grain law: 128 VGPRs, 10,056 bytes of scratch per
+lane, 4 waves per SIMD and 13 VGPRs spilled for the former law, 9,536 bytes
+for the new one; with `--gpu-max-threads-per-block=64`, 256 VGPRs and 206
+AGPRs, 7,152 bytes, one wave per SIMD and no spill. The rotation kernels
+spill 222 to 468 VGPRs without the bound, none with it. On 256 MI300A (trace
+of 15/11), the integration kernel takes 25 ns per point in double precision,
+more than the RTX 5080 in single precision: it is bound by the memory, not
+by the operations. Less scratch against a lower occupancy: to be measured on
+a MI300A before giving the kernels of the `hip` backend a bound derived from
+`number_of_threads_per_block`.
+
 **Assembly of the stiffness matrices on the GPU** (mfem-mgis
 `ae412c89d6`; `cases/assembly` now also times the ordered assembly; P2
 tetrahedra, 196,608 elements, 4 points per element as the FM):
@@ -8282,7 +8299,7 @@ tetrahedra, 196,608 elements, 4 points per element as the FM):
   kernel, and that accumulating locally to issue fewer of them gains 27 %
   there and loses 13 % on MI250X.
 
-**Defects found by the validation, fixed in the series of TFEL:**
+**Defects found by the validation, fixed:**
 
 - the test of the material properties with the runtime checks disabled of
   the `openmp-host-gcc` configuration had lost, in the rebase, the define
@@ -8299,7 +8316,15 @@ tetrahedra, 196,608 elements, 4 points per element as the FM):
 - the definition of the overload of `DDIF2Base::cyl2cart` for the fourth
   order tensors, added by the official master, was not annotated as its
   declaration: clang refused it (12 files of the clang sweep since the
-  rebase of 09/11, which had not been noted).
+  rebase of 09/11, which had not been noted);
+- (mfem-mgis, patch 0308, found by the `hip` job of the CI after the push)
+  the number of nodes per thread of the assembly kernel, a constant of the
+  function launching it, was the size of arrays of the kernel, which clang
+  (HIP) can't use without capturing it: it is now a variable template of
+  the namespace. nvcc generates the same code, bit for bit, and the whole
+  library compiles with HIP for the gfx1036 of the workstation.
+
+The first three defects are fixed in the series of TFEL.
 
 **Validation** (workstation, RTX 5080, TFEL reinstalled from the series):
 TFEL 7922 tests, MGIS 65, mfem-mgis 399, examples 25, mm-opera-hpc 21,

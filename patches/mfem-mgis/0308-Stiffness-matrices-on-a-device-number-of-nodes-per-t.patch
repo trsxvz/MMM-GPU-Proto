@@ -1,0 +1,74 @@
+From d3c44b92cb4906eff6fa4ee1f4d2bdb8023f01d5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 21 Nov 2026 08:23:08 +0100
+Subject: [PATCH] Stiffness matrices on a device: number of nodes per thread of
+ the kernel as a variable of the namespace, which clang (HIP) can use as the
+ size of an array of the kernel
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Batch/StiffnessMatricesKernels.cxx | 35 +++++++++++++++++---------
+ 1 file changed, 23 insertions(+), 12 deletions(-)
+
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index b71e0362ef..a4711d652c 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -414,14 +414,22 @@ namespace mfem_mgis::batch::internals {
+ 
+   /*!
+    * \brief number of nodes `a` whose blocks `(a, b)` are computed by a
+-   * thread of `launchStiffnessMatricesKernel`, for a node `b`. The products
+-   * `K B_b`, which take most of the operations, are computed once for these
+-   * blocks, whose sums take `nodes_per_thread * V * V` registers. Measured on
+-   * quadratic tetrahedra in finite strain (single precision, four points
+-   * per element): assembly 2.2 times faster than with one thread per pair of
+-   * nodes, against 1.8 times with two nodes and 1.7 times with ten.
++   * thread of `launchStiffnessMatricesKernel`, for a node `b`, when all the
++   * blocks are computed (one node otherwise, the blocks of the pairs of a
++   * node with itself). The products `K B_b`, which take most of the
++   * operations, are computed once for these blocks, whose sums take
++   * `nodes_per_thread * V * V` registers. Measured on quadratic tetrahedra
++   * in finite strain (single precision, four points per element): assembly
++   * 2.2 times faster than with one thread per pair of nodes, against 1.8
++   * times with two nodes and 1.7 times with ten. A variable of the
++   * namespace, and not of the function launching the kernel: clang can't
++   * use the latter as the size of an array in the kernel without capturing
++   * it.
++   * \tparam blocks: blocks computed
+    */
+-  inline constexpr std::size_t nodes_per_thread = 5;
++  template <StiffnessBlocks blocks>
++  inline constexpr std::size_t nodes_per_thread =
++      blocks == StiffnessBlocks::ALL ? 5 : 1;
+ 
+   /*!
+    * \brief launches the kernel adding the stiffness matrices of the
+@@ -454,16 +462,19 @@ namespace mfem_mgis::batch::internals {
+       return;
+     }
+     constexpr auto all = blocks == StiffnessBlocks::ALL;
+-    // number of nodes `a` per thread, groups of nodes `a` and threads per
+-    // element
+-    constexpr auto G = all ? nodes_per_thread : std::size_t{1};
+-    const auto ng = all ? (static_cast<std::size_t>(a.nd) + G - 1) / G : 1;
++    // groups of nodes `a` and threads per element
++    const auto ng =
++        all ? (static_cast<std::size_t>(a.nd) + nodes_per_thread<blocks> - 1) /
++                  nodes_per_thread<blocks>
++            : 1;
+     const auto nt = static_cast<std::size_t>(a.nd) * ng;
+     const auto n = a.number_of_elements * static_cast<int>(nt);
+     mfem::forall_switch(use_device, n, [a, o, ng, nt] MFEM_HOST_DEVICE(int i) {
+-      // dimension and number of components of the unknowns
++      // dimension, number of components of the unknowns and number of
++      // nodes `a` per thread
+       constexpr auto N = getDimension<K>();
+       constexpr auto V = getUnknownsSize<K>();
++      constexpr auto G = nodes_per_thread<blocks>;
+       const auto nd = static_cast<std::size_t>(a.nd);
+       const auto nq = static_cast<std::size_t>(a.nq);
+       const auto k = static_cast<std::size_t>(i) / nt;
+-- 
+2.43.0
+
