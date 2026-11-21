@@ -391,6 +391,8 @@ nonlinear form without interior face integrators nor extension of
   :math:`(a, b)` of a node :math:`b` of an element and of five of its nodes
   :math:`a`, so that the product of the tangent operator by the operator
   :math:`B` of the node :math:`b` is computed once for these five blocks.
+  On AMD GPUs, where the kernels of :code:`MFEM` leave half as many
+  registers to a thread, a thread computes one block.
   The positions of the entries of the
   stiffness matrices in the rows of the matrix are computed at the first
   assembly, and read by the following ones instead of searching for the

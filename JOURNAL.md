@@ -8281,6 +8281,10 @@ tetrahedra, 196,608 elements, 4 points per element as the FM):
   precision, no spill). With a bound of 256 threads (the blocks of MFEM),
   nothing would spill (154 registers with one node, 267 with five), but
   the loops of MFEM have no such bound: to be measured on a MI300A.
+  `HipKernel1D` of MFEM is always launched with `MFEM_HIP_BLOCKS` (256)
+  threads without declaring it; declaring it, as `HipKernel2DLaunchBounds`
+  and `HipKernel3DLaunchBounds` of MFEM do, would be a small contribution
+  to MFEM.
 - The positions of the entries are also used on the GPU (×1.5 in single
   precision): the measurement which had excluded them was made in double
   precision on this GPU, where the kernel is bound by its few double

@@ -1,4 +1,4 @@
-From eb3a804541bc5ef715c924c27c063dffc9907aac Mon Sep 17 00:00:00 2001
+From 0e346361131dda0176ba830a77e30a2b31f89991 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 21 Nov 2026 08:34:14 +0100
 Subject: [PATCH] Stiffness matrices on a device: one node per thread on AMD
@@ -8,9 +8,23 @@ Subject: [PATCH] Stiffness matrices on a device: one node per thread on AMD
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- src/Batch/StiffnessMatricesKernels.cxx | 20 ++++++++++++++------
- 1 file changed, 14 insertions(+), 6 deletions(-)
+ docs/source/user_guide/batch_computations.rst |  2 ++
+ src/Batch/StiffnessMatricesKernels.cxx        | 20 +++++++++++++------
+ 2 files changed, 16 insertions(+), 6 deletions(-)
 
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index eda1827cb3..6d875a87d4 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -391,6 +391,8 @@ nonlinear form without interior face integrators nor extension of
+   :math:`(a, b)` of a node :math:`b` of an element and of five of its nodes
+   :math:`a`, so that the product of the tangent operator by the operator
+   :math:`B` of the node :math:`b` is computed once for these five blocks.
++  On AMD GPUs, where the kernels of :code:`MFEM` leave half as many
++  registers to a thread, a thread computes one block.
+   The positions of the entries of the
+   stiffness matrices in the rows of the matrix are computed at the first
+   assembly, and read by the following ones instead of searching for the
 diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
 index a4711d652c..759bf12974 100644
 --- a/src/Batch/StiffnessMatricesKernels.cxx
