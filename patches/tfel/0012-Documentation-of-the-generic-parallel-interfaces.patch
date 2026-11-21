@@ -1,6 +1,6 @@
-From 19bf631c6ee0191dd60e38a400d41045fd8c5158 Mon Sep 17 00:00:00 2001
+From 533ca02a8031b4537523c6d4145f7cb2f304d8c6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 12:46:57 +0100
+Date: Sat, 21 Nov 2026 20:33:32 +0100
 Subject: [PATCH] Documentation of the generic-parallel interfaces
 
 Page of the generic-parallel interface for behaviours, additional

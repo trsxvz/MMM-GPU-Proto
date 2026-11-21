@@ -1,6 +1,6 @@
-From 539b5121e58f14692985110b123e9560480beca8 Mon Sep 17 00:00:00 2001
+From df48f3b1dc1897e51bf3c2d25081a8575dd06696 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 12:46:54 +0100
+Date: Sat, 21 Nov 2026 20:33:29 +0100
 Subject: [PATCH] MFront: generated code compatible with device code, numerical
  type of the generic interfaces
 
@@ -15,6 +15,9 @@ Subject: [PATCH] MFront: generated code compatible with device code, numerical
 - generic interface: displacement gradient for the finite strain
   behaviours, axial component of the deformation gradient in plane
   stress, integration drivers usable in device code.
+- edges DTAU_DF -> DPK1_DF and DTAU_DDF -> DPK1_DF of the graph of the
+  conversions of the tangent operators: one conversion instead of two or
+  three for the behaviours computing these tangent operators.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
@@ -57,6 +60,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  mfront/src/DSLBase.cxx                        |   72 +-
  mfront/src/DataIsotropicHardeningRule.cxx     |   10 +-
  mfront/src/DefaultCodeGeneratorBase.cxx       |    3 +-
+ ...rainBehaviourTangentOperatorConversion.cxx |    2 +
  mfront/src/GenericBehaviourInterface.cxx      | 1306 +++--------------
  .../src/GenericBehaviourSymbolsGenerator.cxx  |   37 +-
  .../GenericMaterialPropertyInterfaceBase.cxx  |    3 +
@@ -120,7 +124,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  mtest/src/GenericBehaviour.cxx                |    4 +
  mtest/src/GenericEvolution.cxx                |    2 +
  mtest/src/GenericMaterialProperty.cxx         |    2 +
- 102 files changed, 4647 insertions(+), 3132 deletions(-)
+ 103 files changed, 4649 insertions(+), 3132 deletions(-)
  create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria-float.ref
  create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria.ref
  create mode 100644 mfront-query/tests/references/mfront-query-norton-convergence-criterion-float.ref
@@ -6882,6 +6886,19 @@ index 15df96fed..8594e0bf3 100644
        } else {
          tfel::raise(
              "DefaultCodeGeneratorBase::"
+diff --git a/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx b/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx
+index 116c3c198..143450009 100644
+--- a/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx
++++ b/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx
+@@ -110,6 +110,8 @@ namespace mfront {
+     std_add(TangentOperator::DS_DEGL, TangentOperator::DPK1_DF);
+     std_add(TangentOperator::DPK1_DF, TangentOperator::DTAU_DF);
+     std_add(TangentOperator::DPK1_DF, TangentOperator::DSIG_DF);
++    std_add(TangentOperator::DTAU_DF, TangentOperator::DPK1_DF);
++    std_add(TangentOperator::DTAU_DDF, TangentOperator::DPK1_DF);
+     return converters;
+   }  // end of
+      // FiniteStrainBehaviourTangentOperatorConversion::getAvailableFiniteStrainBehaviourTangentOperatorConversions
 diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
 index 4c1e2eb32..589419a4e 100644
 --- a/mfront/src/GenericBehaviourInterface.cxx

@@ -1,6 +1,6 @@
-From e4a564d087bd7f9820803a17d35adac626494d72 Mon Sep 17 00:00:00 2001
+From 7bc1d4197515c6651015f9e27ff707698a72dfb3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 12:46:55 +0100
+Date: Sat, 21 Nov 2026 20:33:29 +0100
 Subject: [PATCH] generic-parallel: runtime shared by the behaviours, the
  models and the material properties
 

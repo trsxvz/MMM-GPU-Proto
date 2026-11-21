@@ -1,6 +1,6 @@
-From 5d40e0fe16dd435f246a11cfc809c7c92572c981 Mon Sep 17 00:00:00 2001
+From 9ba0e7cc265556bc651cffee402bc11721639d83 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 12:46:57 +0100
+Date: Sat, 21 Nov 2026 20:33:31 +0100
 Subject: [PATCH] Tests of the generic-parallel interfaces
 
 Tests of the behaviours and of the models for all the configurations,
