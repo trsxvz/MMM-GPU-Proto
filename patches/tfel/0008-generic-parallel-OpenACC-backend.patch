@@ -1,6 +1,6 @@
-From afd203a366238cc8bb9ba7baf47accebb78ff6d3 Mon Sep 17 00:00:00 2001
+From 27084dca48bc184088cd8b6c8a4ff6579a8453a8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 20:33:30 +0100
+Date: Sun, 22 Nov 2026 04:21:42 +0100
 Subject: [PATCH] generic-parallel: OpenACC backend
 
 parallel loop construct on the device selected by the compiler

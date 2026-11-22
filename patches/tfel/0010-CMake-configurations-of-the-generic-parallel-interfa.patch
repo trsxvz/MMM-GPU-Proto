@@ -1,6 +1,6 @@
-From 2aba925fd9ad52c1f204f391bd8f33f004e95d73 Mon Sep 17 00:00:00 2001
+From 6fb646ced3790015d8f28db0d3d83933fef2c658 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 20:33:30 +0100
+Date: Sun, 22 Nov 2026 04:21:42 +0100
 Subject: [PATCH] CMake: configurations of the generic-parallel interfaces
 
 Detection of the compilers and of the libraries of the configurations

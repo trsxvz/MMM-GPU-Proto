@@ -264,6 +264,14 @@ page](generic-parallel-behaviour-interface.html) for details.
   the end of the file held an additional end of line character, and the last
   line of a file which is not terminated by an end of line character was
   tokenized twice. The line numbers are unaffected.
+- The workspaces allocated on the stack by the non linear solvers of
+  `TFEL/Math` do not set the residual (`fzeros`) to zero anymore, nor the
+  jacobian matrix (`jacobian`) for the Newton-Raphson algorithm (see
+  Section @sec:tfel:5.2:tfel_math:uninitialized). Those values are
+  computed before being used by the solvers. Code reading them before
+  their first computation would read uninitialized values. The estimate
+  of the unknowns (`zeros`) and the correction (`delta_zeros`) are still
+  initially null.
 
 The support of device code by `TFEL` and `MFront` (see the
 `generic-parallel` interface for behaviours) leads to the following
@@ -858,6 +866,21 @@ Many functions are usable in device code:
 This allows to report errors in device code, where exceptions are not
 supported (see [this page](tfel-math.html)).
 
+### Workspaces of the non linear solvers
+
+The workspaces allocated on the stack by the non linear solvers (see
+the `StackAllocatedTinyNonLinearSolverWorkspace` class and the classes
+derived from it) leave uninitialized:
+
+- the residual (`fzeros`), which the `computeResidual` method computes
+  before it is used,
+- the jacobian matrix (`jacobian`) of the Newton-Raphson algorithm
+  (`TinyNewtonRaphsonSolver`), which is computed at each iteration.
+
+The estimate of the unknowns (`zeros`) and the correction
+(`delta_zeros`), which may be read before being computed, are still
+initially null.
+
 # New `TFEL/Material` features
 
 ## Finite strain heat transfer
@@ -1126,7 +1149,18 @@ allowing to parametrize the solver.
 
 #### Parameters of the `Default` Linear Solver
 
-The `Default` Linear Solver does not accept any parameter.
+The following option is supported:
+
+- `simultaneous_substitutions`: expected values are either `true` or
+  `false`. This option affects the `getPartialJacobianInvert` function
+  object, which is available in the `@TangentOperator` code block and
+  used by several bricks. The blocks of the inverse of the jacobian
+  matrix that it returns are the solutions of linear systems whose
+  right-hand sides are the first columns of the identity matrix. If
+  `false` (the default), each of those linear systems is solved by its
+  own substitution. If `true`, they are solved by a single substitution
+  whose right-hand side is a matrix. The operations performed on each
+  column are the same in both cases.
 
 #### Parameters of the `TDLS` Linear Solver
 
@@ -1180,6 +1214,15 @@ The following options are supported:
   readable in user code blocks, reports the number of out-of-tile
   searches of the last linear solve. If `false` (the default), the
   generated code is unchanged.
+- `simultaneous_substitutions`: expected values are either `true` or
+  `false`. This option has the same meaning as for the `Default` linear
+  solver. If `false` (the default), each column of the blocks of the
+  inverse of the jacobian matrix returned by the
+  `getPartialJacobianInvert` function object is computed by its own
+  substitution. If `true`, those blocks are computed by a single call to
+  the `substitute_canonical` function of the `TDLS` library, which
+  solves the linear systems whose right-hand sides are the first columns
+  of the identity matrix.
 
 If a parameter is not defined, the default values are inherited from the
 `TiledLUppConfig` class defined by the `TDLS` library. See the
@@ -1199,6 +1242,12 @@ are:
   (or `std::numeric_limits<float>::min()` for single precision)
 
 ### Examples
+
+~~~~ {#LinearSystemSolver .cpp}
+@LinearSystemSolver Default{
+  simultaneous_substitutions: true
+};
+~~~~
 
 ~~~~ {#LinearSystemSolver .cpp}
 @LinearSystemSolver TDLS{
@@ -1789,6 +1838,44 @@ the `TFEL/Material/GeneralisedGursonTvergaardNeedlemanStressCriterion.hxx`
 and `TFEL/Material/GeneralisedRousselierTanguyBessonStressCriterion.hxx`
 headers.
 
+## Variables left uninitialized: the `setUninitialized` method {#sec:tfel:5.2:mfront:uninitialized_variables}
+
+The values of the non scalar local variables and of the non scalar
+integration variables which are not state variables are set to zero when
+the behaviour is built, i.e. at each integration point and at each time
+step. Those values are never read when the variable is assigned before
+being used, which is generally the case of the local variables.
+
+The `setUninitialized` method states that the values of such a variable
+shall be left uninitialized:
+
+~~~~{.cpp}
+@LocalVariable Stensor4 De;
+De.setUninitialized();
+~~~~
+
+This method relies on the `tfel::math::uninitialized` tag (see Section
+@sec:tfel:5.2:tfel_math:uninitialized). It is only available for local
+variables and for integration variables which are not state variables,
+and is not available for scalars. It is up to the user to guarantee that
+the variable is assigned before being used.
+
+By default, nothing is changed: variables are only left uninitialized on
+explicit request.
+
+See the documentation of the `@LocalVariable` and `@IntegrationVariable`
+keywords for details.
+
+## Gradients left uninitialized by the data constructors of the `generic` interface
+
+The constructors of the behaviour data and of the integration data
+generated by the `generic` interface, which take a
+`mfront::gb::BehaviourData` object as argument, leave the tensorial
+gradients uninitialized (see Section
+@sec:tfel:5.2:tfel_math:uninitialized). Those gradients were set to zero
+before being assigned by the constructor of the behaviour, which is
+unchanged.
+
 # New features in `mfront-query`
 
 ## `--compute-thermal-expansion` and `--compute-stress-free-expansion` queries
@@ -1830,6 +1917,17 @@ France) and Framatome. Homogenization developments were conducted within
 the framework of the AnoHonA ANR project (n° AAPG2023).
 
 # Issues fixed
+
+## Issue 1494: [mfront] getPartialJacobianInvert: out of bounds rows for a tensorial integration variable which is not the first one
+
+For a tensorial integration variable which is not an array, the rows of
+the block returned by the `getPartialJacobianInvert` function object
+were indexed by the position of the variable among the integration
+variables. When such a variable follows another one, the block was
+written out of its bounds and left unset. The rows are now indexed from
+zero, as they are for the arrays of tensorial variables.
+
+For more details, see <https://github.com/thelfer/tfel/issues/1494>.
 
 ## Issue 969: GPU coalescence/broadcast loss when projectors/identities are accessed with warp-divergent runtime index
 

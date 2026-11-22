@@ -20,6 +20,7 @@ set(mfront_tests_SOURCES
   StateVariablesBoundsCheck
   ExternalStateVariablesBoundsCheck
   InitializationFailureTest
+  UninitializedVariablesTest
   Elasticity3
   Elasticity4
   Elasticity5
@@ -75,6 +76,8 @@ set(mfront_tests_SOURCES
   ImplicitNorton_PowellDogLegBroyden
   ImplicitNorton_Broyden2
   ImplicitNorton_LevenbergMarquardt
+  PartialJacobianInvertTest
+  PartialJacobianInvertTest_SimultaneousSubstitutions
   JohnsonCook_s
   JohnsonCook_ssr
   JohnsonCook_ssrt
@@ -134,6 +137,7 @@ set(mfront_tests_SOURCES
   GursonTvergaardNeedlemanViscoPlasticFlow_NumericalJacobian
   Hayhurst
   ImplicitHayhurst
+  TensorialIntegrationVariablesPartialJacobianInvert
   Burger
   AgeingBurger
   Tvergaard
@@ -484,6 +488,7 @@ endfunction(test_generic_fs)
 
 test_generic(InitializationFailureTest
   NO_XML_OUTPUT WILL_FAIL)
+test_generic(UninitializedVariablesTest)
 test_generic(materialpropertiesboundscheck
   NO_XML_OUTPUT WILL_FAIL)
 test_generic(materialpropertiesboundscheck2 
@@ -548,6 +553,7 @@ test_generic(plasticity3)
 # test_generic(ddif2-4)
 test_generic(lorentz)
 test_generic(lorentz2)
+test_generic(tensorialintegrationvariablespartialjacobianinvert)
 # test_generic(mazars)
 # test_generic(mazars2)
 # test_generic(druckerprager)
@@ -566,6 +572,8 @@ test_generic(implicitnorton-smallstraintridimensionbehaviourwrapper)
 test_generic(implicitnorton-broyden implicitnorton-uniaxialstrain.ref)
 test_generic(implicitnorton-powelldoglegbroyden implicitnorton-uniaxialstrain.ref)
 test_generic(implicitnorton-broyden2)
+test_generic(partialjacobianinverttest)
+test_generic(partialjacobianinverttest-simultaneoussubstitutions)
 # test_generic(implicitnorton-levenbergmarquardt)
 # test_generic(implicitnorton4-planestress)
 # test_generic(implicitorthotropiccreep2-planestress)

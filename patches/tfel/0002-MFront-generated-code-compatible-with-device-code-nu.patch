@@ -1,6 +1,6 @@
-From df48f3b1dc1897e51bf3c2d25081a8575dd06696 Mon Sep 17 00:00:00 2001
+From 090bafa09623281eba104fe627d7d7d73ae67233 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sat, 21 Nov 2026 20:33:29 +0100
+Date: Sun, 22 Nov 2026 04:21:41 +0100
 Subject: [PATCH] MFront: generated code compatible with device code, numerical
  type of the generic interfaces
 
@@ -18,6 +18,17 @@ Subject: [PATCH] MFront: generated code compatible with device code, numerical
 - edges DTAU_DF -> DPK1_DF and DTAU_DDF -> DPK1_DF of the graph of the
   conversions of the tangent operators: one conversion instead of two or
   three for the behaviours computing these tangent operators.
+- final conversion of the tangent operator computed in the storage of Dt
+  (thelfer/tfel#1489).
+- setUninitialized method of the local variables and of the integration
+  variables, tensorial gradients left uninitialized by the constructors of
+  the generic interface, numerical jacobian saved only if it must be
+  restored (thelfer/tfel#1491).
+- simultaneous_substitutions option of the Default and TDLS linear
+  system solvers: partial inverse of the jacobian computed by a single
+  substitution (thelfer/tfel#1493); rows of the blocks of the tensorial
+  integration variables in computePartialJacobianInvert
+  (thelfer/tfel#1495).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
@@ -27,30 +38,35 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  ...ery-norton-convergence-criterion-float.ref |    1 +
  mfront/include/CMakeLists.txt                 |    2 +
  .../MFront/AbstractBehaviourInterface.hxx     |   35 +
+ .../MFront/AbstractLinearSystemSolver.hxx     |   23 +
  .../MFront/BehaviourCodeGeneratorBase.hxx     |   95 +-
- mfront/include/MFront/BehaviourDSLCommon.hxx  |   28 +
+ mfront/include/MFront/BehaviourDSLCommon.hxx  |   36 +
  .../include/MFront/BehaviourDescription.hxx   |   37 +
  .../include/MFront/BehaviourInterfaceBase.hxx |   12 +
  .../MFront/CMaterialPropertyInterfaceBase.hxx |   11 +
  .../include/MFront/CodeGeneratorUtilities.hxx |   73 +-
  mfront/include/MFront/DSLBase.hxx             |   16 +
+ .../MFront/DefaultLinearSystemSolver.hxx      |    6 +
  .../MFront/GenericBehaviour/BehaviourData.h   |    6 +
  .../GenericBehaviour/DisplacementGradient.hxx |  108 ++
- .../GreenLagrangeStrainIntegrate.hxx          |  750 +++++-----
- .../MFront/GenericBehaviour/Integrate.hxx     |  654 ++++++---
+ .../GreenLagrangeStrainIntegrate.hxx          |  750 ++++-----
+ .../MFront/GenericBehaviour/Integrate.hxx     |  654 +++++---
  .../LogarithmicStrainIntegrate.hxx            |  843 ++++++-----
- ...StandardFiniteStrainBehaviourIntegrate.hxx |  683 +++++----
+ ...StandardFiniteStrainBehaviourIntegrate.hxx |  683 ++++++---
  .../GenericBehaviour/StressMeasures.hxx       |   60 +
  .../include/MFront/GenericBehaviour/Types.h   |   18 +-
  .../MFront/GenericBehaviourInterface.hxx      |   68 +
  .../MFront/GenericMaterialProperty/Types.h    |   17 +-
  .../include/MFront/GenericModelInterface.hxx  |   67 +-
+ .../include/MFront/LinearSystemSolverBase.hxx |   22 +
  .../MFrontMaterialPropertyInterface.hxx       |   24 +-
  .../MFront/MaterialKnowledgeDescription.hxx   |   17 +
  .../MFront/MaterialPropertyDescription.hxx    |   11 +-
+ .../include/MFront/TDLSLinearSystemSolver.hxx |    4 +
+ mfront/include/MFront/VariableDescription.hxx |    9 +
  mfront/src/AbstractBehaviourInterface.cxx     |   17 +
- mfront/src/BehaviourCodeGeneratorBase.cxx     |  872 +++++++----
- mfront/src/BehaviourDSLCommon.cxx             |   85 ++
+ mfront/src/BehaviourCodeGeneratorBase.cxx     |  882 +++++++----
+ mfront/src/BehaviourDSLCommon.cxx             |  118 +-
  mfront/src/BehaviourDescription.cxx           |   33 +
  mfront/src/BehaviourInterfaceBase.cxx         |   22 +
  mfront/src/BrickUtilities.cxx                 |    3 +-
@@ -60,19 +76,21 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  mfront/src/DSLBase.cxx                        |   72 +-
  mfront/src/DataIsotropicHardeningRule.cxx     |   10 +-
  mfront/src/DefaultCodeGeneratorBase.cxx       |    3 +-
- ...rainBehaviourTangentOperatorConversion.cxx |    2 +
- mfront/src/GenericBehaviourInterface.cxx      | 1306 +++--------------
+ mfront/src/DefaultLinearSystemSolver.cxx      |    9 +
+ ...rainBehaviourTangentOperatorConversion.cxx |   13 +-
+ mfront/src/GenericBehaviourInterface.cxx      | 1340 ++++-------------
  .../src/GenericBehaviourSymbolsGenerator.cxx  |   37 +-
  .../GenericMaterialPropertyInterfaceBase.cxx  |    3 +
- mfront/src/GenericModelInterface.cxx          |  493 ++++---
+ mfront/src/GenericModelInterface.cxx          |  493 +++---
  mfront/src/HookeStressPotential.cxx           |   26 +-
- mfront/src/ImplicitCodeGeneratorBase.cxx      |   77 +-
- mfront/src/ImplicitDSLBase.cxx                |   48 +-
+ mfront/src/ImplicitCodeGeneratorBase.cxx      |  176 ++-
+ mfront/src/ImplicitDSLBase.cxx                |   55 +-
  .../IsotropicBehaviourCodeGeneratorBase.cxx   |   42 +-
  mfront/src/IsotropicBehaviourDSLBase.cxx      |   38 +-
  .../src/IsotropicMisesCreepCodeGenerator.cxx  |   29 +-
  ...IsotropicMisesPlasticFlowCodeGenerator.cxx |   29 +-
  ...StrainHardeningMisesCreepCodeGenerator.cxx |   29 +-
+ mfront/src/LinearSystemSolverBase.cxx         |   18 +
  .../src/MFrontMaterialPropertyInterface.cxx   |  103 ++
  mfront/src/MFrontModelInterface.cxx           |   10 +-
  mfront/src/MaterialKnowledgeDescription.cxx   |   14 +
@@ -85,6 +103,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  mfront/src/RungeKuttaDSLBase.cxx              |   18 +-
  .../ScalarDamageHookeStressPotentialBase.cxx  |   26 +-
  .../StandardElastoViscoPlasticityBrick.cxx    |   13 +-
+ mfront/src/TDLSLinearSystemSolver.cxx         |   21 +-
+ mfront/src/VariableDescription.cxx            |    1 +
  mfront/tests/behaviours/AxialGrowth3.mfront   |    2 +-
  .../BerveillerZaouiPolyCrystal.mfront         |    5 +-
  .../BerveillerZaouiPolyCrystal_DD_CC.mfront   |   17 +-
@@ -112,6 +132,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  .../behaviours/OrthotropicElastic6.mfront     |    2 +
  mfront/tests/behaviours/ParameterTest.mfront  |   14 +-
  mfront/tests/behaviours/ParameterTest2.mfront |   14 +-
+ .../PartialJacobianInvertTest-common.mfront   |   69 +
+ .../PartialJacobianInvertTest.mfront          |    3 +
+ ...nvertTest_SimultaneousSubstitutions.mfront |    4 +
  mfront/tests/behaviours/PolyCrystals.mfront   |    7 +-
  .../behaviours/PolyCrystals_DD_CC.mfront      |   17 +-
  .../behaviours/PolyCrystals_DD_CFC.mfront     |   15 +-
@@ -120,16 +143,47 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  .../TestComputeElasticPrediction.mfront       |    4 +-
  .../TestComputeElasticPrediction2.mfront      |    4 +-
  ...TemperatureUpdateOnSubSteppingCheck.mfront |    4 +-
+ ...ationVariablesPartialJacobianInvert.mfront |   71 +
+ .../UninitializedVariablesTest.mfront         |   80 +
+ .../tests/behaviours/generic/CMakeLists.txt   |    8 +
+ .../generic/UninitializedVariablesTest.mtest  |   46 +
+ ...inverttest-simultaneoussubstitutions.mtest |   35 +
+ .../generic/partialjacobianinverttest.mtest   |   35 +
+ ...rationvariablespartialjacobianinvert.mtest |   40 +
+ mfront/tests/behaviours/tdls/CMakeLists.txt   |    6 +-
+ .../tdls/TDLSPartialJacobianInvertTest.mfront |    4 +
+ .../tdls/TDLSPartialJacobianInvertTest.mtest  |   35 +
+ .../TDLSPartialJacobianInvertTest2.mfront     |    6 +
+ .../tdls/TDLSPartialJacobianInvertTest2.mtest |   35 +
+ .../behaviours/unit-tests/CMakeLists.txt      |    3 +
+ .../DefaultLinearSystemSolver1.mfront         |    8 +
+ .../DefaultLinearSystemSolver2.mfront         |    8 +
  ...C_IrradiationSwellingModel_GoFaster.mfront |    4 +
+ mfront/tests/unit-tests/DSLTest.cxx           |   53 +
  mtest/src/GenericBehaviour.cxx                |    4 +
  mtest/src/GenericEvolution.cxx                |    2 +
  mtest/src/GenericMaterialProperty.cxx         |    2 +
- 103 files changed, 4649 insertions(+), 3132 deletions(-)
+ 131 files changed, 5468 insertions(+), 3177 deletions(-)
  create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria-float.ref
  create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria.ref
  create mode 100644 mfront-query/tests/references/mfront-query-norton-convergence-criterion-float.ref
  create mode 100644 mfront/include/MFront/GenericBehaviour/DisplacementGradient.hxx
  create mode 100644 mfront/include/MFront/GenericBehaviour/StressMeasures.hxx
+ create mode 100644 mfront/tests/behaviours/PartialJacobianInvertTest-common.mfront
+ create mode 100644 mfront/tests/behaviours/PartialJacobianInvertTest.mfront
+ create mode 100644 mfront/tests/behaviours/PartialJacobianInvertTest_SimultaneousSubstitutions.mfront
+ create mode 100644 mfront/tests/behaviours/TensorialIntegrationVariablesPartialJacobianInvert.mfront
+ create mode 100644 mfront/tests/behaviours/UninitializedVariablesTest.mfront
+ create mode 100644 mfront/tests/behaviours/generic/UninitializedVariablesTest.mtest
+ create mode 100644 mfront/tests/behaviours/generic/partialjacobianinverttest-simultaneoussubstitutions.mtest
+ create mode 100644 mfront/tests/behaviours/generic/partialjacobianinverttest.mtest
+ create mode 100644 mfront/tests/behaviours/generic/tensorialintegrationvariablespartialjacobianinvert.mtest
+ create mode 100644 mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest.mfront
+ create mode 100644 mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest.mtest
+ create mode 100644 mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest2.mfront
+ create mode 100644 mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest2.mtest
+ create mode 100644 mfront/tests/behaviours/unit-tests/DefaultLinearSystemSolver1.mfront
+ create mode 100644 mfront/tests/behaviours/unit-tests/DefaultLinearSystemSolver2.mfront
 
 diff --git a/mfront-query/tests/CMakeLists.txt b/mfront-query/tests/CMakeLists.txt
 index 7007634a3..2b9d1d190 100644
@@ -255,6 +309,40 @@ index 96b01bab5..5ad3d878a 100644
      /*!
       * \return the list of modelling hypotheses treated by the interface
       * \param[in] mb : behaviour description
+diff --git a/mfront/include/MFront/AbstractLinearSystemSolver.hxx b/mfront/include/MFront/AbstractLinearSystemSolver.hxx
+index 348cead5f..5098a9f42 100644
+--- a/mfront/include/MFront/AbstractLinearSystemSolver.hxx
++++ b/mfront/include/MFront/AbstractLinearSystemSolver.hxx
+@@ -140,6 +140,29 @@ namespace mfront {
+         std::ostream &,
+         const MatrixDecompositionResult &,
+         const LinearSystemSubstitutionVariables &) const = 0;
++    /*!
++     * \return true if the linear systems whose right-hand sides are the first
++     * columns of the identity matrix must be solved by a single substitution
++     * (see `writeIdentityColumnsSubstitution`), false if each of them must be
++     * solved by its own substitution (see `writeLinearSystemSubstitution`)
++     */
++    [[nodiscard]] virtual bool usesSimultaneousSubstitutions() const = 0;
++    /*!
++     * \brief write the resolution, after the matrix decomposition, of the
++     * linear systems whose right-hand sides are the first columns of the
++     * identity matrix. The solutions are the first columns of the inverse of
++     * the matrix.
++     *
++     * \param[in] os: output stream
++     * \param[in] r: result of the matrix decomposition
++     * \param[in] s: description of the substitution variables. The right hand
++     * side is a matrix which has as many columns as linear systems. Its
++     * values, meaningless on input, are the solutions on output.
++     */
++    virtual void writeIdentityColumnsSubstitution(
++        std::ostream &,
++        const MatrixDecompositionResult &,
++        const LinearSystemSubstitutionVariables &) const = 0;
+     /*!
+      * \brief write the solver specific members
+      * \param[in] out : output file
 diff --git a/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx b/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
 index 1064ea2c4..2e9dc1328 100644
 --- a/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
@@ -387,7 +475,7 @@ index 1064ea2c4..2e9dc1328 100644
      virtual void writeBehaviourParametersInitializers(std::ostream&) const;
  
 diff --git a/mfront/include/MFront/BehaviourDSLCommon.hxx b/mfront/include/MFront/BehaviourDSLCommon.hxx
-index fbf2b83d6..99a6bd2dd 100644
+index fbf2b83d6..3ea4b15ad 100644
 --- a/mfront/include/MFront/BehaviourDSLCommon.hxx
 +++ b/mfront/include/MFront/BehaviourDSLCommon.hxx
 @@ -546,12 +546,40 @@ namespace mfront {
@@ -431,6 +519,21 @@ index fbf2b83d6..99a6bd2dd 100644
      /*!
       * \brief treat the `@TangentOperator` keyword
       * \note this method read the code block options and determines
+@@ -727,6 +755,14 @@ namespace mfront {
+     virtual std::string treatSetGlossaryNameMethod();
+     //! \brief analyse the `setEntryNameMethod` and returns its argument
+     virtual std::string treatSetEntryNameMethod();
++    /*!
++     * \brief analyse the `setUninitialized` method, which states that the
++     * values of a variable are left uninitialized when the behaviour is built
++     * \param[in] h : modelling hypothesis
++     * \param[in] n : variable name
++     */
++    virtual void treatSetUninitializedMethod(const Hypothesis,
++                                             const std::string&);
+     /*!
+      * \return true if the the given variable may have methods
+      * \param[in] h : modelling hypothesis
 diff --git a/mfront/include/MFront/BehaviourDescription.hxx b/mfront/include/MFront/BehaviourDescription.hxx
 index ee05668a9..ccb82d938 100644
 --- a/mfront/include/MFront/BehaviourDescription.hxx
@@ -734,6 +837,28 @@ index b4b52152c..bd6921614 100644
      /*!
       * \brief extract common options
       * \param[in] d: material knowledge description
+diff --git a/mfront/include/MFront/DefaultLinearSystemSolver.hxx b/mfront/include/MFront/DefaultLinearSystemSolver.hxx
+index c7c0cc728..0afb6adc2 100644
+--- a/mfront/include/MFront/DefaultLinearSystemSolver.hxx
++++ b/mfront/include/MFront/DefaultLinearSystemSolver.hxx
+@@ -14,11 +14,17 @@
+ #ifndef LIB_MFRONT_DEFAULTLINEARSYSTEMSOLVER_HXX
+ #define LIB_MFRONT_DEFAULTLINEARSYSTEMSOLVER_HXX
+ 
++#include "TFEL/Utilities/Data.hxx"
+ #include "MFront/LinearSystemSolverBase.hxx"
+ 
+ namespace mfront {
+ 
+   struct DefaultLinearSystemSolver : LinearSystemSolverBase {
++    /*!
++     * \brief constructor
++     * \param[in] opts: options passed to the linear solver
++     */
++    DefaultLinearSystemSolver(const tfel::utilities::DataMap &);
+     //
+     void writeLinearSystemResolution(
+         std::ostream &,
 diff --git a/mfront/include/MFront/GenericBehaviour/BehaviourData.h b/mfront/include/MFront/GenericBehaviour/BehaviourData.h
 index ab0f85cd8..6fbecd0ee 100644
 --- a/mfront/include/MFront/GenericBehaviour/BehaviourData.h
@@ -4587,6 +4712,41 @@ index 9eaafe946..fc3cc285e 100644
      [[nodiscard]] std::pair<bool, tokens_iterator> treatKeyword(
          const std::string &,
          const std::vector<std::string> &,
+diff --git a/mfront/include/MFront/LinearSystemSolverBase.hxx b/mfront/include/MFront/LinearSystemSolverBase.hxx
+index d9f667026..f12fed711 100644
+--- a/mfront/include/MFront/LinearSystemSolverBase.hxx
++++ b/mfront/include/MFront/LinearSystemSolverBase.hxx
+@@ -34,8 +34,30 @@ namespace mfront {
+     void writeSpecificMembers(std::ostream&,
+                               const BehaviourDescription&,
+                               const Hypothesis) const override;
++    bool usesSimultaneousSubstitutions() const override;
++    /*!
++     * \brief write the initialisation of the right hand side to the first
++     * columns of the identity matrix, followed by its substitution (see
++     * `writeLinearSystemSubstitution`)
++     *
++     * \param[in] os: output stream
++     * \param[in] r: result of the matrix decomposition
++     * \param[in] s: description of the substitution variables
++     */
++    void writeIdentityColumnsSubstitution(
++        std::ostream&,
++        const MatrixDecompositionResult&,
++        const LinearSystemSubstitutionVariables&) const override;
+     //! \brief destructor
+     ~LinearSystemSolverBase() override;
++
++   protected:
++    /*!
++     * \brief if true, the linear systems whose right-hand sides are the
++     * first columns of the identity matrix are solved by a single
++     * substitution
++     */
++    bool simultaneous_substitutions = false;
+   };  // end of struct LinearSystemSolverBase
+ 
+ }  // end of namespace mfront
 diff --git a/mfront/include/MFront/MFrontMaterialPropertyInterface.hxx b/mfront/include/MFront/MFrontMaterialPropertyInterface.hxx
 index 89d36abcf..c8c26805d 100644
 --- a/mfront/include/MFront/MFrontMaterialPropertyInterface.hxx
@@ -4692,6 +4852,41 @@ index a91404869..47c1c97ac 100644
    /*!
     * \brief an helper function which writes the declaration of some `TFEL`
     * standard scalar alias. The `tfel::config::ScalarTypes` class for details.
+diff --git a/mfront/include/MFront/TDLSLinearSystemSolver.hxx b/mfront/include/MFront/TDLSLinearSystemSolver.hxx
+index a5d662f3f..107b4b84b 100644
+--- a/mfront/include/MFront/TDLSLinearSystemSolver.hxx
++++ b/mfront/include/MFront/TDLSLinearSystemSolver.hxx
+@@ -54,6 +54,10 @@ namespace mfront {
+         std::ostream &,
+         const MatrixDecompositionResult &,
+         const LinearSystemSubstitutionVariables &) const override;
++    void writeIdentityColumnsSubstitution(
++        std::ostream &,
++        const MatrixDecompositionResult &,
++        const LinearSystemSubstitutionVariables &) const override;
+     //! \brief destructor
+     ~TDLSLinearSystemSolver() override;
+ 
+diff --git a/mfront/include/MFront/VariableDescription.hxx b/mfront/include/MFront/VariableDescription.hxx
+index adccbac72..3fd790956 100644
+--- a/mfront/include/MFront/VariableDescription.hxx
++++ b/mfront/include/MFront/VariableDescription.hxx
+@@ -53,6 +53,15 @@ namespace mfront {
+      * algorithms.
+      */
+     static const char* const variableDeclaredInBaseClass;
++    /*!
++     * \brief attribute stating that the values of a variable are left
++     * uninitialized when the behaviour is built.
++     *
++     * This attribute is set by the `setUninitialized` method, which is only
++     * available for the local variables and the integration variables which
++     * are not state variables.
++     */
++    static const char* const uninitialized;
+     //! \brief default constructor
+     VariableDescription();
+     //! \brief copy constructor
 diff --git a/mfront/src/AbstractBehaviourInterface.cxx b/mfront/src/AbstractBehaviourInterface.cxx
 index ec25672b1..44b31d05d 100644
 --- a/mfront/src/AbstractBehaviourInterface.cxx
@@ -4721,7 +4916,7 @@ index ec25672b1..44b31d05d 100644
  
  }  // end of namespace mfront
 diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
-index 405523548..21f8cf57c 100644
+index 405523548..a272d3be7 100644
 --- a/mfront/src/BehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
 @@ -11,7 +11,11 @@
@@ -4984,7 +5179,30 @@ index 405523548..21f8cf57c 100644
          << "const tfel::math::fsarray<" << ims.rank() << ", real>& m) const\n"
          << "-> tfel::math::tmatrix<Nss,Nss,real>{\n"
          << "return {";
-@@ -1411,7 +1472,7 @@ namespace mfront {
+@@ -1066,14 +1127,20 @@ namespace mfront {
+     if (!getDebugMode()) {
+       printLinePragma(f, v.lineNumber, this->fd.fileName);
+     }
++    // only the variable itself may be left uninitialized, not its increment
++    const auto initializer =
++        ((n == v.name) &&
++         (v.getAttribute<bool>(VariableDescription::uninitialized, false)))
++            ? "{tfel::math::uninitialized}"
++            : "";
+     if (v.arraySize == 1u) {
+-      f << t << " " << n << ";\n";
++      f << t << " " << n << initializer << ";\n";
+     } else {
+       if (this->bd.useDynamicallyAllocatedVector(v.arraySize)) {
+         f << "tfel::math::runtime_array<" << t << " > " << n << ";\n";
+       } else {
+         f << "tfel::math::fsarray<" << v.arraySize << ", " << t << " > " << n
+-          << ";\n";
++          << initializer << ";\n";
+       }
+     }
+   }  // end of writeVariableDeclaration
+@@ -1411,7 +1478,7 @@ namespace mfront {
      os << "/*!\n"
         << "* \\brief Default constructor\n"
         << "*/\n"
@@ -4993,7 +5211,7 @@ index 405523548..21f8cf57c 100644
         << "{}\n\n"
         << "/*!\n"
         << "* \\brief copy constructor\n"
-@@ -1522,9 +1583,10 @@ namespace mfront {
+@@ -1522,9 +1589,10 @@ namespace mfront {
    void BehaviourCodeGeneratorBase::writeBehaviourDataExport(
        std::ostream& os, const Hypothesis h) const {
      this->checkBehaviourDataFile(os);
@@ -5007,7 +5225,7 @@ index 405523548..21f8cf57c 100644
    }
  
    void BehaviourCodeGeneratorBase::writeBehaviourDataInitializeMethods(
-@@ -2250,11 +2312,11 @@ namespace mfront {
+@@ -2250,11 +2318,11 @@ namespace mfront {
         << "* \\brief Integrate behaviour  over the time step\n"
         << "*/\n";
      if (!this->bd.getTangentOperatorBlocks().empty()) {
@@ -5023,7 +5241,7 @@ index 405523548..21f8cf57c 100644
      }
      os << "using namespace std;\n"
         << "using namespace tfel::math;\n";
-@@ -2266,16 +2328,9 @@ namespace mfront {
+@@ -2266,16 +2334,9 @@ namespace mfront {
             BehaviourDescription::COHESIVEZONEMODEL) ||
            (this->bd.getBehaviourType() ==
             BehaviourDescription::GENERALBEHAVIOUR)) {
@@ -5043,7 +5261,7 @@ index 405523548..21f8cf57c 100644
        }
        os << "bool computeTangentOperator_ = smt!=NOSTIFFNESSREQUESTED;\n";
      }
-@@ -2299,11 +2354,11 @@ namespace mfront {
+@@ -2299,11 +2360,11 @@ namespace mfront {
      if (!areRuntimeChecksDisabled(this->bd)) {
        for (const auto& v :
             this->bd.getBehaviourData(h).getPersistentVariables()) {
@@ -5057,7 +5275,7 @@ index 405523548..21f8cf57c 100644
        }
      }
      if (!this->bd.getTangentOperatorBlocks().empty()) {
-@@ -2382,30 +2437,38 @@ namespace mfront {
+@@ -2382,30 +2443,38 @@ namespace mfront {
    }  // end of writeBehaviourSetOutOfBoundsPolicy
  
    void BehaviourCodeGeneratorBase::writeBoundsChecks(
@@ -5102,7 +5320,7 @@ index 405523548..21f8cf57c 100644
          }
        }
      }
-@@ -2416,19 +2479,27 @@ namespace mfront {
+@@ -2416,19 +2485,27 @@ namespace mfront {
      auto write_physical_bounds =
          [this, &os](const VariableDescriptionContainer& c, const bool b) {
            for (const auto& v : c) {
@@ -5134,7 +5352,7 @@ index 405523548..21f8cf57c 100644
      write_physical_bounds(md.getMaterialProperties(), false);
      write_physical_bounds(md.getPersistentVariables(), false);
      write_physical_bounds(md.getExternalStateVariables(), true);
-@@ -2442,7 +2513,8 @@ namespace mfront {
+@@ -2442,7 +2519,8 @@ namespace mfront {
        write_bounds(md.getExternalStateVariables(), true);
        write_bounds(md.getLocalVariables(), false);
      }
@@ -5144,7 +5362,7 @@ index 405523548..21f8cf57c 100644
    }  // end of writeBehaviourCheckBounds
  
    std::string BehaviourCodeGeneratorBase::getBehaviourConstructorsInitializers(
-@@ -2509,25 +2581,52 @@ namespace mfront {
+@@ -2509,25 +2587,52 @@ namespace mfront {
    void BehaviourCodeGeneratorBase::writeBehaviourConstructors(
        std::ostream& os, const Hypothesis h) const {
      auto tmpnames = std::vector<std::string>{};
@@ -5201,7 +5419,7 @@ index 405523548..21f8cf57c 100644
        os << "}\n\n";
      }
      os << "/*!\n"
-@@ -2558,16 +2657,27 @@ namespace mfront {
+@@ -2558,16 +2663,27 @@ namespace mfront {
        os << ",\n" << init;
      }
      os << "\n{\n";
@@ -5233,7 +5451,7 @@ index 405523548..21f8cf57c 100644
            i.writeBehaviourConstructorBody(out, this->bd, h);
            out << "}\n\n";
          });
-@@ -2773,7 +2883,10 @@ namespace mfront {
+@@ -2773,7 +2889,10 @@ namespace mfront {
          return;
        }
        const auto& n = MFrontMaterialPropertyInterface().getFunctionName(mpd);
@@ -5245,7 +5463,7 @@ index 405523548..21f8cf57c 100644
            << "const auto " << n << "_bounds_check_status = " << n
            << "_checkBounds";
        this->writeExternalMFrontMaterialPropertyArguments(out, cmp, f);
-@@ -2798,7 +2911,8 @@ namespace mfront {
+@@ -2798,7 +2917,8 @@ namespace mfront {
            << "\"when calling the material property '" << n << "'\\n\";\n"
            << "}\n"
            << "}\n"
@@ -5255,7 +5473,7 @@ index 405523548..21f8cf57c 100644
      } else if (!((m.is<BehaviourDescription::ConstantMaterialProperty>()) ||
                   (m.is<BehaviourDescription::AnalyticMaterialProperty>()))) {
        this->throwRuntimeError(
-@@ -2900,8 +3014,8 @@ namespace mfront {
+@@ -2900,8 +3020,8 @@ namespace mfront {
            out << "tfel::math::base_type_cast(this->" << pi->name << ")";
          } else if (c == BehaviourDescription::MaterialPropertyInput::
                              STATICVARIABLE) {
@@ -5266,7 +5484,7 @@ index 405523548..21f8cf57c 100644
          } else {
            throw_if(true,
                     "thermal expansion coefficients must depend "
-@@ -2931,8 +3045,9 @@ namespace mfront {
+@@ -2931,8 +3051,9 @@ namespace mfront {
                {i.name, "tfel::math::base_type_cast(this->" + i.name + ")"});
          } else if (c == BehaviourDescription::MaterialPropertyInput::
                              STATICVARIABLE) {
@@ -5278,7 +5496,7 @@ index 405523548..21f8cf57c 100644
          } else {
            throw_if(true,
                     "thermal expansion coefficients must depend "
-@@ -3049,7 +3164,7 @@ namespace mfront {
+@@ -3049,7 +3170,7 @@ namespace mfront {
      this->checkBehaviourFile(os);
      const auto type = this->bd.getBehaviourType();
      if (type == BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) {
@@ -5287,7 +5505,7 @@ index 405523548..21f8cf57c 100644
              "computeStressFreeStrain(){\n";
        if (bd.isStrainMeasureDefined()) {
          const auto ms = bd.getStrainMeasure();
-@@ -3082,7 +3197,7 @@ namespace mfront {
+@@ -3082,7 +3203,7 @@ namespace mfront {
        }
        os << "}\n\n";
      }
@@ -5296,7 +5514,7 @@ index 405523548..21f8cf57c 100644
         << "StressFreeExpansionType>\n"
         << "computeStressFreeExpansion()\n{\n"
         << "auto mfront_dl01_l0 = "
-@@ -3090,7 +3205,7 @@ namespace mfront {
+@@ -3090,7 +3211,7 @@ namespace mfront {
         << "this->computeStressFreeExpansion(mfront_dl01_l0);\n"
         << "return mfront_dl01_l0;\n"
         << "}\n\n"
@@ -5305,7 +5523,7 @@ index 405523548..21f8cf57c 100644
         << "computeStressFreeExpansion(std::pair<StressFreeExpansionType,"
         << "StressFreeExpansionType>& mfront_dl01_l0)\n{\n"
         << "using namespace std;\n"
-@@ -3593,92 +3708,145 @@ namespace mfront {
+@@ -3593,92 +3714,145 @@ namespace mfront {
  
    void BehaviourCodeGeneratorBase::writeBehaviourParameterInitialisation(
        std::ostream& os, const Hypothesis h) const {
@@ -5513,7 +5731,7 @@ index 405523548..21f8cf57c 100644
    }  // end of writeIntegrationDataMainVariablesSetters
  
    void BehaviourCodeGeneratorBase::writeBehaviourGetModellingHypothesis(
-@@ -3694,6 +3862,19 @@ namespace mfront {
+@@ -3694,6 +3868,19 @@ namespace mfront {
         << "} // end of getModellingHypothesis\n\n";
    }  // end of writeBehaviourGetModellingHypothesis();
  
@@ -5533,7 +5751,7 @@ index 405523548..21f8cf57c 100644
    void BehaviourCodeGeneratorBase::writeBehaviourLocalVariables(
        std::ostream& os, const Hypothesis h) const {
      this->checkBehaviourFile(os);
-@@ -3702,28 +3883,35 @@ namespace mfront {
+@@ -3702,28 +3889,35 @@ namespace mfront {
      os << '\n';
      auto write_wrapper = [this, &os](const BehaviourVariableDescription& b) {
        const auto wrapper = getBehaviourWrapperClassName(b);
@@ -5581,7 +5799,7 @@ index 405523548..21f8cf57c 100644
           << "private:\n"
           << "friend struct " << this->bd.getClassName() << ";\n"
           << "};\n\n";
-@@ -3737,17 +3925,32 @@ namespace mfront {
+@@ -3737,17 +3931,32 @@ namespace mfront {
        const auto wrapper = getBehaviourWrapperClassName(b);
        const auto factory = getBehaviourVariableFactoryClassName(b);
        write_wrapper(b);
@@ -5619,7 +5837,7 @@ index 405523548..21f8cf57c 100644
           << "const " << this->bd.getClassName()
           << "& mfront_behaviour_reference;\n"
           << "};\n\n"
-@@ -3770,6 +3973,94 @@ namespace mfront {
+@@ -3770,6 +3979,94 @@ namespace mfront {
      os << '\n';
    }  // end od BehaviourCodeGeneratorBase::writeBehaviourIntegrationVariables
  
@@ -5714,7 +5932,7 @@ index 405523548..21f8cf57c 100644
    void BehaviourCodeGeneratorBase::writeBehaviourParameters(
        std::ostream& os, const Hypothesis h) const {
      this->checkBehaviourFile(os);
-@@ -3785,42 +4076,54 @@ namespace mfront {
+@@ -3785,42 +4082,54 @@ namespace mfront {
          printLinePragma(os, p.lineNumber, this->fd.fileName);
        }
        if (use_static_variables) {
@@ -5793,7 +6011,7 @@ index 405523548..21f8cf57c 100644
          }
        } else {
          if (p.arraySize == 1) {
-@@ -3988,9 +4291,9 @@ namespace mfront {
+@@ -3988,9 +4297,9 @@ namespace mfront {
    void BehaviourCodeGeneratorBase::writeBehaviourDestructor(
        std::ostream& os) const {
      this->checkBehaviourFile(os);
@@ -5806,7 +6024,7 @@ index 405523548..21f8cf57c 100644
    }
  
    void BehaviourCodeGeneratorBase::writeBehaviourUpdateExternalStateVariables(
-@@ -4015,16 +4318,18 @@ namespace mfront {
+@@ -4015,16 +4324,18 @@ namespace mfront {
  
    void BehaviourCodeGeneratorBase::writeBehaviourInitializeFunctions(
        std::ostream& os, const Hypothesis h) const {
@@ -5831,7 +6049,7 @@ index 405523548..21f8cf57c 100644
    }  // end of writeBehaviourPostProcessings
  
    void BehaviourCodeGeneratorBase::writeBehaviourIncludes(
-@@ -4083,6 +4388,28 @@ namespace mfront {
+@@ -4083,6 +4394,28 @@ namespace mfront {
      if (!m.empty()) {
        os << m << "\n\n";
      }
@@ -5860,7 +6078,7 @@ index 405523548..21f8cf57c 100644
    }
  
    void BehaviourCodeGeneratorBase::writeBehaviourPrivate(
-@@ -4586,6 +4913,7 @@ namespace mfront {
+@@ -4586,6 +4919,7 @@ namespace mfront {
      this->writeBehaviourDisabledConstructors(os);
      // from this point, all is public
      os << "public:\n\n";
@@ -5868,7 +6086,7 @@ index 405523548..21f8cf57c 100644
      this->writeBehaviourConstructors(os, h);
      this->writeBehaviourInitializeFunctions(os, h);
      this->writeBehaviourComputeStressFreeExpansion(os, h);
-@@ -4668,12 +4996,15 @@ namespace mfront {
+@@ -4668,12 +5002,15 @@ namespace mfront {
            "defined");
      }
      if (!hasUserDefinedPredictionOperatorCode(this->bd, h)) {
@@ -5890,7 +6108,7 @@ index 405523548..21f8cf57c 100644
        return;
      }
      if (this->bd.getBehaviourType() ==
-@@ -4726,12 +5057,14 @@ namespace mfront {
+@@ -4726,12 +5063,14 @@ namespace mfront {
                  (h == ModellingHypothesis::PLANESTRESS)) {
                os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
                      "computePredictionOperator_"
@@ -5911,7 +6129,7 @@ index 405523548..21f8cf57c 100644
              } else {
                const auto path =
                    FiniteStrainBehaviourTangentOperatorConversionPath::
-@@ -4739,12 +5072,14 @@ namespace mfront {
+@@ -4739,12 +5078,14 @@ namespace mfront {
                if (path.empty()) {
                  os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
                        "computePredictionOperator_"
@@ -5932,7 +6150,7 @@ index 405523548..21f8cf57c 100644
                } else {
                  os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
                        "computePredictionOperator_"
-@@ -4760,7 +5095,15 @@ namespace mfront {
+@@ -4760,7 +5101,15 @@ namespace mfront {
                  os << "if(this->computePredictionOperator_" << k
                     << "(smt) != SUCCESS){\n"
                     << "return FAILURE;\n"
@@ -5949,7 +6167,7 @@ index 405523548..21f8cf57c 100644
                     << "const " << from_type_flag << "<N,stress> "
                     << "tangentOperator_" << k << " = this->Dt.template get<"
                     << from_type_flag << "<N,stress> >();\n";
-@@ -4780,7 +5123,7 @@ namespace mfront {
+@@ -4780,7 +5129,7 @@ namespace mfront {
          }
          os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
             << "computePredictionOperator(const SMFlag smflag, "
@@ -5958,7 +6176,7 @@ index 405523548..21f8cf57c 100644
             << "using namespace std;\n"
             << "switch(smflag){\n";
          for (const auto& t : tos) {
-@@ -4790,16 +5133,19 @@ namespace mfront {
+@@ -4790,16 +5139,19 @@ namespace mfront {
               << "return this->computePredictionOperator_" << ktype
               << "(smt);\n";
          }
@@ -5984,7 +6202,7 @@ index 405523548..21f8cf57c 100644
           << "using namespace std;\n"
           << "using namespace tfel::math;\n"
           << "using std::vector;\n";
-@@ -4810,15 +5156,9 @@ namespace mfront {
+@@ -4810,15 +5162,9 @@ namespace mfront {
             BehaviourDescription::COHESIVEZONEMODEL) ||
            (this->bd.getBehaviourType() ==
             BehaviourDescription::GENERALBEHAVIOUR)) {
@@ -6003,7 +6221,7 @@ index 405523548..21f8cf57c 100644
        }
        os << this->bd.getCode(h, BehaviourData::ComputePredictionOperator)
           << "return SUCCESS;\n"
-@@ -4878,24 +5218,30 @@ namespace mfront {
+@@ -4878,24 +5224,30 @@ namespace mfront {
                   ModellingHypothesis::AXISYMMETRICALGENERALISEDPLANESTRESS) ||
                  (h == ModellingHypothesis::PLANESTRESS)) {
                os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator_"
@@ -6046,7 +6264,7 @@ index 405523548..21f8cf57c 100644
                } else {
                  auto pc = path.begin();
                  const auto k =
-@@ -4910,7 +5256,15 @@ namespace mfront {
+@@ -4910,7 +5262,15 @@ namespace mfront {
                  os << "if(!this->computeConsistentTangentOperator_" << k
                     << "(smt)){\n"
                     << "return false;\n"
@@ -6063,7 +6281,7 @@ index 405523548..21f8cf57c 100644
                     << "const " << k_type_flag << "<N,stress> "
                     << "tangentOperator_" << k << " = this->Dt.template get<"
                     << k_type_flag << "<N,stress>>();\n";
-@@ -4939,11 +5293,14 @@ namespace mfront {
+@@ -4939,11 +5299,14 @@ namespace mfront {
               << "return this->computeConsistentTangentOperator_" << ktype
               << "(smt);\n";
          }
@@ -6083,7 +6301,7 @@ index 405523548..21f8cf57c 100644
        }
      } else {
        if (this->bd.hasCode(h, BehaviourData::ComputeTangentOperator)) {
-@@ -4982,7 +5339,7 @@ namespace mfront {
+@@ -4982,7 +5345,7 @@ namespace mfront {
        std::ostream& os) const {
      this->checkBehaviourFile(os);
      os << "TFEL_HOST_DEVICE real getMinimalTimeStepScalingFactor() const "
@@ -6092,7 +6310,7 @@ index 405523548..21f8cf57c 100644
            "  return this->minimal_time_step_scaling_factor;\n"
            "}\n\n";
    }
-@@ -4993,7 +5350,7 @@ namespace mfront {
+@@ -4993,7 +5356,7 @@ namespace mfront {
      this->checkBehaviourFile(os);
      os << "TFEL_HOST_DEVICE std::pair<bool, real>\n"
            "computeAPrioriTimeStepScalingFactor(const real "
@@ -6101,7 +6319,7 @@ index 405523548..21f8cf57c 100644
            "const auto time_scaling_factor = "
            "this->computeAPrioriTimeStepScalingFactorII();\n"
            "return {time_scaling_factor.first,\n"
-@@ -5030,7 +5387,7 @@ namespace mfront {
+@@ -5030,7 +5393,7 @@ namespace mfront {
      this->checkBehaviourFile(os);
      os << "TFEL_HOST_DEVICE std::pair<bool, real>\n"
            "computeAPosterioriTimeStepScalingFactor(const real "
@@ -6110,7 +6328,7 @@ index 405523548..21f8cf57c 100644
            "const auto time_scaling_factor = "
            "this->computeAPosterioriTimeStepScalingFactorII();\n"
            "return {time_scaling_factor.first,\n"
-@@ -5124,7 +5481,7 @@ namespace mfront {
+@@ -5124,7 +5487,7 @@ namespace mfront {
             << " * \\param[in] mfront_idx: array index relative to " << v1.name
             << "\n"
             << " */\n"
@@ -6119,7 +6337,7 @@ index 405523548..21f8cf57c 100644
             << "(const ushort mfront_idx) noexcept {\n";
          if ((v1.getTypeFlag() == SupportedTypes::SCALAR) &&
              (v2.getTypeFlag() == SupportedTypes::SCALAR)) {
-@@ -5158,7 +5515,7 @@ namespace mfront {
+@@ -5158,7 +5521,7 @@ namespace mfront {
             << " * \\param[in] mfront_idx2: array index relative to " << v2.name
             << "\n"
             << " */\n"
@@ -6128,7 +6346,7 @@ index 405523548..21f8cf57c 100644
             << "(const ushort mfront_idx, const ushort mfront_idx2) noexcept "
             << "{\n";
          if ((v1.getTypeFlag() == SupportedTypes::SCALAR) &&
-@@ -5301,7 +5658,8 @@ namespace mfront {
+@@ -5301,7 +5664,8 @@ namespace mfront {
               << " = this->" << source << " + this->d" << source << ";\n";
          } else if (md.isStaticVariableName(source)) {
            os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
@@ -6138,7 +6356,7 @@ index 405523548..21f8cf57c 100644
          } else {
            os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
               << " = this->" << source << ";\n";
-@@ -5381,7 +5739,8 @@ namespace mfront {
+@@ -5381,7 +5745,8 @@ namespace mfront {
               << " = this->d" << source << ";\n";
          } else if (md.isStaticVariableName(source)) {
            os << "mfront_behaviour_variable_" << b.name << ". " << esv.name
@@ -6148,7 +6366,7 @@ index 405523548..21f8cf57c 100644
            os << "mfront_behaviour_variable_" << b.name << ". d" << esv.name
               << " = " << esv.type << "{};\n";
          } else {
-@@ -5677,7 +6036,8 @@ namespace mfront {
+@@ -5677,7 +6042,8 @@ namespace mfront {
      os << "/*!\n"
         << "* \\brief Default constructor\n"
         << "*/\n"
@@ -6159,7 +6377,7 @@ index 405523548..21f8cf57c 100644
         << "/*!\n"
         << "* \\brief Copy constructor\n"
 diff --git a/mfront/src/BehaviourDSLCommon.cxx b/mfront/src/BehaviourDSLCommon.cxx
-index 38c10cc18..fc16d4b0b 100644
+index 38c10cc18..841c2b7e9 100644
 --- a/mfront/src/BehaviourDSLCommon.cxx
 +++ b/mfront/src/BehaviourDSLCommon.cxx
 @@ -85,6 +85,7 @@ namespace mfront {
@@ -6296,7 +6514,60 @@ index 38c10cc18..fc16d4b0b 100644
    void BehaviourDSLCommon::treatBrick() {
      using Parameters = AbstractBehaviourBrick::Parameters;
      auto& f = BehaviourBrickFactory::getFactory();
-@@ -3290,6 +3372,9 @@ namespace mfront {
+@@ -2705,6 +2787,8 @@ namespace mfront {
+       this->mb.setGlossaryName(h, n, this->treatSetGlossaryNameMethod());
+     } else if (this->current->value == "setEntryName") {
+       this->mb.setEntryName(h, n, this->treatSetEntryNameMethod());
++    } else if (this->current->value == "setUninitialized") {
++      this->treatSetUninitializedMethod(h, n);
+     } else {
+       this->treatUnknownVariableMethod(h, n);
+     }
+@@ -2712,13 +2796,42 @@ namespace mfront {
+     this->readSpecifiedToken("BehaviourDSLCommon::treatVariableMethod", ";");
+   }  // end of treatVariableMethod
+ 
++  void BehaviourDSLCommon::treatSetUninitializedMethod(const Hypothesis h,
++                                                       const std::string& n) {
++    const auto m = "BehaviourDSLCommon::treatSetUninitializedMethod";
++    this->readSpecifiedToken(m, "setUninitialized");
++    this->readSpecifiedToken(m, "(");
++    this->readSpecifiedToken(m, ")");
++    const auto& d = this->mb.getBehaviourData(h);
++    if ((!d.isLocalVariableName(n)) &&
++        ((!d.isIntegrationVariableName(n)) || (d.isStateVariableName(n)))) {
++      this->throwRuntimeError(
++          m,
++          "the 'setUninitialized' method is only available for local "
++          "variables and integration variables which are not state "
++          "variables ('" +
++              n + "' is neither)");
++    }
++    const auto& v = d.getVariableDescription(n);
++    if ((v.arraySize == 1u) && (v.isScalar())) {
++      this->throwRuntimeError(
++          m,
++          "the 'setUninitialized' method is not available for scalar "
++          "variables ('" +
++              n + "' is a scalar)");
++    }
++    this->mb.setVariableAttribute(h, n, VariableDescription::uninitialized,
++                                  VariableAttribute(true), false);
++  }  // end of treatSetUninitializedMethod
++
+   void BehaviourDSLCommon::treatUnknownVariableMethod(const Hypothesis,
+                                                       const std::string& n) {
+     this->throwRuntimeError(
+         "BehaviourDSLCommon::treatUnknownVariableMethod : ",
+         "unknown method '" + this->current->value + "' for variable '" + n +
+             "', "
+-            "valid methods are 'setGlossaryName' or 'setEntryName'");
++            "valid methods are 'setGlossaryName', 'setEntryName' or "
++            "'setUninitialized'");
+   }  // end of treatUnknownVariableMethod
+ 
+   void BehaviourDSLCommon::treatUnknownKeyword() {
+@@ -3290,6 +3403,9 @@ namespace mfront {
          if (!opts.empty()) {
            ptr->setOptions(opts);
          }
@@ -6886,11 +7157,52 @@ index 15df96fed..8594e0bf3 100644
        } else {
          tfel::raise(
              "DefaultCodeGeneratorBase::"
+diff --git a/mfront/src/DefaultLinearSystemSolver.cxx b/mfront/src/DefaultLinearSystemSolver.cxx
+index 81e1b624c..a722e59ae 100644
+--- a/mfront/src/DefaultLinearSystemSolver.cxx
++++ b/mfront/src/DefaultLinearSystemSolver.cxx
+@@ -19,6 +19,15 @@
+ 
+ namespace mfront {
+ 
++  DefaultLinearSystemSolver::DefaultLinearSystemSolver(
++      const tfel::utilities::DataMap& opts) {
++    tfel::utilities::DataMapValidator{}
++        .addDataTypeValidator<bool>("simultaneous_substitutions")
++        .validate(opts);
++    this->simultaneous_substitutions =
++        get_if<bool>(opts, "simultaneous_substitutions", false);
++  }  // end of DefaultLinearSystemSolver
++
+   void DefaultLinearSystemSolver::writeLinearSystemResolution(
+       std::ostream& os,
+       const BehaviourDescription& bd,
 diff --git a/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx b/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx
-index 116c3c198..143450009 100644
+index 116c3c198..9bbc21031 100644
 --- a/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx
 +++ b/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx
-@@ -110,6 +110,8 @@ namespace mfront {
+@@ -66,10 +66,19 @@ namespace mfront {
+           convertFiniteStrainBehaviourTangentOperatorFlagToString(op1);
+       const auto s2 =
+           convertFiniteStrainBehaviourTangentOperatorFlagToString(op2);
++      // type of the result of the conversion
++      const auto t2 = "tangent_operator<" + s2 + ",N,stress>";
++      // The result of the final conversion is computed in the storage of the
++      // variant holding the tangent operator, which avoids its copies. The
++      // source of this conversion is never stored in this variant: it is
++      // either a copy of the operator computed by the user or the result of
++      // an intermediate conversion.
+       add({op1, op2,
+            "const auto tangentOperator_" + s2 + " = convert<" + s2 + "," + s1 +
+                ">(tangentOperator_" + s1 + ",this->F0,this->F1,this->sig);",
+-           "this->Dt = convert<" + s2 + "," + s1 + ">(tangentOperator_" + s1 +
++           "this->Dt.template set_uninitialised<" + t2 + ">();\n" +
++               "convert<" + s2 + "," + s1 + ">(this->Dt.template get<" + t2 +
++               ">(),tangentOperator_" + s1 +
+                ",this->F0,this->F1,this->sig);"});
+     };
+     // for all this converters, a specialisation of the
+@@ -110,6 +119,8 @@ namespace mfront {
      std_add(TangentOperator::DS_DEGL, TangentOperator::DPK1_DF);
      std_add(TangentOperator::DPK1_DF, TangentOperator::DTAU_DF);
      std_add(TangentOperator::DPK1_DF, TangentOperator::DSIG_DF);
@@ -6900,7 +7212,7 @@ index 116c3c198..143450009 100644
    }  // end of
       // FiniteStrainBehaviourTangentOperatorConversion::getAvailableFiniteStrainBehaviourTangentOperatorConversions
 diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
-index 4c1e2eb32..589419a4e 100644
+index 4c1e2eb32..5d8e183d4 100644
 --- a/mfront/src/GenericBehaviourInterface.cxx
 +++ b/mfront/src/GenericBehaviourInterface.cxx
 @@ -23,6 +23,7 @@
@@ -6963,10 +7275,7 @@ index 4c1e2eb32..589419a4e 100644
 -         << "const mfront_gb_real* const, "
 -         << "const mfront_gb_size_type);\n\n";
 -      if (is_finite_strain) {
-+    for (const auto h : i.getModellingHypothesesToBeTreated(bd)) {
-+      const auto fn = i.getFunctionNameForHypothesis(name, h);
-+      for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
-         os << "/*!\n"
+-        os << "/*!\n"
 -              " * \\brief rotate the Cauchy stress from the material "
 -              " frame to the global frame\n"
 -              " * \\param[out] dest: Cauchy stress in the global frame\n"
@@ -7007,15 +7316,8 @@ index 4c1e2eb32..589419a4e 100644
 -           << "_rotateThermodynamicForces_PK2Stress("
 -           << "mfront_gb_real* const, "
 -           << "const mfront_gb_real* const, "
-+           << " * \\brief rotate " << f.description << "\n"
-+           << " * \\param[out] dest: rotated values\n"
-+           << " * \\param[in] src: values to be rotated\n"
-+           << " * \\param[in] rv: rotation matrix\n"
-+           << " */\n"
-+           << "MFRONT_SHAREDOBJ void " << fn << "_" << f.name
-+           << "(mfront_gb_real* const, const mfront_gb_real* const, "
-            << "const mfront_gb_real* const);\n\n"
-            << "/*!\n"
+-           << "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
 -              " * \\brief rotate an array of second Piola-Kirchhoff stresses"
 -              " from the material frame to the global frame\n"
 -              " * \\param[out] dest: array of second Piola-Kirchhoff stresses"
@@ -7237,7 +7539,10 @@ index 4c1e2eb32..589419a4e 100644
 -           << "const mfront_gb_real* const, "
 -              "const mfront_gb_real* const, "
 -           << "const mfront_gb_size_type);\n\n";
--        os << "/*!\n"
++    for (const auto h : i.getModellingHypothesesToBeTreated(bd)) {
++      const auto fn = i.getFunctionNameForHypothesis(name, h);
++      for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
+         os << "/*!\n"
 -              " * \\brief rotate the tangent operator blocks from the "
 -              " material frame to the global frame\n"
 -              " * \\param[out] dest: tangent operator blocks in the global"
@@ -7249,8 +7554,15 @@ index 4c1e2eb32..589419a4e 100644
 -           << "MFRONT_SHAREDOBJ void " << f << "_rotateTangentOperatorBlocks("
 -           << "mfront_gb_real* const, "
 -           << "const mfront_gb_real* const, "
--           << "const mfront_gb_real* const);\n\n"
--           << "/*!\n"
++           << " * \\brief rotate " << f.description << "\n"
++           << " * \\param[out] dest: rotated values\n"
++           << " * \\param[in] src: values to be rotated\n"
++           << " * \\param[in] rv: rotation matrix\n"
++           << " */\n"
++           << "MFRONT_SHAREDOBJ void " << fn << "_" << f.name
++           << "(mfront_gb_real* const, const mfront_gb_real* const, "
+            << "const mfront_gb_real* const);\n\n"
+            << "/*!\n"
 -              " * \\brief rotate an array of tangent operators blocks from the "
 -              " * material frame to the global frame\n"
 -              " * \\param[out] dest: array of tangent operator blocks in the"
@@ -7266,7 +7578,16 @@ index 4c1e2eb32..589419a4e 100644
 -           << "const mfront_gb_real* const, "
 -           << "const mfront_gb_real* const, "
 -           << "const mfront_gb_size_type);\n\n";
--      }
++           << " * \\brief rotate an array of values: " << f.description << "\n"
++           << " * \\param[out] dest: rotated values\n"
++           << " * \\param[in] src: values to be rotated\n"
++           << " * \\param[in] rv: rotation matrix\n"
++           << " * \\param[in] s: number of entries of the array\n"
++           << " */\n"
++           << "MFRONT_SHAREDOBJ void " << fn << "_" << f.array_name
++           << "(mfront_gb_real* const, const mfront_gb_real* const, "
++           << "const mfront_gb_real* const, const mfront_gb_size_type);\n\n";
+       }
 -    }  // end of for (const auto h : mhs)
 -  }    // end of writeRotationFunctionsDeclarations
 -
@@ -7363,7 +7684,7 @@ index 4c1e2eb32..589419a4e 100644
 -              << args.variable_offset << ");\n"
 -              << args.variable_name << "_view = tfel::math::change_basis("
 -              << args.variable_name << ", r);\n";
--    }
+     }
 -  }  // end of writeSecondOrderTensorsRotation
 -
 -  static void writeStensorRotation(WriteRotationFunctionArgument& args) {
@@ -7444,8 +7765,9 @@ index 4c1e2eb32..589419a4e 100644
 -  static void writeT2toT2Rotation(WriteRotationFunctionArgument& args) {
 -    writeFourthOrderTensorsRotation(args, "t2tot2", "T2toT2View");
 -  }  // end of writeT2toT2Rotation
--
--  /*!
++  }  // end of writeRotationFunctionsDeclarations
+ 
+   /*!
 -   * \brief write the rotation of a scalar, a vector, a symmetric tensor or a
 -   * tensor
 -   * \param[in] args: arguments
@@ -7517,17 +7839,8 @@ index 4c1e2eb32..589419a4e 100644
 -        const auto& g = mv.first;
 -        writeVariableRotation(os, h, g, og);
 -        og += SupportedTypes::getTypeSize(g.type, g.arraySize);
-+           << " * \\brief rotate an array of values: " << f.description << "\n"
-+           << " * \\param[out] dest: rotated values\n"
-+           << " * \\param[in] src: values to be rotated\n"
-+           << " * \\param[in] rv: rotation matrix\n"
-+           << " * \\param[in] s: number of entries of the array\n"
-+           << " */\n"
-+           << "MFRONT_SHAREDOBJ void " << fn << "_" << f.array_name
-+           << "(mfront_gb_real* const, const mfront_gb_real* const, "
-+           << "const mfront_gb_real* const, const mfront_gb_size_type);\n\n";
-       }
-     }
+-      }
+-    }
 -    os << "}\n\n";
 -    os << "void " << f << "_rotateArrayOfGradients("
 -       << "mfront_gb_real* const dest, "
@@ -7698,9 +8011,8 @@ index 4c1e2eb32..589419a4e 100644
 -    return "tfel::math::" + type + "<" + std::to_string(d) +
 -           ",mfront::gb::real>";
 -  }  // end of getRotatedObjectType
-+  }  // end of writeRotationFunctionsDeclarations
- 
-   /*!
+-
+-  /*!
 -   * \brief write the rotation of a tangent operator block
 -   * \param[in] args: arguments
 -   * \param[in] f1: type of the derivated variable
@@ -8182,7 +8494,7 @@ index 4c1e2eb32..589419a4e 100644
          if ((h == ModellingHypothesis::PLANESTRESS) ||
              (h == ModellingHypothesis::AXISYMMETRICALGENERALISEDPLANESTRESS)) {
            const auto* const F0zz =
-@@ -1922,27 +984,61 @@ namespace mfront {
+@@ -1922,33 +984,82 @@ namespace mfront {
      return n + "_" + ModellingHypothesis::toString(h);
    }  // end of getFunctionNameForHypothesis
  
@@ -8252,7 +8564,28 @@ index 4c1e2eb32..589419a4e 100644
      }
      if (!initStateVarsIncrements.empty()) {
        os << ",\n" << initStateVarsIncrements;
-@@ -2200,13 +1296,15 @@ namespace mfront {
+     }
+   }  // end of writeBehaviourConstructorHeader
+ 
++  /*!
++   * \return if the given gradient is left uninitialized by the constructors
++   * of the behaviour data and of the integration data.
++   *
++   * The gradients at the beginning of the time step, and their increments or
++   * their values at the end of the time step, are assigned in the body of the
++   * constructor of the behaviour (see the `writeBehaviourConstructorBody`
++   * method): setting the values of the tensorial ones to zero before is
++   * useless.
++   * \param[in] g: gradient
++   */
++  static bool GenericBehaviourInterface_isLeftUninitialized(const Gradient& g) {
++    return (g.arraySize == 1u) && (!g.isScalar());
++  }  // end of GenericBehaviourInterface_isLeftUninitialized
++
+   static void GenericBehaviourInterface_initializeVariable(
+       std::ostream& os,
+       const BehaviourDescription& bd,
+@@ -2200,13 +1311,15 @@ namespace mfront {
        }
      };  // end of wvci2
      const auto& d = bd.getBehaviourData(h);
@@ -8272,7 +8605,23 @@ index 4c1e2eb32..589419a4e 100644
      auto first = true;
      const auto mprops = this->buildMaterialPropertiesList(bd, h);
      auto ioffset = mprops.second;
-@@ -2367,13 +1465,15 @@ namespace mfront {
+@@ -2254,6 +1367,15 @@ namespace mfront {
+       }
+       mps_offset += ">::value";
+     }
++    for (const auto& mv : bd.getMainVariables()) {
++      const auto& g = mv.first;
++      if (GenericBehaviourInterface_isLeftUninitialized(g)) {
++        os << (first ? "\n: " : ",\n")
++           << (Gradient::isIncrementKnown(g) ? g.name : g.name + "0")
++           << "(tfel::math::uninitialized)";
++        first = false;
++      }
++    }
+     for (const auto& mp : d.getMaterialProperties()) {
+       const auto& m =
+           findBehaviourMaterialProperty(mprops.first, mp.getExternalName());
+@@ -2367,14 +1489,24 @@ namespace mfront {
        const Hypothesis h,
        const BehaviourDescription& bd) const {
      const auto& evs = bd.getBehaviourData(h).getExternalStateVariables();
@@ -8287,12 +8636,22 @@ index 4c1e2eb32..589419a4e 100644
         << " */\n"
 -       << bd.getClassName()
 -       << "IntegrationData(const mfront::gb::BehaviourData& mgb_d)\n"
+-       << ": dt(mgb_d.dt)";
 +       << "TFEL_HOST_DEVICE " << bd.getClassName() << "IntegrationData("
 +       << this->getDataConstructorsArguments() << ")\n"
-        << ": dt(mgb_d.dt)";
++       << ": ";
++    for (const auto& mv : bd.getMainVariables()) {
++      const auto& g = mv.first;
++      if (GenericBehaviourInterface_isLeftUninitialized(g)) {
++        os << (Gradient::isIncrementKnown(g) ? "d" + g.name : g.name + "1")
++           << "(tfel::math::uninitialized),\n";
++      }
++    }
++    os << "dt(mgb_d.dt)";
      auto o = SupportedTypes::TypeSize{};
      for (const auto& ev : evs) {
-@@ -2524,7 +1624,7 @@ namespace mfront {
+       if ((ev.arraySize != 1u) || (!ev.isScalar())) {
+@@ -2524,7 +1656,7 @@ namespace mfront {
        const auto& initialize_function_variables =
            c.attributes.at(CodeBlock::used_initialize_function_variables)
                .get<std::vector<VariableDescription>>();
@@ -8301,7 +8660,7 @@ index 4c1e2eb32..589419a4e 100644
           << "InitializeFunction(const NumericType* const ";
        if (!initialize_function_variables.empty()) {
          os << "mfront_initialize_function_inputs){\n";
-@@ -2573,7 +1673,8 @@ namespace mfront {
+@@ -2573,7 +1705,8 @@ namespace mfront {
        const auto& postprocessing_variables =
            c.attributes.at(CodeBlock::used_postprocessing_variables)
                .get<std::vector<VariableDescription>>();
@@ -8311,7 +8670,7 @@ index 4c1e2eb32..589419a4e 100644
           << "mfront_postprocessing_outputs,\n"
           << "const BehaviourData& initial_state){\n"
           << "using namespace std;\n"
-@@ -2587,6 +1688,73 @@ namespace mfront {
+@@ -2587,6 +1720,73 @@ namespace mfront {
      }
    }  // end of writeBehaviourPostProcessings
  
@@ -9161,7 +9520,7 @@ index 78800ea37..3943236e0 100644
              if (bd.hasAttribute(
                      BehaviourDescription::requiresUnAlteredStiffnessTensor)) {
 diff --git a/mfront/src/ImplicitCodeGeneratorBase.cxx b/mfront/src/ImplicitCodeGeneratorBase.cxx
-index 0f1947c56..93f95bbb6 100644
+index 0f1947c56..69282dc1f 100644
 --- a/mfront/src/ImplicitCodeGeneratorBase.cxx
 +++ b/mfront/src/ImplicitCodeGeneratorBase.cxx
 @@ -169,7 +169,8 @@ namespace mfront {
@@ -9276,7 +9635,161 @@ index 0f1947c56..93f95bbb6 100644
                 << "df" << v.name << "_dd" << v2.name
                 << "(const ushort mfront_idx, "
                 << "const ushort mfront_idx2){\n"
-@@ -1201,12 +1211,12 @@ namespace mfront {
+@@ -1020,6 +1030,19 @@ namespace mfront {
+     const auto n = mfront::getTypeSize(isvs);
+     const auto v2 = VariableDescription{"StrainStensor", "\u03B5\u1D57\u1D52",
+                                         "eto", 1u, 0u};
++    // The columns of the inverse of the jacobian are either computed one
++    // after the other in the vector `vect_e`, or by a single substitution
++    // in the matrix `mfront_partial_jacobian_invert`.
++    const auto simultaneous_substitutions =
++        this->linear_solver.usesSimultaneousSubstitutions();
++    // value of the row `r` of the column `mfront_idx` of the inverse of the
++    // jacobian
++    const auto value = [simultaneous_substitutions](const std::string& r) {
++      if (simultaneous_substitutions) {
++        return "mfront_partial_jacobian_invert(" + r + ", mfront_idx)";
++      }
++      return "vect_e(" + r + ")";
++    };
+     for (std::size_t i = 0; i != isvs.size(); ++i) {
+       os << "[[nodiscard]] TFEL_HOST_DEVICE "
+             "bool\ncomputePartialJacobianInvert(";
+@@ -1036,62 +1059,78 @@ namespace mfront {
+       }
+       os << ")\n"
+          << "{\n"
+-         << "using namespace tfel::math;\n"
+-         << "for(ushort mfront_idx=0; mfront_idx !=StensorSize; "
+-            "++mfront_idx){\n"
+-         << "tvector<" << n << ", NumericType> vect_e(NumericType(0));\n"
+-         << "vect_e(mfront_idx) = NumericType(1);\n";
+-      os << "auto mfront_jacobian_substitution_success = true;\n";
+-      this->linear_solver.writeLinearSystemSubstitution(
+-          os, decomposition_results,
+-          {.returned_value = "mfront_jacobian_substitution_success",
+-           .rhs = "vect_e",
+-           .rhs_column_size = n.asString()});
+-      os << "if(!mfront_jacobian_substitution_success){\n"
+-         << "return false;\n"
+-         << "}\n";
++         << "using namespace tfel::math;\n";
++      if (simultaneous_substitutions) {
++        os << "tmatrix<" << n << ", StensorSize, NumericType> "
++           << "mfront_partial_jacobian_invert;\n"
++           << "auto mfront_jacobian_substitution_success = true;\n";
++        this->linear_solver.writeIdentityColumnsSubstitution(
++            os, decomposition_results,
++            {.returned_value = "mfront_jacobian_substitution_success",
++             .rhs = "mfront_partial_jacobian_invert",
++             .rhs_column_size = "StensorSize"});
++        os << "if(!mfront_jacobian_substitution_success){\n"
++           << "return false;\n"
++           << "}\n"
++           << "for(ushort mfront_idx=0; mfront_idx !=StensorSize; "
++              "++mfront_idx){\n";
++      } else {
++        os << "for(ushort mfront_idx=0; mfront_idx !=StensorSize; "
++              "++mfront_idx){\n"
++           << "tvector<" << n << ", NumericType> vect_e(NumericType(0));\n"
++           << "vect_e(mfront_idx) = NumericType(1);\n";
++        os << "auto mfront_jacobian_substitution_success = true;\n";
++        this->linear_solver.writeLinearSystemSubstitution(
++            os, decomposition_results,
++            {.returned_value = "mfront_jacobian_substitution_success",
++             .rhs = "vect_e",
++             .rhs_column_size = n.asString()});
++        os << "if(!mfront_jacobian_substitution_success){\n"
++           << "return false;\n"
++           << "}\n";
++      }
+       SupportedTypes::TypeSize n2;
+       for (std::size_t i2 = 0; i2 <= i; ++i2) {
+         const auto& v = d.getIntegrationVariables()[i2];
+         const auto flag = SupportedTypes::getTypeFlag(v.type);
+         if (flag == SupportedTypes::SCALAR) {
+           if (v.arraySize == 1u) {
+-            os << "partial_jacobian_" << v.name << "(mfront_idx)=vect_e(" << n2
+-               << ");\n";
++            os << "partial_jacobian_" << v.name
++               << "(mfront_idx)=" << value(n2.asString()) << ";\n";
+           } else {
+             os << "for(ushort mfront_idx2=0; mfront_idx2!=" << v.arraySize
+                << "; ++mfront_idx2){\n"
+-               << "partial_jacobian_" << v.name
+-               << "(mfront_idx2)(mfront_idx)=vect_e(" << n2
+-               << "+mfront_idx2);\n"
++               << "partial_jacobian_" << v.name << "(mfront_idx2)(mfront_idx)="
++               << value(n2.asString() + "+mfront_idx2") << ";\n"
+                << "}\n";
+           }
+           n2 += SupportedTypes::getTypeSize(v.type, v.arraySize);
+         } else if ((flag == SupportedTypes::TVECTOR) ||
+                    (flag == SupportedTypes::STENSOR) ||
+                    (flag == SupportedTypes::TENSOR)) {
++          const auto size = SupportedTypes::getTypeSize(v.type, 1u);
+           if (v.arraySize == 1u) {
+-            os << "for(ushort mfront_idx2=" << n2;
+-            os << "; mfront_idx2!=";
+-            n2 += SupportedTypes::getTypeSize(v.type, v.arraySize);
+-            os << n2 << "; ++mfront_idx2){\n";
+-            os << "partial_jacobian_" << v.name
+-               << "(mfront_idx2,mfront_idx)=vect_e(mfront_idx2);\n";
+-            os << "}\n";
++            os << "for(ushort mfront_idx2=0; mfront_idx2!=" << size
++               << "; ++mfront_idx2){\n"
++               << "partial_jacobian_" << v.name << "(mfront_idx2,mfront_idx)="
++               << value(n2.isNull() ? std::string("mfront_idx2")
++                                    : n2.asString() + "+mfront_idx2")
++               << ";\n"
++               << "}\n";
+           } else {
+-            const auto size = SupportedTypes::getTypeSize(v.type, 1u);
+             os << "for(ushort mfront_idx2=0; mfront_idx2!=" << v.arraySize
+                << "; ++mfront_idx2){\n"
+                << "for(ushort mfront_idx3=0; mfront_idx3!= " << size
+                << "; ++mfront_idx3){\n"
+                << "partial_jacobian_" << v.name
+                << "(mfront_idx2)(mfront_idx3,mfront_idx) = "
+-               << "vect_e(" << n2 << "+ mfront_idx3 + mfront_idx2 * " << size
+-               << ");\n"
++               << value(n2.asString() + "+ mfront_idx3 + mfront_idx2 * " +
++                        size.asString())
++               << ";\n"
+                << "}\n"
+                << "}\n";
+-            n2 += SupportedTypes::getTypeSize(v.type, v.arraySize);
+           }
++          n2 += SupportedTypes::getTypeSize(v.type, v.arraySize);
+         } else {
+           this->throwRuntimeError(
+               "ImplicitCodeGeneratorBase::writeComputePartialJacobianInvert",
+@@ -1141,8 +1180,14 @@ namespace mfront {
+        << "using namespace tfel::math;\n"
+        << "tvector<" << n << ", NumericType> tzeros(this->zeros);\n"
+        << "tvector<" << n << ", NumericType> tfzeros(this->fzeros);\n"
++       << "// the jacobian, which the evaluations of the residual may\n"
++       << "// modify, is only saved if it is not the matrix computed here\n"
++       << "const auto mfront_save_jacobian = &njacobian != &(this->jacobian);\n"
+        << "tmatrix<" << n << "," << n
+-       << ", NumericType> tjacobian(this->jacobian);\n"
++       << ", NumericType> tjacobian(tfel::math::uninitialized);\n"
++       << "if(mfront_save_jacobian){\n"
++       << "tjacobian = this->jacobian;\n"
++       << "}\n"
+        << "auto mfront_success = true;\n"
+        << "for(ushort mfront_idx = 0; mfront_idx != " << n
+        << "; ++mfront_idx){\n"
+@@ -1183,7 +1228,7 @@ namespace mfront {
+        << "break;\n"
+        << "}\n"
+        << "}\n"
+-       << "if(&njacobian!=&(this->jacobian)){\n"
++       << "if(mfront_save_jacobian){\n"
+        << "this->jacobian = tjacobian;\n"
+        << "}\n"
+        << "return mfront_success;\n"
+@@ -1201,12 +1246,12 @@ namespace mfront {
         << " */\n"
         << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult ";
      if (this->bd.hasAttribute(h, BehaviourData::hasConsistentTangentOperator)) {
@@ -9292,7 +9805,7 @@ index 0f1947c56..93f95bbb6 100644
        }
      }
      os << "using namespace std;\n";
-@@ -1220,15 +1230,9 @@ namespace mfront {
+@@ -1220,15 +1265,9 @@ namespace mfront {
             BehaviourDescription::COHESIVEZONEMODEL) ||
            (this->bd.getBehaviourType() ==
             BehaviourDescription::GENERALBEHAVIOUR)) {
@@ -9311,7 +9824,7 @@ index 0f1947c56..93f95bbb6 100644
        }
      }
      if (this->bd.hasCode(h, BehaviourData::ComputePredictor)) {
-@@ -1302,10 +1306,10 @@ namespace mfront {
+@@ -1302,10 +1341,10 @@ namespace mfront {
      os << "}\n";
      if (!areRuntimeChecksDisabled(this->bd)) {
        for (const auto& v : d.getPersistentVariables()) {
@@ -9324,7 +9837,7 @@ index 0f1947c56..93f95bbb6 100644
        }
      }
      if (!this->bd.getTangentOperatorBlocks().empty()) {
-@@ -1327,10 +1331,9 @@ namespace mfront {
+@@ -1327,10 +1366,9 @@ namespace mfront {
          }
          os << "}\n";
        } else {
@@ -9338,7 +9851,7 @@ index 0f1947c56..93f95bbb6 100644
        }
        os << "}\n";
      }
-@@ -1390,10 +1393,14 @@ namespace mfront {
+@@ -1390,10 +1428,14 @@ namespace mfront {
        NonLinearSystemSolverBase::writeEvaluateNumericallyComputedBlocks(
            os, this->bd, h);
        if (this->bd.hasAttribute(h, BehaviourData::compareToNumericalJacobian)) {
@@ -9355,10 +9868,24 @@ index 0f1947c56..93f95bbb6 100644
        os << "return true;\n";
      }
 diff --git a/mfront/src/ImplicitDSLBase.cxx b/mfront/src/ImplicitDSLBase.cxx
-index 6e2ac0cc0..b749a35b0 100644
+index 6e2ac0cc0..9c77af9a5 100644
 --- a/mfront/src/ImplicitDSLBase.cxx
 +++ b/mfront/src/ImplicitDSLBase.cxx
-@@ -671,7 +671,11 @@ namespace mfront {
+@@ -562,12 +562,7 @@ namespace mfront {
+       this->setLinearSystemSolver("Default", {});
+ #endif
+     } else if (n == "Default") {
+-      if (!opts.empty()) {
+-        this->throwRuntimeError(
+-            "ImplicitDSLBase::setLinearSystemSolver",
+-            "no options expected for the 'Default' linear solver");
+-      }
+-      auto ptr = std::make_shared<DefaultLinearSystemSolver>();
++      auto ptr = std::make_shared<DefaultLinearSystemSolver>(opts);
+       this->setLinearSystemSolver(ptr, n);
+     } else {
+       this->throwRuntimeError(
+@@ -671,7 +666,11 @@ namespace mfront {
        this->throwRuntimeError("ImplicitDSLBase::treatEpsilon",
                                "Epsilon value must be positive.");
      }
@@ -9371,7 +9898,7 @@ index 6e2ac0cc0..b749a35b0 100644
        auto converter = std::ostringstream{};
        converter << std::scientific << epsilon;
        reportWarning(
-@@ -681,7 +685,7 @@ namespace mfront {
+@@ -681,7 +680,7 @@ namespace mfront {
            "). You may want to consider a less stringent value (1e-14 "
            "is generally a good choice).");
      }
@@ -9380,7 +9907,7 @@ index 6e2ac0cc0..b749a35b0 100644
        auto converter = std::ostringstream{};
        converter << std::scientific << epsilon;
        reportWarning(
-@@ -691,12 +695,25 @@ namespace mfront {
+@@ -691,12 +690,25 @@ namespace mfront {
            "). You may want to consider a more stringent value (1e-14 "
            "is generally a good choice).");
      }
@@ -9407,7 +9934,7 @@ index 6e2ac0cc0..b749a35b0 100644
      this->mb.setEntryName(uh, "epsilon", "epsilon");
    }  // ImplicitDSLBase::treatEpsilon
  
-@@ -757,7 +774,9 @@ namespace mfront {
+@@ -757,7 +769,9 @@ namespace mfront {
          "perturbation value used to compute a finite difference approximation "
          "of the jacobian";
      this->mb.addParameter(h, e, BehaviourData::ALREADYREGISTRED);
@@ -9418,7 +9945,7 @@ index 6e2ac0cc0..b749a35b0 100644
    }  // ImplicitDSLBase::treatEpsilon
  
    void ImplicitDSLBase::treatIterMax() {
-@@ -1460,11 +1479,16 @@ namespace mfront {
+@@ -1460,11 +1474,16 @@ namespace mfront {
        this->mb.addParameter(uh, e, BehaviourData::ALREADYREGISTRED);
        this->mb.setEntryName(uh, "epsilon", "epsilon");
        this->mb.setParameterDefaultValue(uh, "epsilon", 1.e-8);
@@ -9440,7 +9967,7 @@ index 6e2ac0cc0..b749a35b0 100644
      }
      if (!this->mb.hasParameter(uh, "theta")) {
        VariableDescription tv("NumericType", "\u03B8", "theta", 1u, 0u);
-@@ -1479,8 +1503,10 @@ namespace mfront {
+@@ -1479,8 +1498,10 @@ namespace mfront {
          (this->solver->usesJacobian())) {
        const std::string nje = "numerical_jacobian_epsilon";
        if (!this->mb.hasParameter(uh, nje)) {
@@ -9819,6 +10346,42 @@ index 3ad5e68e7..1fc853a30 100644
         << "using tfel::material::computeElasticStiffness;\n"
         << "using tfel::math::st2tost2;\n"
         << "if(smt==CONSISTENTTANGENTOPERATOR){\n"
+diff --git a/mfront/src/LinearSystemSolverBase.cxx b/mfront/src/LinearSystemSolverBase.cxx
+index 7a655c06e..f34cfc5a9 100644
+--- a/mfront/src/LinearSystemSolverBase.cxx
++++ b/mfront/src/LinearSystemSolverBase.cxx
+@@ -11,6 +11,7 @@
+  * project under specific licensing conditions.
+  */
+ 
++#include <ostream>
+ #include "MFront/LinearSystemSolverBase.hxx"
+ 
+ namespace mfront {
+@@ -30,6 +31,23 @@ namespace mfront {
+                                                     const Hypothesis) const {
+   }  // end of writeSpecificMembers
+ 
++  bool LinearSystemSolverBase::usesSimultaneousSubstitutions() const {
++    return this->simultaneous_substitutions;
++  }  // end of usesSimultaneousSubstitutions
++
++  void LinearSystemSolverBase::writeIdentityColumnsSubstitution(
++      std::ostream& os,
++      const MatrixDecompositionResult& r,
++      const LinearSystemSubstitutionVariables& s) const {
++    os << "std::fill(" << s.rhs << ".begin(), " << s.rhs
++       << ".end(), NumericType(0));\n"
++       << "for(ushort mfront_idx = 0; mfront_idx != " << s.rhs_column_size
++       << "; ++mfront_idx){\n"
++       << s.rhs << "(mfront_idx, mfront_idx) = NumericType(1);\n"
++       << "}\n";
++    this->writeLinearSystemSubstitution(os, r, s);
++  }  // end of writeIdentityColumnsSubstitution
++
+   LinearSystemSolverBase::~LinearSystemSolverBase() = default;
+ 
+ }  // end of namespace mfront
 diff --git a/mfront/src/MFrontMaterialPropertyInterface.cxx b/mfront/src/MFrontMaterialPropertyInterface.cxx
 index 64a713f4d..59bc96adb 100644
 --- a/mfront/src/MFrontMaterialPropertyInterface.cxx
@@ -10676,6 +11239,58 @@ index 79ed56b4f..4334293b3 100644
           << "}\n";
        // update the current estimate
        os << staggeredSchemeBissectionAlgorithm << ".updateBounds(this->"
+diff --git a/mfront/src/TDLSLinearSystemSolver.cxx b/mfront/src/TDLSLinearSystemSolver.cxx
+index ac1b952f8..1fd10e9b4 100644
+--- a/mfront/src/TDLSLinearSystemSolver.cxx
++++ b/mfront/src/TDLSLinearSystemSolver.cxx
+@@ -32,8 +32,11 @@ namespace mfront {
+             .addDataTypeValidator<int, double>("out_of_tile_search_threshold")
+             .addDataTypeValidator<int, double>("relative_pivot_threshold")
+             .addDataTypeValidator<int, double>("singular_pivot_threshold")
+-            .addDataTypeValidator<bool>("out_of_tile_search_diagnostics");
++            .addDataTypeValidator<bool>("out_of_tile_search_diagnostics")
++            .addDataTypeValidator<bool>("simultaneous_substitutions");
+     validator.validate(opts);
++    this->simultaneous_substitutions =
++        get_if<bool>(opts, "simultaneous_substitutions", false);
+     if (opts.contains("tile_size")) {
+       if (is<int>(opts, "tile_size")) {
+         const auto ts = get<int>(opts, "tile_size");
+@@ -340,6 +343,22 @@ namespace mfront {
+        << ");\n";
+   }  // end of writeLinearSystemSubstitution
+ 
++  void TDLSLinearSystemSolver::writeIdentityColumnsSubstitution(
++      std::ostream& os,
++      const MatrixDecompositionResult& r,
++      const LinearSystemSubstitutionVariables& s) const {
++    if (r.variables.size() != 1) {
++      tfel::raise(
++          "TDLSLinearSystemSolver::writeIdentityColumnsSubstitution: "
++          "invalid number of variables resulting from the matrix "
++          "decomposition");
++    }
++    // the right-hand sides are generated by the solver
++    os << "::tdls::substitute_canonical<MFrontTDLSLinearSystemConfiguration>("
++       << r.matrix << ", " << r.variables.begin()->name << ", 0, " << s.rhs
++       << ");\n";
++  }  // end of writeIdentityColumnsSubstitution
++
+   TDLSLinearSystemSolver::~TDLSLinearSystemSolver() = default;
+ 
+ }  // end of namespace mfront
+diff --git a/mfront/src/VariableDescription.cxx b/mfront/src/VariableDescription.cxx
+index c3acfd3d1..643f3e10f 100644
+--- a/mfront/src/VariableDescription.cxx
++++ b/mfront/src/VariableDescription.cxx
+@@ -33,6 +33,7 @@ namespace mfront {
+       "errorNormalisationFactor";
+   const char* const VariableDescription::variableDeclaredInBaseClass =
+       "variableDeclaredInBaseClass";
++  const char* const VariableDescription::uninitialized = "uninitialized";
+ 
+   VariableDescription::VariableDescription() = default;
+ 
 diff --git a/mfront/tests/behaviours/AxialGrowth3.mfront b/mfront/tests/behaviours/AxialGrowth3.mfront
 index d9953d45b..706d6961f 100644
 --- a/mfront/tests/behaviours/AxialGrowth3.mfront
@@ -11351,6 +11966,100 @@ index 2235642fd..fc83e1f45 100644
    lambda = computeLambda(young,nu);
    mu = computeMu(young,nu);
  }
+diff --git a/mfront/tests/behaviours/PartialJacobianInvertTest-common.mfront b/mfront/tests/behaviours/PartialJacobianInvertTest-common.mfront
+new file mode 100644
+index 000000000..1642bee79
+--- /dev/null
++++ b/mfront/tests/behaviours/PartialJacobianInvertTest-common.mfront
+@@ -0,0 +1,69 @@
++@Author Tristan Chenaille;
++@Date 22/11/2026;
++@Description{
++  "This file is used to test the `getPartialJacobianInvert` function "
++  "object with a symmetric tensor, a scalar and an array of scalars as "
++  "integration variables. The stress is given by an isotropic elastic law "
++  "affected by three damage variables, whose rates are proportional to "
++  "the square of the norm of the elastic strain. The blocks of the "
++  "inverse of the jacobian are compared to their analytical values when "
++  "the tangent operator is computed."
++}
++
++@Epsilon 1.e-14;
++
++@Parameter stress young = 78e9;
++young.setGlossaryName("YoungModulus");
++@Parameter real nu = 0.3;
++nu.setGlossaryName("PoissonRatio");
++@Parameter real A = 2e5;
++@Parameter real B[2] = {1e5, 3e5};
++
++@StateVariable real p;
++@StateVariable real d[2];
++
++@LocalVariable stress lambda;
++@LocalVariable stress mu;
++
++@InitLocalVariables {
++  lambda = computeLambda(young, nu);
++  mu = computeMu(young, nu);
++}
++
++@ComputeFinalStress {
++  sig = (1 - p - d[0] - d[1]) *
++        (lambda * trace(eel) * Stensor::Id() + 2 * mu * eel);
++}
++
++@Integrator {
++  const auto e = eel + theta * deel;
++  const auto e2 = e | e;
++  feel -= deto;
++  fp -= A * dt * e2;
++  dfp_ddeel = -2 * A * dt * theta * e;
++  for (unsigned short i = 0; i != 2; ++i) {
++    fd[i] -= B[i] * dt * e2;
++    dfd_ddeel(i) = -2 * B[i] * dt * theta * e;
++  }
++}
++
++@TangentOperator {
++  static_cast<void>(smt);
++  Stensor4 Je;
++  Stensor Jp;
++  tvector<2u, Stensor> Jd;
++  getPartialJacobianInvert(Je, Jp, Jd);
++  // The jacobian being triangular by blocks, the blocks of its inverse are
++  // known: the integration fails if the blocks returned differ from them.
++  constexpr auto eps = real(1.e-10);
++  const auto de2_ddeel = 2 * theta * (eel - (1 - theta) * deel);
++  if ((abs(Je - Stensor4::Id()) > eps) ||
++      (abs(Jp - A * dt * de2_ddeel) > eps) ||
++      (abs(Jd[0] - B[0] * dt * de2_ddeel) > eps) ||
++      (abs(Jd[1] - B[1] * dt * de2_ddeel) > eps)) {
++    return false;
++  }
++  StiffnessTensor De;
++  computeElasticStiffness<N, Type>::exe(De, lambda, mu);
++  Dt = (1 - p - d[0] - d[1]) * De * Je - ((De * eel) ^ (Jp + Jd[0] + Jd[1]));
++}
+diff --git a/mfront/tests/behaviours/PartialJacobianInvertTest.mfront b/mfront/tests/behaviours/PartialJacobianInvertTest.mfront
+new file mode 100644
+index 000000000..a8298f1ba
+--- /dev/null
++++ b/mfront/tests/behaviours/PartialJacobianInvertTest.mfront
+@@ -0,0 +1,3 @@
++@DSL Implicit;
++@Behaviour PartialJacobianInvertTest;
++@Import "PartialJacobianInvertTest-common.mfront";
+diff --git a/mfront/tests/behaviours/PartialJacobianInvertTest_SimultaneousSubstitutions.mfront b/mfront/tests/behaviours/PartialJacobianInvertTest_SimultaneousSubstitutions.mfront
+new file mode 100644
+index 000000000..44719612c
+--- /dev/null
++++ b/mfront/tests/behaviours/PartialJacobianInvertTest_SimultaneousSubstitutions.mfront
+@@ -0,0 +1,4 @@
++@DSL Implicit;
++@Behaviour PartialJacobianInvertTest_SimultaneousSubstitutions;
++@LinearSystemSolver Default{simultaneous_substitutions : true};
++@Import "PartialJacobianInvertTest-common.mfront";
 diff --git a/mfront/tests/behaviours/PolyCrystals.mfront b/mfront/tests/behaviours/PolyCrystals.mfront
 index 8516db139..53abf8a07 100644
 --- a/mfront/tests/behaviours/PolyCrystals.mfront
@@ -11552,6 +12261,565 @@ index 875e9a6a5..c1307e373 100644
    }
  }
  
+diff --git a/mfront/tests/behaviours/TensorialIntegrationVariablesPartialJacobianInvert.mfront b/mfront/tests/behaviours/TensorialIntegrationVariablesPartialJacobianInvert.mfront
+new file mode 100644
+index 000000000..d7a8eca70
+--- /dev/null
++++ b/mfront/tests/behaviours/TensorialIntegrationVariablesPartialJacobianInvert.mfront
+@@ -0,0 +1,71 @@
++@DSL Implicit;
++@Behaviour TensorialIntegrationVariablesPartialJacobianInvert;
++@Author Tristan Chenaille;
++@Date 22/11/2026;
++@Description {
++  "This behaviour is used to test the `getPartialJacobianInvert` function "
++  "object when a tensorial integration variable follows another one. The "
++  "elastic strain is the total strain minus a fraction of a symmetric "
++  "tensor whose rate is proportional to the elastic strain. A scalar, "
++  "whose rate is proportional to the trace of the elastic strain, follows "
++  "this tensor. The blocks of the inverse of the jacobian are compared to "
++  "their analytical values when the tangent operator is computed."
++}
++
++@Epsilon 1.e-14;
++@Theta 0.5;
++
++@Parameter stress young = 150e9;
++young.setGlossaryName("YoungModulus");
++@Parameter real nu = 0.3;
++nu.setGlossaryName("PoissonRatio");
++@Parameter real c = 0.5;
++@Parameter real k = 15;
++@Parameter real m = 2;
++
++@StateVariable Stensor a;
++@StateVariable real p;
++
++@LocalVariable stress lambda;
++@LocalVariable stress mu;
++
++@InitLocalVariables {
++  lambda = computeLambda(young, nu);
++  mu = computeMu(young, nu);
++}
++
++@ComputeFinalStress {
++  sig = lambda * trace(eel) * Stensor::Id() + 2 * mu * eel;
++}
++
++@Integrator {
++  const auto e = eel + theta * deel;
++  feel += c * da - deto;
++  dfeel_dda = c * Stensor4::Id();
++  fa -= k * dt * e;
++  dfa_ddeel = -k * dt * theta * Stensor4::Id();
++  fp -= m * dt * trace(e);
++  dfp_ddeel = -m * dt * theta * Stensor::Id();
++}
++
++@TangentOperator {
++  static_cast<void>(smt);
++  Stensor4 Je;
++  Stensor4 Ja;
++  Stensor Jp;
++  getPartialJacobianInvert(Je, Ja, Jp);
++  // The jacobian being made of multiples of the identity, the blocks of
++  // its inverse are known: the integration fails if the blocks returned
++  // differ from them.
++  constexpr auto eps = real(1.e-12);
++  const auto s = k * dt * theta;
++  const auto r = 1 / (1 + c * s);
++  if ((abs(Je - r * Stensor4::Id()) > eps) ||
++      (abs(Ja - s * r * Stensor4::Id()) > eps) ||
++      (abs(Jp - m * dt * theta * r * Stensor::Id()) > eps)) {
++    return false;
++  }
++  StiffnessTensor De;
++  computeElasticStiffness<N, Type>::exe(De, lambda, mu);
++  Dt = De * Je;
++}
+diff --git a/mfront/tests/behaviours/UninitializedVariablesTest.mfront b/mfront/tests/behaviours/UninitializedVariablesTest.mfront
+new file mode 100644
+index 000000000..8b36e63d0
+--- /dev/null
++++ b/mfront/tests/behaviours/UninitializedVariablesTest.mfront
+@@ -0,0 +1,80 @@
++@DSL Implicit;
++@Behaviour UninitializedVariablesTest;
++@Date 21 / 11 / 2026;
++@Description {
++  "A Norton behaviour testing the `setUninitialized` method on:"
++  "- a tensorial local variable (`n`),"
++  "- an array of local variables (`lame`),"
++  "- an integration variable which is not a state variable (`evp`)."
++  "Those variables are assigned before being used."
++}
++
++@Epsilon 1.e-16;
++@Theta 1;
++
++@MaterialProperty stress young;
++young.setGlossaryName("YoungModulus");
++@MaterialProperty real nu;
++nu.setGlossaryName("PoissonRatio");
++
++//! the Lamé coefficients, computed in `@InitializeLocalVariables`
++@LocalVariable stress lame[2];
++lame.setUninitialized();
++//! the normal, computed in `@Integrator`
++@LocalVariable Stensor n;
++n.setUninitialized();
++
++@StateVariable strain p;
++p.setGlossaryName("EquivalentViscoplasticStrain");
++
++//! the viscoplastic strain, set in `@InitializeLocalVariables`
++@IntegrationVariable StrainStensor evp;
++evp.setUninitialized();
++
++@AuxiliaryStateVariable StrainStensor evp0;
++evp0.setGlossaryName("ViscoplasticStrain");
++
++@InitializeLocalVariables {
++  lame[0] = computeLambda(young, nu);
++  lame[1] = computeMu(young, nu);
++  evp = evp0;
++}
++
++@ComputeStress {
++  sig = lame[0] * trace(eel) * Stensor::Id() + 2 * lame[1] * eel;
++}
++
++@Integrator {
++  constexpr auto A = real(8.e-67);
++  constexpr auto E = real(8.2);
++  const auto seq = sigmaeq(sig);
++  const auto iseq = 1 / (max(seq, real(1.e-12) * young));
++  const auto vp = A * pow(seq, E - 1);
++  n = 3 * deviator(sig) * (iseq / 2);
++  feel += devp - deto;
++  fp -= vp * seq * dt;
++  fevp -= dp * n;
++  // jacobian
++  dfeel_ddevp = Stensor4::Id();
++  dfp_ddeel = -2 * lame[1] * E * vp * dt * n;
++  dfevp_ddeel = -2 * lame[1] * dp * iseq * (Stensor4::M() - (n ^ n));
++  dfevp_ddp = -n;
++}
++
++@UpdateAuxiliaryStateVariables {
++  evp0 = evp;
++}
++
++@TangentOperator {
++  if ((smt == ELASTIC) || (smt == SECANTOPERATOR)) {
++    computeElasticStiffness<N, Type>::exe(Dt, lame[0], lame[1]);
++  } else if (smt == CONSISTENTTANGENTOPERATOR) {
++    StiffnessTensor De;
++    Stensor4 Je;
++    computeElasticStiffness<N, Type>::exe(De, lame[0], lame[1]);
++    getPartialJacobianInvert(Je);
++    Dt = De * Je;
++  } else {
++    return false;
++  }
++}
+diff --git a/mfront/tests/behaviours/generic/CMakeLists.txt b/mfront/tests/behaviours/generic/CMakeLists.txt
+index 597f4462a..cb53e1eb2 100644
+--- a/mfront/tests/behaviours/generic/CMakeLists.txt
++++ b/mfront/tests/behaviours/generic/CMakeLists.txt
+@@ -20,6 +20,7 @@ set(mfront_tests_SOURCES
+   StateVariablesBoundsCheck
+   ExternalStateVariablesBoundsCheck
+   InitializationFailureTest
++  UninitializedVariablesTest
+   Elasticity3
+   Elasticity4
+   Elasticity5
+@@ -75,6 +76,8 @@ set(mfront_tests_SOURCES
+   ImplicitNorton_PowellDogLegBroyden
+   ImplicitNorton_Broyden2
+   ImplicitNorton_LevenbergMarquardt
++  PartialJacobianInvertTest
++  PartialJacobianInvertTest_SimultaneousSubstitutions
+   JohnsonCook_s
+   JohnsonCook_ssr
+   JohnsonCook_ssrt
+@@ -134,6 +137,7 @@ set(mfront_tests_SOURCES
+   GursonTvergaardNeedlemanViscoPlasticFlow_NumericalJacobian
+   Hayhurst
+   ImplicitHayhurst
++  TensorialIntegrationVariablesPartialJacobianInvert
+   Burger
+   AgeingBurger
+   Tvergaard
+@@ -484,6 +488,7 @@ endfunction(test_generic_fs)
+ 
+ test_generic(InitializationFailureTest
+   NO_XML_OUTPUT WILL_FAIL)
++test_generic(UninitializedVariablesTest)
+ test_generic(materialpropertiesboundscheck
+   NO_XML_OUTPUT WILL_FAIL)
+ test_generic(materialpropertiesboundscheck2 
+@@ -548,6 +553,7 @@ test_generic(plasticity3)
+ # test_generic(ddif2-4)
+ test_generic(lorentz)
+ test_generic(lorentz2)
++test_generic(tensorialintegrationvariablespartialjacobianinvert)
+ # test_generic(mazars)
+ # test_generic(mazars2)
+ # test_generic(druckerprager)
+@@ -566,6 +572,8 @@ test_generic(implicitnorton-smallstraintridimensionbehaviourwrapper)
+ test_generic(implicitnorton-broyden implicitnorton-uniaxialstrain.ref)
+ test_generic(implicitnorton-powelldoglegbroyden implicitnorton-uniaxialstrain.ref)
+ test_generic(implicitnorton-broyden2)
++test_generic(partialjacobianinverttest)
++test_generic(partialjacobianinverttest-simultaneoussubstitutions)
+ # test_generic(implicitnorton-levenbergmarquardt)
+ # test_generic(implicitnorton4-planestress)
+ # test_generic(implicitorthotropiccreep2-planestress)
+diff --git a/mfront/tests/behaviours/generic/UninitializedVariablesTest.mtest b/mfront/tests/behaviours/generic/UninitializedVariablesTest.mtest
+new file mode 100644
+index 000000000..353cd9df4
+--- /dev/null
++++ b/mfront/tests/behaviours/generic/UninitializedVariablesTest.mtest
+@@ -0,0 +1,46 @@
++@PredictionPolicy 'LinearPrediction';
++@XMLOutputFile @xml_output@;
++@MaximumNumberOfSubSteps 1;
++@Behaviour<generic> @library@ 'UninitializedVariablesTest';
++
++@MaterialProperty<constant> 'YoungModulus' 150.e9;
++@MaterialProperty<constant> 'PoissonRatio' 0.3;
++
++@Real 'sxx' 20e6;
++@ImposedStress 'SXX' 'sxx';
++// Initial value of the elastic strain
++@Real 'EELXX0' 0.00013333333333333333;
++@Real 'EELZZ0' -0.00004;
++@InternalStateVariable 'ElasticStrain' {'EELXX0', 'EELZZ0', 'EELZZ0',
++                                        0., 0., 0.};
++// Initial value of the total strain
++@Strain {'EELXX0', 'EELZZ0', 'EELZZ0', 0., 0., 0.};
++// Initial value of the total stresses
++@Stress {'sxx', 0., 0., 0., 0., 0.};
++
++@ExternalStateVariable 'Temperature' 293.15;
++
++@Times {0., 3600 in 20};
++
++@Real 'A' 8.e-67;
++@Real 'E' 8.2;
++// tests on strains
++@Test<function> 'EXX' 'EELXX0+A*SXX**E*t' 1.e-9;
++@Test<function> 'EYY' 'EELZZ0-0.5*A*SXX**E*t' 1.e-10;
++@Test<function> 'EZZ' 'EELZZ0-0.5*A*SXX**E*t' 1.e-10;
++@Test<function> 'EXY' '0.' 1.e-10;
++// tests on internal state variables
++@Test<function> 'ElasticStrainXX' 'EELXX0' 1.e-12;
++@Test<function> 'ElasticStrainYY' 'EELZZ0' 1.e-12;
++@Test<function> 'ElasticStrainZZ' 'EELZZ0' 1.e-12;
++@Test<function> 'ElasticStrainXY' '0.' 1.e-12;
++@Test<function> 'EquivalentViscoplasticStrain' 'A*SXX**E*t' 1.e-12;
++@Test<function> 'ViscoplasticStrainXX' 'A*SXX**E*t' 1.e-12;
++@Test<function> 'ViscoplasticStrainYY' '-0.5*A*SXX**E*t' 1.e-12;
++@Test<function> 'ViscoplasticStrainZZ' '-0.5*A*SXX**E*t' 1.e-12;
++@Test<function> 'ViscoplasticStrainXY' '0.' 1.e-12;
++// tests on stresses
++@Test<function> 'SXX' 'SXX' 1.e-3;
++@Test<function> 'SYY' '0.' 1.e-3;
++@Test<function> 'SZZ' '0.' 1.e-3;
++@Test<function> 'SXY' '0.' 1.e-3;
+diff --git a/mfront/tests/behaviours/generic/partialjacobianinverttest-simultaneoussubstitutions.mtest b/mfront/tests/behaviours/generic/partialjacobianinverttest-simultaneoussubstitutions.mtest
+new file mode 100644
+index 000000000..cf7031b0e
+--- /dev/null
++++ b/mfront/tests/behaviours/generic/partialjacobianinverttest-simultaneoussubstitutions.mtest
+@@ -0,0 +1,35 @@
++@Author Tristan Chenaille;
++@Date 22/11/2026;
++@Description{
++  "This test checks the blocks of the inverse of the jacobian computed by "
++  "the PartialJacobianInvertTest_SimultaneousSubstitutions behaviour, "
++  "which compares them to their analytical values and fails otherwise, "
++  "and the evolution of its damage variables."
++};
++
++@XMLOutputFile @xml_output@;
++@MaximumNumberOfSubSteps 1;
++@Behaviour<generic> @library@ 'PartialJacobianInvertTest_SimultaneousSubstitutions';
++
++@ExternalStateVariable 'Temperature' 293.15;
++
++@ImposedStrain 'EXX' {0 : 0, 1 : 1.e-3};
++@ImposedStrain 'EYY' {0 : 0, 1 : -4.e-4};
++@ImposedStrain 'EZZ' {0 : 0, 1 : 2.e-4};
++@ImposedStrain 'EXY' {0 : 0, 1 : 3.e-4};
++@ImposedStrain 'EXZ' {0 : 0, 1 : -2.e-4};
++@ImposedStrain 'EYZ' {0 : 0, 1 : 1.e-4};
++
++@Times {0, 1 in 5};
++
++// The rates of the damage variables are proportional to the square of the
++// norm of the elastic strain, which is equal to the total strain. The
++// implicit scheme evaluates this norm at the middle of each time step,
++// whose length is 0.2.
++@Real 'e2' '1.e-6 + 1.6e-7 + 4.e-8 + 9.e-8 + 4.e-8 + 1.e-8';
++@Real 'A' 2.e5;
++@Real 'B0' 1.e5;
++@Real 'B1' 3.e5;
++@Test<function> 'p' 'A * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
++@Test<function> 'd[0]' 'B0 * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
++@Test<function> 'd[1]' 'B1 * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
+diff --git a/mfront/tests/behaviours/generic/partialjacobianinverttest.mtest b/mfront/tests/behaviours/generic/partialjacobianinverttest.mtest
+new file mode 100644
+index 000000000..44b2bebee
+--- /dev/null
++++ b/mfront/tests/behaviours/generic/partialjacobianinverttest.mtest
+@@ -0,0 +1,35 @@
++@Author Tristan Chenaille;
++@Date 22/11/2026;
++@Description{
++  "This test checks the blocks of the inverse of the jacobian computed by "
++  "the PartialJacobianInvertTest behaviour, "
++  "which compares them to their analytical values and fails otherwise, "
++  "and the evolution of its damage variables."
++};
++
++@XMLOutputFile @xml_output@;
++@MaximumNumberOfSubSteps 1;
++@Behaviour<generic> @library@ 'PartialJacobianInvertTest';
++
++@ExternalStateVariable 'Temperature' 293.15;
++
++@ImposedStrain 'EXX' {0 : 0, 1 : 1.e-3};
++@ImposedStrain 'EYY' {0 : 0, 1 : -4.e-4};
++@ImposedStrain 'EZZ' {0 : 0, 1 : 2.e-4};
++@ImposedStrain 'EXY' {0 : 0, 1 : 3.e-4};
++@ImposedStrain 'EXZ' {0 : 0, 1 : -2.e-4};
++@ImposedStrain 'EYZ' {0 : 0, 1 : 1.e-4};
++
++@Times {0, 1 in 5};
++
++// The rates of the damage variables are proportional to the square of the
++// norm of the elastic strain, which is equal to the total strain. The
++// implicit scheme evaluates this norm at the middle of each time step,
++// whose length is 0.2.
++@Real 'e2' '1.e-6 + 1.6e-7 + 4.e-8 + 9.e-8 + 4.e-8 + 1.e-8';
++@Real 'A' 2.e5;
++@Real 'B0' 1.e5;
++@Real 'B1' 3.e5;
++@Test<function> 'p' 'A * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
++@Test<function> 'd[0]' 'B0 * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
++@Test<function> 'd[1]' 'B1 * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
+diff --git a/mfront/tests/behaviours/generic/tensorialintegrationvariablespartialjacobianinvert.mtest b/mfront/tests/behaviours/generic/tensorialintegrationvariablespartialjacobianinvert.mtest
+new file mode 100644
+index 000000000..e00ef91aa
+--- /dev/null
++++ b/mfront/tests/behaviours/generic/tensorialintegrationvariablespartialjacobianinvert.mtest
+@@ -0,0 +1,40 @@
++@Author Tristan Chenaille;
++@Date 22/11/2026;
++@Description{
++  "This test checks the blocks of the inverse of the jacobian computed by "
++  "the TensorialIntegrationVariablesPartialJacobianInvert behaviour, "
++  "which compares them to their analytical values and fails otherwise, "
++  "and the evolution of its state variables."
++};
++
++@XMLOutputFile @xml_output@;
++@MaximumNumberOfSubSteps 1;
++@Behaviour<generic> @library@ 'TensorialIntegrationVariablesPartialJacobianInvert';
++
++@ExternalStateVariable 'Temperature' 293.15;
++
++@ImposedStrain 'EXX' {0 : 0, 1 : 1.e-3};
++@ImposedStrain 'EYY' {0 : 0, 1 : -4.e-4};
++@ImposedStrain 'EZZ' {0 : 0, 1 : 2.e-4};
++@ImposedStrain 'EXY' {0 : 0, 1 : 3.e-4};
++@ImposedStrain 'EXZ' {0 : 0, 1 : -2.e-4};
++@ImposedStrain 'EYZ' {0 : 0, 1 : 1.e-4};
++
++@Times {0, 1 in 5};
++
++// The implicit scheme (theta = 1/2, time steps of length 0.2) leads to a
++// linear recurrence whose solution, at the end of the time steps, is given
++// by the functions below, the ratio of the geometric part being 1/7.
++@Real 'c' 0.5;
++@Real 'k' 15;
++@Real 'm' 2;
++@Real 'tr' '1.e-3 - 4.e-4 + 2.e-4';
++@Test<function> {
++  'aXX' : '1.e-3 * (t / c - (1 - 7 ** (-5 * t)) / (c * c * k))',
++  'aYY' : '-4.e-4 * (t / c - (1 - 7 ** (-5 * t)) / (c * c * k))',
++  'aZZ' : '2.e-4 * (t / c - (1 - 7 ** (-5 * t)) / (c * c * k))',
++  'aXY' : '3.e-4 * (t / c - (1 - 7 ** (-5 * t)) / (c * c * k))',
++  'aXZ' : '-2.e-4 * (t / c - (1 - 7 ** (-5 * t)) / (c * c * k))',
++  'aYZ' : '1.e-4 * (t / c - (1 - 7 ** (-5 * t)) / (c * c * k))'
++} 1.e-14;
++@Test<function> 'p' 'm * tr * (t - 2 * (1 - 7 ** (-5 * t)) / 15) / (c * k)' 1.e-14;
+diff --git a/mfront/tests/behaviours/tdls/CMakeLists.txt b/mfront/tests/behaviours/tdls/CMakeLists.txt
+index fd024aaeb..14b90c3ec 100644
+--- a/mfront/tests/behaviours/tdls/CMakeLists.txt
++++ b/mfront/tests/behaviours/tdls/CMakeLists.txt
+@@ -57,9 +57,13 @@ mfront_behaviour_brick_check_library(MFrontTDLSBehaviours
+     TDLSElasticity2
+     TDLSElasticity3
+     TDLSElasticity4
+-    TDLSElasticity11)
++    TDLSElasticity11
++    TDLSPartialJacobianInvertTest
++    TDLSPartialJacobianInvertTest2)
+ 
+ test_tdls(TDLSElasticity11)
++test_tdls(TDLSPartialJacobianInvertTest)
++test_tdls(TDLSPartialJacobianInvertTest2)
+ 
+ mfront_tdls_unit_test(TDLSElasticity5 WILL_FAIL)
+ mfront_tdls_unit_test(TDLSElasticity6 WILL_FAIL)
+diff --git a/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest.mfront b/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest.mfront
+new file mode 100644
+index 000000000..2a690e9ba
+--- /dev/null
++++ b/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest.mfront
+@@ -0,0 +1,4 @@
++@DSL Implicit;
++@Behaviour TDLSPartialJacobianInvertTest;
++@LinearSystemSolver TDLS;
++@Import "PartialJacobianInvertTest-common.mfront";
+diff --git a/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest.mtest b/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest.mtest
+new file mode 100644
+index 000000000..35179c9b1
+--- /dev/null
++++ b/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest.mtest
+@@ -0,0 +1,35 @@
++@Author Tristan Chenaille;
++@Date 22/11/2026;
++@Description{
++  "This test checks the blocks of the inverse of the jacobian computed by "
++  "the TDLSPartialJacobianInvertTest behaviour, "
++  "which compares them to their analytical values and fails otherwise, "
++  "and the evolution of its damage variables."
++};
++
++@XMLOutputFile @xml_output@;
++@MaximumNumberOfSubSteps 1;
++@Behaviour<generic> @library@ 'TDLSPartialJacobianInvertTest';
++
++@ExternalStateVariable 'Temperature' 293.15;
++
++@ImposedStrain 'EXX' {0 : 0, 1 : 1.e-3};
++@ImposedStrain 'EYY' {0 : 0, 1 : -4.e-4};
++@ImposedStrain 'EZZ' {0 : 0, 1 : 2.e-4};
++@ImposedStrain 'EXY' {0 : 0, 1 : 3.e-4};
++@ImposedStrain 'EXZ' {0 : 0, 1 : -2.e-4};
++@ImposedStrain 'EYZ' {0 : 0, 1 : 1.e-4};
++
++@Times {0, 1 in 5};
++
++// The rates of the damage variables are proportional to the square of the
++// norm of the elastic strain, which is equal to the total strain. The
++// implicit scheme evaluates this norm at the middle of each time step,
++// whose length is 0.2.
++@Real 'e2' '1.e-6 + 1.6e-7 + 4.e-8 + 9.e-8 + 4.e-8 + 1.e-8';
++@Real 'A' 2.e5;
++@Real 'B0' 1.e5;
++@Real 'B1' 3.e5;
++@Test<function> 'p' 'A * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
++@Test<function> 'd[0]' 'B0 * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
++@Test<function> 'd[1]' 'B1 * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
+diff --git a/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest2.mfront b/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest2.mfront
+new file mode 100644
+index 000000000..5eac96a9b
+--- /dev/null
++++ b/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest2.mfront
+@@ -0,0 +1,6 @@
++@DSL Implicit;
++@Behaviour TDLSPartialJacobianInvertTest2;
++@LinearSystemSolver TDLS {
++  simultaneous_substitutions : true
++};
++@Import "PartialJacobianInvertTest-common.mfront";
+diff --git a/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest2.mtest b/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest2.mtest
+new file mode 100644
+index 000000000..d038ff3ca
+--- /dev/null
++++ b/mfront/tests/behaviours/tdls/TDLSPartialJacobianInvertTest2.mtest
+@@ -0,0 +1,35 @@
++@Author Tristan Chenaille;
++@Date 22/11/2026;
++@Description{
++  "This test checks the blocks of the inverse of the jacobian computed by "
++  "the TDLSPartialJacobianInvertTest2 behaviour, "
++  "which compares them to their analytical values and fails otherwise, "
++  "and the evolution of its damage variables."
++};
++
++@XMLOutputFile @xml_output@;
++@MaximumNumberOfSubSteps 1;
++@Behaviour<generic> @library@ 'TDLSPartialJacobianInvertTest2';
++
++@ExternalStateVariable 'Temperature' 293.15;
++
++@ImposedStrain 'EXX' {0 : 0, 1 : 1.e-3};
++@ImposedStrain 'EYY' {0 : 0, 1 : -4.e-4};
++@ImposedStrain 'EZZ' {0 : 0, 1 : 2.e-4};
++@ImposedStrain 'EXY' {0 : 0, 1 : 3.e-4};
++@ImposedStrain 'EXZ' {0 : 0, 1 : -2.e-4};
++@ImposedStrain 'EYZ' {0 : 0, 1 : 1.e-4};
++
++@Times {0, 1 in 5};
++
++// The rates of the damage variables are proportional to the square of the
++// norm of the elastic strain, which is equal to the total strain. The
++// implicit scheme evaluates this norm at the middle of each time step,
++// whose length is 0.2.
++@Real 'e2' '1.e-6 + 1.6e-7 + 4.e-8 + 9.e-8 + 4.e-8 + 1.e-8';
++@Real 'A' 2.e5;
++@Real 'B0' 1.e5;
++@Real 'B1' 3.e5;
++@Test<function> 'p' 'A * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
++@Test<function> 'd[0]' 'B0 * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
++@Test<function> 'd[1]' 'B1 * e2 * (t ** 3 / 3 - 0.04 * t / 12)' 1.e-12;
+diff --git a/mfront/tests/behaviours/unit-tests/CMakeLists.txt b/mfront/tests/behaviours/unit-tests/CMakeLists.txt
+index d5264993b..5a9a97642 100644
+--- a/mfront/tests/behaviours/unit-tests/CMakeLists.txt
++++ b/mfront/tests/behaviours/unit-tests/CMakeLists.txt
+@@ -162,3 +162,6 @@ mfront_unit_test(Plasticity2 WILL_FAIL)
+ mfront_unit_test(MultipleFlows1 WILL_FAIL)
+ mfront_unit_test(MultipleFlows2 WILL_FAIL)
+ mfront_unit_test(MisesCreep1 WILL_FAIL)
++
++mfront_unit_test(DefaultLinearSystemSolver1 WILL_FAIL)
++mfront_unit_test(DefaultLinearSystemSolver2 WILL_FAIL)
+diff --git a/mfront/tests/behaviours/unit-tests/DefaultLinearSystemSolver1.mfront b/mfront/tests/behaviours/unit-tests/DefaultLinearSystemSolver1.mfront
+new file mode 100644
+index 000000000..e469f59e6
+--- /dev/null
++++ b/mfront/tests/behaviours/unit-tests/DefaultLinearSystemSolver1.mfront
+@@ -0,0 +1,8 @@
++@DSL Implicit;
++@Behaviour DefaultLinearSystemSolver1;
++@Description{
++  "This behaviour is invalid since the `simultaneous_substitutions` "
++  "option of the `Default` linear system solver must be a boolean."
++}
++@LinearSystemSolver Default{simultaneous_substitutions : 1};
++@Import "PartialJacobianInvertTest-common.mfront";
+diff --git a/mfront/tests/behaviours/unit-tests/DefaultLinearSystemSolver2.mfront b/mfront/tests/behaviours/unit-tests/DefaultLinearSystemSolver2.mfront
+new file mode 100644
+index 000000000..14995c9d1
+--- /dev/null
++++ b/mfront/tests/behaviours/unit-tests/DefaultLinearSystemSolver2.mfront
+@@ -0,0 +1,8 @@
++@DSL Implicit;
++@Behaviour DefaultLinearSystemSolver2;
++@Description{
++  "This behaviour is invalid since the `Default` linear system solver "
++  "has no option named `tile_size`."
++}
++@LinearSystemSolver Default{tile_size : 3};
++@Import "PartialJacobianInvertTest-common.mfront";
 diff --git a/mfront/tests/models/SiC_IrradiationSwellingModel_GoFaster.mfront b/mfront/tests/models/SiC_IrradiationSwellingModel_GoFaster.mfront
 index 47c45d502..7a6548c51 100644
 --- a/mfront/tests/models/SiC_IrradiationSwellingModel_GoFaster.mfront
@@ -11571,6 +12839,84 @@ index 47c45d502..7a6548c51 100644
    }
    incr  = swellingSaturation/Phi0;
    incr *= exp(-Phi/Phi0);
+diff --git a/mfront/tests/unit-tests/DSLTest.cxx b/mfront/tests/unit-tests/DSLTest.cxx
+index 879f73ecb..22bef7d03 100644
+--- a/mfront/tests/unit-tests/DSLTest.cxx
++++ b/mfront/tests/unit-tests/DSLTest.cxx
+@@ -28,6 +28,7 @@
+ #include "MFront/InitDSLs.hxx"
+ #include "MFront/DSLFactory.hxx"
+ #include "MFront/AbstractBehaviourDSL.hxx"
++#include "MFront/BehaviourDescription.hxx"
+ 
+ struct DSLTest final : public tfel::tests::TestCase {
+   DSLTest() : tfel::tests::TestCase("MFront", "DSLTest") {}  // end of DSLTest
+@@ -211,6 +212,33 @@ struct DSLTest final : public tfel::tests::TestCase {
+                 "@Brick StandardElasticity;"
+                 "@Integrator{}",
+                 "is not declared for all specialisations");
++    // variables which can't be left uninitialized
++    for (const auto& t : {"MaterialProperty", "StateVariable",
++                          "AuxiliaryStateVariable", "ExternalStateVariable"}) {
++      this->check("Implicit",
++                  "@" + std::string(t) +
++                      " Stensor a;"
++                      "a.setUninitialized();",
++                  "only available for local variables");
++    }
++    this->check("Implicit",
++                "@LocalVariable real a;"
++                "a.setUninitialized();",
++                "not available for scalar variables");
++    this->check("Implicit",
++                "@IntegrationVariable strain a;"
++                "a.setUninitialized();",
++                "not available for scalar variables");
++    this->check("Implicit",
++                "@LocalVariable Stensor a;"
++                "a.setUninitialized();"
++                "a.setUninitialized();",
++                "already declared");
++    this->check("Implicit",
++                "@LocalVariable Stensor a;"
++                "a.setUninitialized(true);",
++                "expected ')'");
++    this->checkUninitializedVariables();
+     // name of the DSL stored in the behaviour description
+     for (const std::string n : {"ImplicitII", "IsotropicMisesCreep"}) {
+       const auto dsl = std::dynamic_pointer_cast<mfront::AbstractBehaviourDSL>(
+@@ -259,6 +287,31 @@ struct DSLTest final : public tfel::tests::TestCase {
+     TestCase::registerResult(
+         "analysing '" + s + "' did *not* throw as expected", false);
+   }
++  //! \brief checks the variables flagged by the `setUninitialized` method
++  void checkUninitializedVariables() {
++    using mfront::VariableDescription;
++    constexpr auto h = tfel::material::ModellingHypothesis::UNDEFINEDHYPOTHESIS;
++    const auto dsl = std::dynamic_pointer_cast<mfront::AbstractBehaviourDSL>(
++        mfront::DSLFactory::getDSLFactory().createNewDSL("Implicit"));
++    TFEL_TESTS_ASSERT(dsl.get() != nullptr);
++    dsl->analyseString(
++        "@LocalVariable Stensor a;"
++        "@LocalVariable real b[2];"
++        "@LocalVariable Stensor c;"
++        "@IntegrationVariable StrainStensor d;"
++        "a.setUninitialized();"
++        "b.setUninitialized();"
++        "d.setUninitialized();");
++    const auto& bd = dsl->getBehaviourDescription().getBehaviourData(h);
++    auto isUninitialized = [&bd](const std::string& n) {
++      return bd.getVariableDescription(n).getAttribute<bool>(
++          VariableDescription::uninitialized, false);
++    };
++    TFEL_TESTS_ASSERT(isUninitialized("a"));
++    TFEL_TESTS_ASSERT(isUninitialized("b"));
++    TFEL_TESTS_ASSERT(!isUninitialized("c"));
++    TFEL_TESTS_ASSERT(isUninitialized("d"));
++  }  // end of checkUninitializedVariables
+ };
+ 
+ TFEL_TESTS_GENERATE_PROXY(DSLTest, "DSLTest");
 diff --git a/mtest/src/GenericBehaviour.cxx b/mtest/src/GenericBehaviour.cxx
 index eb28af9b2..dd7fefb94 100644
 --- a/mtest/src/GenericBehaviour.cxx

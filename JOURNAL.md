@@ -8492,3 +8492,50 @@ Found along the way: Kirchhoff and Piola misspelled in about 90 places of
 TFEL, three public functions and two options of MTest included:
 thelfer/tfel#1483, pull request #1484 (all the misspellings replaced, TFEL
 7898 tests on the branch).
+
+### 2026-11-22 (night), performance pull requests to TFEL integrated in the series
+
+Pull requests opened on thelfer/tfel (all independent, on `master`):
+
+- #1486: direct conversions DTAU_DF/DTAU_DDF -> DPK1_DF (rebased on
+  `master`, independent of the spelling fix #1484);
+- #1489: assignment of T2toT2 objects to `FiniteStrainBehaviourTangentOperator`
+  and final conversion computed in the storage of `Dt` (two copies of the
+  81 values removed);
+- #1491: `tfel::math::uninitialized` constructor of the fixed size arrays,
+  residual and jacobian of the Newton-Raphson algorithm left uninitialized,
+  `setUninitialized` method of the local and integration variables,
+  tensorial gradients left uninitialized by the generic interface;
+- #1493: `simultaneous_substitutions` option of the `Default` and `TDLS`
+  linear solvers (partial inverse of the jacobian by one substitution;
+  `false` by default, generated code unchanged by default);
+- #1495: fix of `computePartialJacobianInvert` (rows of the tensorial
+  integration variables following another variable were out of bounds);
+- #1497: products with `tpld`, `tprd`, `dCdF`, `dBdF` computing only the
+  terms of the components which are not null by construction
+  (`SparsityPattern`, `SparseProductExpr`).
+
+All five integrated in the series (`#1493` and `#1495` touch the same
+line of `writeComputePartialJacobianInvert`: combined). Polycrystal law,
+unchanged, against the series before the night
+(`results/series-night-2026-11-22.md`):
+
+| | before | after |
+|---|---|---|
+| GPU float (2^20 points) | 7.434 ms | 6.895 ms (-7.3 %) |
+| GPU double (2^18 points) | 21.983 ms | 21.112 ms (-4.0 %) |
+| CPU float, one thread | 44.36 ms | 42.26 ms (-4.7 %) |
+| CPU double, one thread | 41.70 ms | 38.41 ms (-7.9 %) |
+
+GPU outputs identical to the bit; CPU outputs differ in the last bits
+(FMA contractions of the sparse products, at most 5.5e-17 of the largest
+value in double). Validation: 6748 targeted TFEL tests, compilation sweeps
+of the concerned laws with nvcc and clang (15 OK, 1 USER_CODE as before),
+generic-parallel tests `cuda-nvcc` (-O3), compilation with nvc++ (OpenACC,
+stdpar) and AdaptiveCpp.
+
+Not yet in the series: the law changes made possible by these pull
+requests (`setUninitialized`, products written to keep the expression
+types, partial inverse of the jacobian), which wait for the maintainer's
+answer; work in progress on the generic-parallel runtime and on the graph
+of the conversions of the tangent operators.
