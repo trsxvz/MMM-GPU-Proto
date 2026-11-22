@@ -8644,3 +8644,22 @@ studied separately.
 Validation: 6752 targeted TFEL tests, compilation sweeps (nvcc, clang),
 generic-parallel tests `cuda-nvcc` (-O3), compilation with nvc++ (OpenACC,
 stdpar) and AdaptiveCpp.
+
+### 2026-11-22 (midday), analyses of the law kernel: MI300A frame, warps after the Newton loop, local memory
+
+See `results/analyses-2026-11-22.md`.
+- The growth of the scratch frame of MI300A caused by #1501 came from the
+  AMDGPU inlining limit on basic blocks, crossed by the 12 copies of the
+  tangent operator; T1 removes it.
+- The threads of a warp do not reconverge after the Newton loop, so the
+  tangent operator runs twice per warp. A volatile convergence flag in device
+  code gives -15 % in double at every batch size, but float becomes irregular
+  with the batch size (-15 % to +33 %). Kept aside on a local branch.
+- The float kernel stores 6.6 KB of local memory per point; the main
+  avoidable items are in the law (about 2.2 KB), then in the generator and
+  the runtime (dead initialisation of the residual and of the jacobian in
+  `computeFdF`, copies of the tangent operator).
+- Law variants measured with series 3: with T1, the tangent operator
+  computed from the inverse of the jacobian (L2t1) gives -13 % in float and
+  -9.7 % in double on GPU without TDLS.
+Lesson: measure several batch sizes; a single size hid the irregularity.
