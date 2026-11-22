@@ -5032,14 +5032,6 @@ namespace mfront {
         }
       }
       if (!ktos.empty()) {
-        // computing all the conversion paths starting from user defined ones
-        std::vector<FiniteStrainBehaviourTangentOperatorConversionPath> paths;
-        for (const auto& k : ktos) {
-          const auto kpaths =
-              FiniteStrainBehaviourTangentOperatorConversionPath::
-                  getConversionsPath(k, ktos, converters);
-          paths.insert(paths.end(), kpaths.begin(), kpaths.end());
-        }
         for (const auto& t : tos) {
           const auto ktype =
               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
@@ -5074,7 +5066,7 @@ namespace mfront {
             } else {
               const auto path =
                   FiniteStrainBehaviourTangentOperatorConversionPath::
-                      getShortestPath(paths, t);
+                      getShortestPath(ktos, t, converters);
               if (path.empty()) {
                 os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
                       "computePredictionOperator_"
@@ -5194,14 +5186,6 @@ namespace mfront {
         }
       }
       if (!ktos.empty()) {
-        // computing all the conversion paths starting from user defined ones
-        std::vector<FiniteStrainBehaviourTangentOperatorConversionPath> paths;
-        for (const auto& k : ktos) {
-          const auto kpaths =
-              FiniteStrainBehaviourTangentOperatorConversionPath::
-                  getConversionsPath(k, ktos, converters);
-          paths.insert(paths.end(), kpaths.begin(), kpaths.end());
-        }
         for (const auto& t : tos) {
           const auto ktype =
               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
@@ -5236,7 +5220,7 @@ namespace mfront {
             } else {
               const auto path =
                   FiniteStrainBehaviourTangentOperatorConversionPath::
-                      getShortestPath(paths, t);
+                      getShortestPath(ktos, t, converters);
               if (path.empty()) {
                 os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator_"
                    << ktype << "(const SMType){\n";

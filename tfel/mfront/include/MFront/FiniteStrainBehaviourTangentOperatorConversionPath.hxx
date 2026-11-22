@@ -68,6 +68,28 @@ namespace mfront {
     getShortestPath(
         const std::vector<FiniteStrainBehaviourTangentOperatorConversionPath>&,
         const TangentOperatorFlag&);
+    /*!
+     * \brief get the shortest path leading to the given tangent operator
+     * (if any), starting from one of the tangent operators defined by the
+     * user.
+     *
+     * The tangent operators are visited by increasing number of conversions
+     * (breadth first search), following the order of the tangent operators
+     * defined by the user, then the order of the conversions. The path
+     * returned is the one that the other overload of `getShortestPath`
+     * selects among the paths returned by `getConversionsPath` for each
+     * tangent operator defined by the user. Those paths, whose number grows
+     * exponentially with the number of conversions, are not built.
+     *
+     * \param[in] k: tangent operators defined by the user
+     * \param[in] t: searched tangent operator
+     * \param[in] converters: known conversions
+     */
+    [[nodiscard]] static FiniteStrainBehaviourTangentOperatorConversionPath
+    getShortestPath(
+        const std::vector<TangentOperatorFlag>&,
+        const TangentOperatorFlag&,
+        const std::vector<FiniteStrainBehaviourTangentOperatorConversion>&);
 
    private:
     /*!

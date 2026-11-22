@@ -171,15 +171,9 @@ namespace mfront::gb::green_lagrange_strain {
             convert<FiniteStrainTangentOperator::DPK1_DF,
                     FiniteStrainTangentOperator::DS_DEGL>(K, F0, F1, s);
       } else if (smf == FiniteStrainTangentOperator::DTAU_DDF) {
-        const auto K1 =
-            convert<FiniteStrainTangentOperator::SPATIAL_MODULI,
-                    FiniteStrainTangentOperator::DS_DEGL>(K, F0, F1, s);
-        const auto K2 =
-            convert<FiniteStrainTangentOperator::DTAU_DF,
-                    FiniteStrainTangentOperator::SPATIAL_MODULI>(K1, F0, F1, s);
         tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
             convert<FiniteStrainTangentOperator::DTAU_DDF,
-                    FiniteStrainTangentOperator::DTAU_DF>(K2, F0, F1, s);
+                    FiniteStrainTangentOperator::DS_DEGL>(K, F0, F1, s);
       } else {
         reportError(d, "invalid choice for consistent tangent operator");
         return false;

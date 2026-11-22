@@ -1,6 +1,6 @@
-From 62b26b8ea3d4c1b4a2dba4a972cc8d31f512588e Mon Sep 17 00:00:00 2001
+From 1a15e87079430081e7292c31b39b574d63c1a1ff Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 04:21:41 +0100
+Date: Sun, 22 Nov 2026 09:43:39 +0100
 Subject: [PATCH] generic-parallel: RAJA backend
 
 RAJA::forall with the execution policy given by the execution_policy

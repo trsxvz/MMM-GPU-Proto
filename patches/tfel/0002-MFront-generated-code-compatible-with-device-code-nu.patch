@@ -1,6 +1,6 @@
-From 090bafa09623281eba104fe627d7d7d73ae67233 Mon Sep 17 00:00:00 2001
+From 23abb3693376326231d42cd5bca7fb5fd5037818 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 04:21:41 +0100
+Date: Sun, 22 Nov 2026 09:43:38 +0100
 Subject: [PATCH] MFront: generated code compatible with device code, numerical
  type of the generic interfaces
 
@@ -15,9 +15,13 @@ Subject: [PATCH] MFront: generated code compatible with device code, numerical
 - generic interface: displacement gradient for the finite strain
   behaviours, axial component of the deformation gradient in plane
   stress, integration drivers usable in device code.
-- edges DTAU_DF -> DPK1_DF and DTAU_DDF -> DPK1_DF of the graph of the
-  conversions of the tangent operators: one conversion instead of two or
-  three for the behaviours computing these tangent operators.
+- graph of the conversions of the tangent operators: direct conversions
+  (edges DTAU_DF -> DPK1_DF and DTAU_DDF -> DPK1_DF among others), so
+  that any usual native tangent operator reaches the requested ones in one
+  conversion; path chosen by a breadth first search, which returns the
+  same paths as the enumeration of the maximal paths at a cost
+  independent of their number; strain measure wrappers of the generic
+  interface (Green-Lagrange, Hencky) calling the direct conversions.
 - final conversion of the tangent operator computed in the storage of Dt
   (thelfer/tfel#1489).
 - setUninitialized method of the local variables and of the integration
@@ -47,11 +51,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  .../include/MFront/CodeGeneratorUtilities.hxx |   73 +-
  mfront/include/MFront/DSLBase.hxx             |   16 +
  .../MFront/DefaultLinearSystemSolver.hxx      |    6 +
+ ...BehaviourTangentOperatorConversionPath.hxx |   22 +
  .../MFront/GenericBehaviour/BehaviourData.h   |    6 +
  .../GenericBehaviour/DisplacementGradient.hxx |  108 ++
- .../GreenLagrangeStrainIntegrate.hxx          |  750 ++++-----
+ .../GreenLagrangeStrainIntegrate.hxx          |  744 ++++-----
  .../MFront/GenericBehaviour/Integrate.hxx     |  654 +++++---
- .../LogarithmicStrainIntegrate.hxx            |  843 ++++++-----
+ .../LogarithmicStrainIntegrate.hxx            |  838 ++++++-----
  ...StandardFiniteStrainBehaviourIntegrate.hxx |  683 ++++++---
  .../GenericBehaviour/StressMeasures.hxx       |   60 +
  .../include/MFront/GenericBehaviour/Types.h   |   18 +-
@@ -65,7 +70,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  .../include/MFront/TDLSLinearSystemSolver.hxx |    4 +
  mfront/include/MFront/VariableDescription.hxx |    9 +
  mfront/src/AbstractBehaviourInterface.cxx     |   17 +
- mfront/src/BehaviourCodeGeneratorBase.cxx     |  882 +++++++----
+ mfront/src/BehaviourCodeGeneratorBase.cxx     |  902 +++++++----
  mfront/src/BehaviourDSLCommon.cxx             |  118 +-
  mfront/src/BehaviourDescription.cxx           |   33 +
  mfront/src/BehaviourInterfaceBase.cxx         |   22 +
@@ -77,7 +82,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  mfront/src/DataIsotropicHardeningRule.cxx     |   10 +-
  mfront/src/DefaultCodeGeneratorBase.cxx       |    3 +-
  mfront/src/DefaultLinearSystemSolver.cxx      |    9 +
- ...rainBehaviourTangentOperatorConversion.cxx |   13 +-
+ ...rainBehaviourTangentOperatorConversion.cxx |   46 +-
+ ...BehaviourTangentOperatorConversionPath.cxx |   31 +
  mfront/src/GenericBehaviourInterface.cxx      | 1340 ++++-------------
  .../src/GenericBehaviourSymbolsGenerator.cxx  |   37 +-
  .../GenericMaterialPropertyInterfaceBase.cxx  |    3 +
@@ -163,7 +169,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  mtest/src/GenericBehaviour.cxx                |    4 +
  mtest/src/GenericEvolution.cxx                |    2 +
  mtest/src/GenericMaterialProperty.cxx         |    2 +
- 131 files changed, 5468 insertions(+), 3177 deletions(-)
+ 133 files changed, 5544 insertions(+), 3196 deletions(-)
  create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria-float.ref
  create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria.ref
  create mode 100644 mfront-query/tests/references/mfront-query-norton-convergence-criterion-float.ref
@@ -859,6 +865,39 @@ index c7c0cc728..0afb6adc2 100644
      //
      void writeLinearSystemResolution(
          std::ostream &,
+diff --git a/mfront/include/MFront/FiniteStrainBehaviourTangentOperatorConversionPath.hxx b/mfront/include/MFront/FiniteStrainBehaviourTangentOperatorConversionPath.hxx
+index 1a0a8e650..455069d54 100644
+--- a/mfront/include/MFront/FiniteStrainBehaviourTangentOperatorConversionPath.hxx
++++ b/mfront/include/MFront/FiniteStrainBehaviourTangentOperatorConversionPath.hxx
+@@ -68,6 +68,28 @@ namespace mfront {
+     getShortestPath(
+         const std::vector<FiniteStrainBehaviourTangentOperatorConversionPath>&,
+         const TangentOperatorFlag&);
++    /*!
++     * \brief get the shortest path leading to the given tangent operator
++     * (if any), starting from one of the tangent operators defined by the
++     * user.
++     *
++     * The tangent operators are visited by increasing number of conversions
++     * (breadth first search), following the order of the tangent operators
++     * defined by the user, then the order of the conversions. The path
++     * returned is the one that the other overload of `getShortestPath`
++     * selects among the paths returned by `getConversionsPath` for each
++     * tangent operator defined by the user. Those paths, whose number grows
++     * exponentially with the number of conversions, are not built.
++     *
++     * \param[in] k: tangent operators defined by the user
++     * \param[in] t: searched tangent operator
++     * \param[in] converters: known conversions
++     */
++    [[nodiscard]] static FiniteStrainBehaviourTangentOperatorConversionPath
++    getShortestPath(
++        const std::vector<TangentOperatorFlag>&,
++        const TangentOperatorFlag&,
++        const std::vector<FiniteStrainBehaviourTangentOperatorConversion>&);
+ 
+    private:
+     /*!
 diff --git a/mfront/include/MFront/GenericBehaviour/BehaviourData.h b/mfront/include/MFront/GenericBehaviour/BehaviourData.h
 index ab0f85cd8..6fbecd0ee 100644
 --- a/mfront/include/MFront/GenericBehaviour/BehaviourData.h
@@ -991,7 +1030,7 @@ index 000000000..ca16a6ebd
 +
 +#endif /* LIB_MFRONT_GENERICBEHAVIOUR_DISPLACEMENTGRADIENT_HXX */
 diff --git a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
-index 65b40c7c6..6808d92e5 100644
+index 65b40c7c6..aa986e6e3 100644
 --- a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
 +++ b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
 @@ -1,6 +1,8 @@
@@ -1004,7 +1043,7 @@ index 65b40c7c6..6808d92e5 100644
   * \author Thomas Helfer
   * \date 31/01/2022
   * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
-@@ -14,432 +16,476 @@
+@@ -14,432 +16,470 @@
  #ifndef LIB_MFRONT_GENERICBEHAVIOUR_GREENLAGRANGESTRAININTEGRATE_HXX
  #define LIB_MFRONT_GENERICBEHAVIOUR_GREENLAGRANGESTRAININTEGRATE_HXX
  
@@ -1163,15 +1202,9 @@ index 65b40c7c6..6808d92e5 100644
 +            convert<FiniteStrainTangentOperator::DPK1_DF,
 +                    FiniteStrainTangentOperator::DS_DEGL>(K, F0, F1, s);
 +      } else if (smf == FiniteStrainTangentOperator::DTAU_DDF) {
-+        const auto K1 =
-+            convert<FiniteStrainTangentOperator::SPATIAL_MODULI,
-+                    FiniteStrainTangentOperator::DS_DEGL>(K, F0, F1, s);
-+        const auto K2 =
-+            convert<FiniteStrainTangentOperator::DTAU_DF,
-+                    FiniteStrainTangentOperator::SPATIAL_MODULI>(K1, F0, F1, s);
 +        tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
 +            convert<FiniteStrainTangentOperator::DTAU_DDF,
-+                    FiniteStrainTangentOperator::DTAU_DF>(K2, F0, F1, s);
++                    FiniteStrainTangentOperator::DS_DEGL>(K, F0, F1, s);
 +      } else {
 +        reportError(d, "invalid choice for consistent tangent operator");
 +        return false;
@@ -2714,7 +2747,7 @@ index 1d000a342..ac3ef15ee 100644
  
  }  // end of namespace mfront::gb
 diff --git a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
-index 7139a6003..3ba6768cb 100644
+index 7139a6003..2dc91845d 100644
 --- a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
 +++ b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
 @@ -1,6 +1,8 @@
@@ -2727,7 +2760,7 @@ index 7139a6003..3ba6768cb 100644
   * \author Thomas Helfer
   * \date 31/01/2022
   * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
-@@ -14,482 +16,533 @@
+@@ -14,482 +16,528 @@
  #ifndef LIB_MFRONT_GENERICBEHAVIOUR_LOGARITHMICSTRAININTEGRATE_HXX
  #define LIB_MFRONT_GENERICBEHAVIOUR_LOGARITHMICSTRAININTEGRATE_HXX
  
@@ -2910,21 +2943,11 @@ index 7139a6003..3ba6768cb 100644
 +        const tfel::math::stensor<N, real>& s,
 +        const FiniteStrainTangentOperator smf) {
 +      using tfel::material::convert;
-+      if ((smf == FiniteStrainTangentOperator::DSIG_DF) ||
-+          (smf == FiniteStrainTangentOperator::DTAU_DDF)) {
++      if (smf == FiniteStrainTangentOperator::DSIG_DF) {
 +        const auto Cs = lgh.convertToSpatialTangentModuli(K, T);
-+        const auto Dt =
-+            convert<FiniteStrainTangentOperator::DTAU_DF,
++        tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
++            convert<FiniteStrainTangentOperator::DSIG_DF,
 +                    FiniteStrainTangentOperator::SPATIAL_MODULI>(Cs, F0, F, s);
-+        if (smf == FiniteStrainTangentOperator::DSIG_DF) {
-+          tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
-+              convert<FiniteStrainTangentOperator::DSIG_DF,
-+                      FiniteStrainTangentOperator::DTAU_DF>(Dt, F0, F, s);
-+        } else {
-+          tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
-+              convert<FiniteStrainTangentOperator::DTAU_DDF,
-+                      FiniteStrainTangentOperator::DTAU_DF>(Dt, F0, F, s);
-+        }
 +      } else if (smf == FiniteStrainTangentOperator::DS_DEGL) {
 +        tfel::math::map<tfel::math::st2tost2<N, real>>(v) =
 +            lgh.convertToMaterialTangentModuli(K, T);
@@ -2932,6 +2955,11 @@ index 7139a6003..3ba6768cb 100644
 +        const auto Cse = lgh.convertToMaterialTangentModuli(K, T);
 +        tfel::math::map<tfel::math::t2tot2<N, real>>(v) =
 +            convert<FiniteStrainTangentOperator::DPK1_DF,
++                    FiniteStrainTangentOperator::DS_DEGL>(Cse, F0, F, s);
++      } else if (smf == FiniteStrainTangentOperator::DTAU_DDF) {
++        const auto Cse = lgh.convertToMaterialTangentModuli(K, T);
++        tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
++            convert<FiniteStrainTangentOperator::DTAU_DDF,
 +                    FiniteStrainTangentOperator::DS_DEGL>(Cse, F0, F, s);
 +      } else {
 +        reportError(d, "invalid choice for consistent tangent operator");
@@ -4916,7 +4944,7 @@ index ec25672b1..44b31d05d 100644
  
  }  // end of namespace mfront
 diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
-index 405523548..a272d3be7 100644
+index 405523548..2ff75976b 100644
 --- a/mfront/src/BehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
 @@ -11,7 +11,11 @@
@@ -6108,7 +6136,22 @@ index 405523548..a272d3be7 100644
        return;
      }
      if (this->bd.getBehaviourType() ==
-@@ -4726,12 +5063,14 @@ namespace mfront {
+@@ -4695,14 +5032,6 @@ namespace mfront {
+         }
+       }
+       if (!ktos.empty()) {
+-        // computing all the conversion paths starting from user defined ones
+-        std::vector<FiniteStrainBehaviourTangentOperatorConversionPath> paths;
+-        for (const auto& k : ktos) {
+-          const auto kpaths =
+-              FiniteStrainBehaviourTangentOperatorConversionPath::
+-                  getConversionsPath(k, ktos, converters);
+-          paths.insert(paths.end(), kpaths.begin(), kpaths.end());
+-        }
+         for (const auto& t : tos) {
+           const auto ktype =
+               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
+@@ -4726,25 +5055,29 @@ namespace mfront {
                  (h == ModellingHypothesis::PLANESTRESS)) {
                os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
                      "computePredictionOperator_"
@@ -6129,7 +6172,8 @@ index 405523548..a272d3be7 100644
              } else {
                const auto path =
                    FiniteStrainBehaviourTangentOperatorConversionPath::
-@@ -4739,12 +5078,14 @@ namespace mfront {
+-                      getShortestPath(paths, t);
++                      getShortestPath(ktos, t, converters);
                if (path.empty()) {
                  os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
                        "computePredictionOperator_"
@@ -6150,7 +6194,7 @@ index 405523548..a272d3be7 100644
                } else {
                  os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
                        "computePredictionOperator_"
-@@ -4760,7 +5101,15 @@ namespace mfront {
+@@ -4760,7 +5093,15 @@ namespace mfront {
                  os << "if(this->computePredictionOperator_" << k
                     << "(smt) != SUCCESS){\n"
                     << "return FAILURE;\n"
@@ -6167,7 +6211,7 @@ index 405523548..a272d3be7 100644
                     << "const " << from_type_flag << "<N,stress> "
                     << "tangentOperator_" << k << " = this->Dt.template get<"
                     << from_type_flag << "<N,stress> >();\n";
-@@ -4780,7 +5129,7 @@ namespace mfront {
+@@ -4780,7 +5121,7 @@ namespace mfront {
          }
          os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
             << "computePredictionOperator(const SMFlag smflag, "
@@ -6176,7 +6220,7 @@ index 405523548..a272d3be7 100644
             << "using namespace std;\n"
             << "switch(smflag){\n";
          for (const auto& t : tos) {
-@@ -4790,16 +5139,19 @@ namespace mfront {
+@@ -4790,16 +5131,19 @@ namespace mfront {
               << "return this->computePredictionOperator_" << ktype
               << "(smt);\n";
          }
@@ -6202,7 +6246,7 @@ index 405523548..a272d3be7 100644
           << "using namespace std;\n"
           << "using namespace tfel::math;\n"
           << "using std::vector;\n";
-@@ -4810,15 +5162,9 @@ namespace mfront {
+@@ -4810,15 +5154,9 @@ namespace mfront {
             BehaviourDescription::COHESIVEZONEMODEL) ||
            (this->bd.getBehaviourType() ==
             BehaviourDescription::GENERALBEHAVIOUR)) {
@@ -6221,7 +6265,22 @@ index 405523548..a272d3be7 100644
        }
        os << this->bd.getCode(h, BehaviourData::ComputePredictionOperator)
           << "return SUCCESS;\n"
-@@ -4878,24 +5224,30 @@ namespace mfront {
+@@ -4848,14 +5186,6 @@ namespace mfront {
+         }
+       }
+       if (!ktos.empty()) {
+-        // computing all the conversion paths starting from user defined ones
+-        std::vector<FiniteStrainBehaviourTangentOperatorConversionPath> paths;
+-        for (const auto& k : ktos) {
+-          const auto kpaths =
+-              FiniteStrainBehaviourTangentOperatorConversionPath::
+-                  getConversionsPath(k, ktos, converters);
+-          paths.insert(paths.end(), kpaths.begin(), kpaths.end());
+-        }
+         for (const auto& t : tos) {
+           const auto ktype =
+               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
+@@ -4878,24 +5208,30 @@ namespace mfront {
                   ModellingHypothesis::AXISYMMETRICALGENERALISEDPLANESTRESS) ||
                  (h == ModellingHypothesis::PLANESTRESS)) {
                os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator_"
@@ -6243,7 +6302,8 @@ index 405523548..a272d3be7 100644
              } else {
                const auto path =
                    FiniteStrainBehaviourTangentOperatorConversionPath::
-                       getShortestPath(paths, t);
+-                      getShortestPath(paths, t);
++                      getShortestPath(ktos, t, converters);
                if (path.empty()) {
                  os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator_"
 -                   << ktype << "(const SMType){\n"
@@ -6264,7 +6324,7 @@ index 405523548..a272d3be7 100644
                } else {
                  auto pc = path.begin();
                  const auto k =
-@@ -4910,7 +5262,15 @@ namespace mfront {
+@@ -4910,7 +5246,15 @@ namespace mfront {
                  os << "if(!this->computeConsistentTangentOperator_" << k
                     << "(smt)){\n"
                     << "return false;\n"
@@ -6281,7 +6341,7 @@ index 405523548..a272d3be7 100644
                     << "const " << k_type_flag << "<N,stress> "
                     << "tangentOperator_" << k << " = this->Dt.template get<"
                     << k_type_flag << "<N,stress>>();\n";
-@@ -4939,11 +5299,14 @@ namespace mfront {
+@@ -4939,11 +5283,14 @@ namespace mfront {
               << "return this->computeConsistentTangentOperator_" << ktype
               << "(smt);\n";
          }
@@ -6301,7 +6361,7 @@ index 405523548..a272d3be7 100644
        }
      } else {
        if (this->bd.hasCode(h, BehaviourData::ComputeTangentOperator)) {
-@@ -4982,7 +5345,7 @@ namespace mfront {
+@@ -4982,7 +5329,7 @@ namespace mfront {
        std::ostream& os) const {
      this->checkBehaviourFile(os);
      os << "TFEL_HOST_DEVICE real getMinimalTimeStepScalingFactor() const "
@@ -6310,7 +6370,7 @@ index 405523548..a272d3be7 100644
            "  return this->minimal_time_step_scaling_factor;\n"
            "}\n\n";
    }
-@@ -4993,7 +5356,7 @@ namespace mfront {
+@@ -4993,7 +5340,7 @@ namespace mfront {
      this->checkBehaviourFile(os);
      os << "TFEL_HOST_DEVICE std::pair<bool, real>\n"
            "computeAPrioriTimeStepScalingFactor(const real "
@@ -6319,7 +6379,7 @@ index 405523548..a272d3be7 100644
            "const auto time_scaling_factor = "
            "this->computeAPrioriTimeStepScalingFactorII();\n"
            "return {time_scaling_factor.first,\n"
-@@ -5030,7 +5393,7 @@ namespace mfront {
+@@ -5030,7 +5377,7 @@ namespace mfront {
      this->checkBehaviourFile(os);
      os << "TFEL_HOST_DEVICE std::pair<bool, real>\n"
            "computeAPosterioriTimeStepScalingFactor(const real "
@@ -6328,7 +6388,7 @@ index 405523548..a272d3be7 100644
            "const auto time_scaling_factor = "
            "this->computeAPosterioriTimeStepScalingFactorII();\n"
            "return {time_scaling_factor.first,\n"
-@@ -5124,7 +5487,7 @@ namespace mfront {
+@@ -5124,7 +5471,7 @@ namespace mfront {
             << " * \\param[in] mfront_idx: array index relative to " << v1.name
             << "\n"
             << " */\n"
@@ -6337,7 +6397,7 @@ index 405523548..a272d3be7 100644
             << "(const ushort mfront_idx) noexcept {\n";
          if ((v1.getTypeFlag() == SupportedTypes::SCALAR) &&
              (v2.getTypeFlag() == SupportedTypes::SCALAR)) {
-@@ -5158,7 +5521,7 @@ namespace mfront {
+@@ -5158,7 +5505,7 @@ namespace mfront {
             << " * \\param[in] mfront_idx2: array index relative to " << v2.name
             << "\n"
             << " */\n"
@@ -6346,7 +6406,7 @@ index 405523548..a272d3be7 100644
             << "(const ushort mfront_idx, const ushort mfront_idx2) noexcept "
             << "{\n";
          if ((v1.getTypeFlag() == SupportedTypes::SCALAR) &&
-@@ -5301,7 +5664,8 @@ namespace mfront {
+@@ -5301,7 +5648,8 @@ namespace mfront {
               << " = this->" << source << " + this->d" << source << ";\n";
          } else if (md.isStaticVariableName(source)) {
            os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
@@ -6356,7 +6416,7 @@ index 405523548..a272d3be7 100644
          } else {
            os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
               << " = this->" << source << ";\n";
-@@ -5381,7 +5745,8 @@ namespace mfront {
+@@ -5381,7 +5729,8 @@ namespace mfront {
               << " = this->d" << source << ";\n";
          } else if (md.isStaticVariableName(source)) {
            os << "mfront_behaviour_variable_" << b.name << ". " << esv.name
@@ -6366,7 +6426,7 @@ index 405523548..a272d3be7 100644
            os << "mfront_behaviour_variable_" << b.name << ". d" << esv.name
               << " = " << esv.type << "{};\n";
          } else {
-@@ -5677,7 +6042,8 @@ namespace mfront {
+@@ -5677,7 +6026,8 @@ namespace mfront {
      os << "/*!\n"
         << "* \\brief Default constructor\n"
         << "*/\n"
@@ -7178,7 +7238,7 @@ index 81e1b624c..a722e59ae 100644
        std::ostream& os,
        const BehaviourDescription& bd,
 diff --git a/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx b/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx
-index 116c3c198..9bbc21031 100644
+index 116c3c198..f8fec366e 100644
 --- a/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx
 +++ b/mfront/src/FiniteStrainBehaviourTangentOperatorConversion.cxx
 @@ -66,10 +66,19 @@ namespace mfront {
@@ -7202,15 +7262,102 @@ index 116c3c198..9bbc21031 100644
                 ",this->F0,this->F1,this->sig);"});
      };
      // for all this converters, a specialisation of the
-@@ -110,6 +119,8 @@ namespace mfront {
+@@ -77,6 +86,10 @@ namespace mfront {
+     // indicate the source and then the target. The template
+     // parameters of the FiniteStrainBehaviourTangentOperatorConverter
+     // are given in the reverse order.
++    // The order of the declarations matters: among the paths made of the
++    // smallest number of conversions between two tangent operators, the
++    // first one in the order of the declarations is selected (see
++    // FiniteStrainBehaviourTangentOperatorConversionPath).
+     std_add(TangentOperator::DS_DF, TangentOperator::DTAU_DF);
+     std_add(TangentOperator::DTAU_DF, TangentOperator::C_TAU_JAUMANN);
+     std_add(TangentOperator::DTAU_DF, TangentOperator::SPATIAL_MODULI);
+@@ -102,14 +115,43 @@ namespace mfront {
+     std_add(TangentOperator::ABAQUS, TangentOperator::DSIG_DF);
+     std_add(TangentOperator::ABAQUS, TangentOperator::DTAU_DF);
+     std_add(TangentOperator::C_TAU_JAUMANN, TangentOperator::ABAQUS);
++    std_add(TangentOperator::C_TAU_JAUMANN, TangentOperator::SPATIAL_MODULI);
+     std_add(TangentOperator::C_TAU_JAUMANN, TangentOperator::DTAU_DF);
+-    std_add(TangentOperator::DT_DELOG, TangentOperator::DS_DC);
+     std_add(TangentOperator::DT_DELOG, TangentOperator::SPATIAL_MODULI);
++    std_add(TangentOperator::DT_DELOG, TangentOperator::DS_DC);
+     std_add(TangentOperator::DT_DELOG, TangentOperator::C_TRUESDELL);
+     std_add(TangentOperator::DSIG_DF, TangentOperator::DPK1_DF);
      std_add(TangentOperator::DS_DEGL, TangentOperator::DPK1_DF);
      std_add(TangentOperator::DPK1_DF, TangentOperator::DTAU_DF);
      std_add(TangentOperator::DPK1_DF, TangentOperator::DSIG_DF);
 +    std_add(TangentOperator::DTAU_DF, TangentOperator::DPK1_DF);
 +    std_add(TangentOperator::DTAU_DDF, TangentOperator::DPK1_DF);
++    std_add(TangentOperator::DSIG_DF, TangentOperator::DTAU_DF);
++    std_add(TangentOperator::DSIG_DF, TangentOperator::DTAU_DDF);
++    std_add(TangentOperator::DSIG_DF, TangentOperator::DS_DEGL);
++    std_add(TangentOperator::DSIG_DF, TangentOperator::ABAQUS);
++    std_add(TangentOperator::DSIG_DF, TangentOperator::C_TRUESDELL);
++    std_add(TangentOperator::DTAU_DF, TangentOperator::DS_DEGL);
++    std_add(TangentOperator::DTAU_DF, TangentOperator::C_TRUESDELL);
++    std_add(TangentOperator::DTAU_DDF, TangentOperator::DSIG_DF);
++    std_add(TangentOperator::DTAU_DDF, TangentOperator::DS_DEGL);
++    std_add(TangentOperator::DTAU_DDF, TangentOperator::ABAQUS);
++    std_add(TangentOperator::DTAU_DDF, TangentOperator::C_TRUESDELL);
++    std_add(TangentOperator::DS_DEGL, TangentOperator::DSIG_DF);
++    std_add(TangentOperator::DS_DEGL, TangentOperator::DTAU_DDF);
++    std_add(TangentOperator::DS_DEGL, TangentOperator::C_TRUESDELL);
++    std_add(TangentOperator::DS_DC, TangentOperator::DSIG_DF);
++    std_add(TangentOperator::DS_DC, TangentOperator::DTAU_DDF);
++    std_add(TangentOperator::DS_DC, TangentOperator::DPK1_DF);
++    std_add(TangentOperator::DS_DC, TangentOperator::ABAQUS);
++    std_add(TangentOperator::DS_DC, TangentOperator::C_TRUESDELL);
++    std_add(TangentOperator::SPATIAL_MODULI, TangentOperator::DSIG_DF);
++    std_add(TangentOperator::SPATIAL_MODULI, TangentOperator::DTAU_DDF);
++    std_add(TangentOperator::SPATIAL_MODULI, TangentOperator::DPK1_DF);
++    std_add(TangentOperator::SPATIAL_MODULI, TangentOperator::C_TAU_JAUMANN);
++    std_add(TangentOperator::C_TRUESDELL, TangentOperator::DSIG_DF);
++    std_add(TangentOperator::DT_DELOG, TangentOperator::DS_DEGL);
++    std_add(TangentOperator::DT_DELOG, TangentOperator::DPK1_DF);
      return converters;
    }  // end of
       // FiniteStrainBehaviourTangentOperatorConversion::getAvailableFiniteStrainBehaviourTangentOperatorConversions
+diff --git a/mfront/src/FiniteStrainBehaviourTangentOperatorConversionPath.cxx b/mfront/src/FiniteStrainBehaviourTangentOperatorConversionPath.cxx
+index 738a85d20..e6bb40d79 100644
+--- a/mfront/src/FiniteStrainBehaviourTangentOperatorConversionPath.cxx
++++ b/mfront/src/FiniteStrainBehaviourTangentOperatorConversionPath.cxx
+@@ -108,4 +108,35 @@ namespace mfront {
+   }  // end of
+      // FiniteStrainBehaviourTangentOperatorConversionPath::getShortestPath
+ 
++  FiniteStrainBehaviourTangentOperatorConversionPath
++  FiniteStrainBehaviourTangentOperatorConversionPath::getShortestPath(
++      const std::vector<TangentOperatorFlag>& k,
++      const TangentOperatorFlag& t,
++      const std::vector<FiniteStrainBehaviourTangentOperatorConversion>&
++          converters) {
++    using Path = FiniteStrainBehaviourTangentOperatorConversionPath;
++    // tangent operators reached and first of the shortest paths leading to
++    // each of them
++    std::vector<TangentOperatorFlag> operators(k);
++    std::vector<Path> paths(k.size());
++    for (std::vector<Path>::size_type i = 0; i != paths.size(); ++i) {
++      for (const auto& c : converters) {
++        if ((c.from() != operators[i]) ||
++            (std::find(operators.begin(), operators.end(), c.to()) !=
++             operators.end())) {
++          continue;
++        }
++        auto p = paths[i];
++        p.push_back(c);
++        if (c.to() == t) {
++          return p;
++        }
++        operators.push_back(c.to());
++        paths.push_back(p);
++      }
++    }
++    return {};
++  }  // end of
++     // FiniteStrainBehaviourTangentOperatorConversionPath::getShortestPath
++
+ }  // end of namespace mfront
 diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
 index 4c1e2eb32..5d8e183d4 100644
 --- a/mfront/src/GenericBehaviourInterface.cxx

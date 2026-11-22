@@ -169,6 +169,11 @@ namespace mfront::gpb {
      *
      * All the values are read before being written (see `gatherValues`).
      *
+     * A full array, which is the only case of the variables whose size does
+     * not depend on the options of the behaviour, is copied without test on
+     * the number of values, and the address of each value is deduced from
+     * the previous one, which spares a multiplication by value.
+     *
      * \tparam N: capacity of the array
      * \param[out] f: field
      * \param[in] i: index of the point
@@ -184,9 +189,18 @@ namespace mfront::gpb {
         if (f.values == nullptr) {
           return;
         }
-        auto* const p = f.values + i * f.point_stride;
+        auto* p = f.values + i * f.point_stride;
         const auto stride = f.component_stride;
         real values[N];
+        if (n == N) {
+          for (size_type j = 0; j != N; ++j) {
+            values[j] = src[j];
+          }
+          for (size_type j = 0; j != N; ++j, p += stride) {
+            *p = values[j];
+          }
+          return;
+        }
         for (size_type j = 0; j != N; ++j) {
           if (j < n) {
             values[j] = src[j];
@@ -255,8 +269,7 @@ namespace mfront::gpb {
   }  // end of namespace internals
 
   /*!
-   * \brief fields of the variables of a group, one field per variable, and
-   * number of components of each variable.
+   * \brief fields of the variables of a group, one field per variable.
    *
    * The material properties and the external state variables of a batch may
    * be given as a group or variable by variable. Both forms are converted on
@@ -269,8 +282,6 @@ namespace mfront::gpb {
   struct VariableFields {
     //! \brief field of each variable
     ConstField fields[N == 0 ? 1 : N];
-    //! \brief number of components of each variable
-    size_type sizes[N == 0 ? 1 : N];
   };
 
   /*!
@@ -308,7 +319,6 @@ namespace mfront::gpb {
       auto r = VariableFields<N>{};
       auto offset = size_type{};
       for (std::size_t v = 0; v != N; ++v) {
-        r.sizes[v] = sizes[v];
         if (by_variable != nullptr) {
           r.fields[v] = by_variable[v];
         } else if (group.values != nullptr) {
@@ -323,26 +333,36 @@ namespace mfront::gpb {
 
     /*!
      * \brief copy the values of the variables of a group at the given point
+     *
+     * The numbers of components are constants of the generated code: the
+     * loops over the variables and over their components are unrolled. All
+     * the values are read before being written (see `gatherValues`).
+     *
      * \param[out] dest: local copy
-     * \param[in] f: fields of the variables
+     * \param[in] f: fields of the variables, which are not null (see `check`)
+     * \param[in] sizes: number of components of each variable, whose sum is
+     * the capacity of `dest`
      * \param[in] i: index of the point
      */
     template <size_type M, std::size_t N>
-    TFEL_HOST_DEVICE constexpr void gather(LocalValues<M>& dest,
-                                           const VariableFields<N>& f,
-                                           const size_type i) noexcept {
+    TFEL_HOST_DEVICE constexpr void gather(
+        LocalValues<M>& dest,
+        const VariableFields<N>& f,
+        const std::array<size_type, N>& sizes,
+        const size_type i) noexcept {
       if constexpr ((M != 0) && (N != 0)) {
-        auto* p = dest.values;
+        real values[M];
+        auto* p = values;
         for (std::size_t v = 0; v != N; ++v) {
           const auto& fv = f.fields[v];
-          const auto nc = f.sizes[v];
-          if (fv.values != nullptr) {
-            const auto* const src = fv.values + i * fv.point_stride;
-            for (size_type c = 0; c != nc; ++c) {
-              p[c] = src[c * fv.component_stride];
-            }
+          const auto* const src = fv.values + i * fv.point_stride;
+          for (size_type c = 0; c != sizes[v]; ++c) {
+            p[c] = src[c * fv.component_stride];
           }
-          p += nc;
+          p += sizes[v];
+        }
+        for (size_type j = 0; j != M; ++j) {
+          dest.values[j] = values[j];
         }
       }
     }  // end of gather
@@ -526,6 +546,12 @@ namespace mfront::gpb {
      * and the internal state variables at the end of the time step are
      * copied, which is required by the functions reading this state or
      * updating only a part of it (post-processings, initialize functions)
+     * \param[in] gather_beginning_of_step_material_properties: if true, the
+     * material properties at the beginning of the time step are copied.
+     * Only the initialize functions read them (see
+     * `mfront::gb::executeInitializeFunction`): the behaviours and the
+     * models are built from the material properties at the end of the time
+     * step. Otherwise, the behaviour data give no access to them.
      */
     TFEL_HOST_DEVICE PointView(
         const BatchData& d,
@@ -533,7 +559,9 @@ namespace mfront::gpb {
         const size_type i,
         const PointDataSizes& s,
         const real rdt0,
-        const bool gather_end_of_step_state = false) noexcept
+        const bool gather_end_of_step_state = false,
+        const bool gather_beginning_of_step_material_properties =
+            false) noexcept
         : batch(d),
           index(i),
           sizes(s),
@@ -556,10 +584,14 @@ namespace mfront::gpb {
       bd.s1.stored_energy = this->energies1.data();
       bd.s1.dissipated_energy = this->energies1.data() + 1;
       auto& c = this->copies;
-      gather(c.mp0, inputs.mp0, i);
-      gather(c.mp1, inputs.mp1, i);
-      gather(c.esvs0, inputs.esv0, i);
-      gather(c.esvs1, inputs.esv1, i);
+      constexpr auto mps = PointTraits::material_properties_sizes;
+      constexpr auto esvs = PointTraits::external_state_variables_sizes;
+      if (gather_beginning_of_step_material_properties) {
+        gather(c.mp0, inputs.mp0, mps, i);
+      }
+      gather(c.mp1, inputs.mp1, mps, i);
+      gather(c.esvs0, inputs.esv0, esvs, i);
+      gather(c.esvs1, inputs.esv1, esvs, i);
       gather(c.g0, d.s0.gradients, i, s.gradients);
       gather(c.g1, d.s1.gradients, i, s.gradients);
       gather(c.th0, d.s0.thermodynamic_forces, i, s.thermodynamic_forces);
@@ -570,7 +602,8 @@ namespace mfront::gpb {
         gather(c.isvs1, d.s1.internal_state_variables, i,
                s.internal_state_variables);
       }
-      bd.s0.material_properties = c.mp0.data();
+      bd.s0.material_properties =
+          gather_beginning_of_step_material_properties ? c.mp0.data() : nullptr;
       bd.s1.material_properties = c.mp1.data();
       bd.s0.external_state_variables = c.esvs0.data();
       bd.s1.external_state_variables = c.esvs1.data();
@@ -1264,10 +1297,12 @@ namespace mfront::gpb {
       const auto o = getComputationOptions(d);
       auto r = PointResult{.status = -1, .rdt = d.rdt};
       {
-        // the initialize function may only update a part of the state
+        // the initialize function may only update a part of the state, and
+        // is executed with the material properties at the beginning of the
+        // time step
         auto v = PointView<PointTraits>(
             d, this->input_fields, i,
-            Integrator::template getPointDataSizes<PointTraits>(o), d.rdt,
+            Integrator::template getPointDataSizes<PointTraits>(o), d.rdt, true,
             true);
         auto values = LocalValues<number_of_inputs>{};
         internals::gather(values, this->inputs, i, number_of_inputs);

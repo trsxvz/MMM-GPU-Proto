@@ -1,6 +1,6 @@
-From ad6e92787aa85ae58f773c7b7607c7185f1cfab2 Mon Sep 17 00:00:00 2001
+From a74d1a2abb94d346b2a72ad50779a9debd46fa1e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 04:21:44 +0100
+Date: Sun, 22 Nov 2026 09:43:41 +0100
 Subject: [PATCH] Documentation of the generic-parallel interfaces
 
 Page of the generic-parallel interface for behaviours, additional
@@ -50,11 +50,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  docs/web/install.md                           |   13 +
  docs/web/mfront-template.html                 |    2 +
  docs/web/post-processings.md                  |   10 +-
- docs/web/release-notes/release-notes-5.2.md   |  659 +++++++-
+ docs/web/release-notes/release-notes-5.2.md   |  755 ++++++++-
  docs/web/tensors.md                           |    9 +
  docs/web/tfel-config.md                       |   94 +-
  docs/web/tfel-math.md                         |   20 +
- 45 files changed, 4053 insertions(+), 106 deletions(-)
+ 45 files changed, 4149 insertions(+), 106 deletions(-)
  create mode 100644 docs/mfront/LocalVariable.md
  create mode 100644 docs/mfront/SharedData.md
  create mode 100644 docs/web/generic-parallel-behaviour-interface.md
@@ -4261,7 +4261,7 @@ index c3b4e4488..0438674ae 100644
  Because post-processings are called independently of the behaviour
  integration step, special care to the meaning of the variables must be
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index e30ba629b..2c31b9803 100644
+index e30ba629b..7528e8b7d 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -100,6 +100,17 @@ Compatibility modes are described in the pages devoted to
@@ -4483,7 +4483,7 @@ index e30ba629b..2c31b9803 100644
  
  ## `--cmake-prefix-path`
  
-@@ -708,6 +844,43 @@ out of plane component of this matrix is
+@@ -708,6 +844,117 @@ out of plane component of this matrix is
  \(\det\left(F\right)/F_{33}^{2}\), where \(\det\left(F\right)\) is the
  determinant of the two dimensional deformation gradient.
  
@@ -4509,6 +4509,31 @@ index e30ba629b..2c31b9803 100644
 +This allows to report errors in device code, where exceptions are not
 +supported (see [this page](tfel-math.html)).
 +
++## Fixed size arrays left uninitialized {#sec:tfel:5.2:tfel_math:uninitialized}
++
++By default, the values of the fixed size mathematical objects (`fsarray`,
++`tvector`, `tmatrix`, `stensor`, `tensor`, `st2tost2`, `t2tot2`,
++`t2tost2`, `st2tot2`, etc.) are set to zero by their default
++constructors. This is unchanged.
++
++Those objects now provide an explicit constructor which leaves their
++values uninitialized. This constructor is selected by the
++`tfel::math::uninitialized` tag:
++
++~~~~{.cxx}
++tmatrix<6, 6, double> m(tfel::math::uninitialized);
++~~~~
++
++This constructor is meant for objects whose values are all assigned
++before being read, when the compiler can't remove the initialization by
++itself. This is typically the case of the data members of an object
++which are assigned in a method called after the constructor, and of the
++objects built on the stack of a kernel running on a GPU, where writing
++those zeros is not negligible.
++
++The values of class type, such as quantities or nested arrays, are built
++by their default constructors.
++
 +### Workspaces of the non linear solvers
 +
 +The workspaces allocated on the stack by the non linear solvers (see
@@ -4524,13 +4549,84 @@ index e30ba629b..2c31b9803 100644
 +(`delta_zeros`), which may be read before being computed, are still
 +initially null.
 +
++## Products with the derivatives of the product of two tensors and of the Cauchy-Green tensors
++
++Most components of the fourth order tensors returned by
++`t2tot2<N, T>::tpld(B)`, `t2tot2<N, T>::tprd(A)`,
++`t2tost2<N, T>::dCdF(F)` and `t2tost2<N, T>::dBdF(F)` are null whatever
++the values of their argument. In 3D, only \(27\) of the \(81\)
++components of the derivatives of the product of two tensors and \(27\)
++of the \(54\) components of the derivatives of the Cauchy-Green tensors
++are not null.
++
++The products of those objects with a fourth order tensor (`t2tot2`,
++`t2tost2`, `st2tot2`, `st2tost2`), or with one another, no longer compute
++the terms which are null by construction:
++
++~~~~{.cxx}
++// each component is the sum of 3 terms in 3D, 9 terms were computed before
++const t2tost2<3u, real> dS_dF = dS_dFe * t2tot2<3u, real>::tpld(iFp);
++~~~~
++
++The opposite of those derivatives and their products or divisions by a
++scalar have the same null components: the terms which are null by
++construction are not computed either in
++`-t2tost2<3u, real>::dCdF(Fe) * dFe_dF / 2`.
++
++The other terms are summed in the same order as in the standard product.
++The results are thus unchanged, with the following exceptions:
++
++- a non finite value of an operand is only propagated by the terms which
++  are computed. The result is still non finite, but fewer of its
++  components may be affected.
++- a null component of the result may have a different sign.
++- a compiler contracting floating-point expressions (see the
++  `-ffp-contract` option of `gcc` and `clang`) may fuse different
++  multiplications and additions, which may change the last bits of the
++  result.
++
++The standard product is still used when:
++
++- the derivative is stored in a fourth order tensor before the product
++  (`const t2tot2<3u, real> dFe_dF = t2tot2<3u, real>::tpld(iFp);`). The
++  derivative can be stored as an expression to avoid this
++  (`const auto dFe_dF = t2tot2<3u, real>::tpld(iFp);`).
++- the derivative is composed with a fourth order tensor by the overloads
++  of `tpld` and `tprd` which take two arguments.
++
++The null components of an expression are described by the
++`SparsityPattern` metafunction, declared in the
++`TFEL/Math/ExpressionTemplates/SparseProductExpr.hxx` header.
++
  # New `TFEL/Material` features
  
  ## Finite strain heat transfer
-@@ -770,6 +943,40 @@ const auto [Q, dQ_dgT, dQ_dF] =
+@@ -770,6 +1017,62 @@ const auto [Q, dQ_dgT, dQ_dF] =
    computeHeatFluxInReferenceConfigurationAndDerivatives(K, gT, F);
  ~~~~
  
++## Conversions of the finite strain tangent operators
++
++The conversions of the finite strain tangent operators
++(`FiniteStrainBehaviourTangentOperator`) are computed by explicit code,
++column by column, without intermediate fourth order tensor nor loop
++based push-forward or pull-back. This code, given in the
++`TFEL/Material/FiniteStrainBehaviourTangentOperatorConverters.ixx`
++header, is generated by the scripts of the
++`tools/FiniteStrainBehaviourTangentOperatorConverters` directory, whose
++forms were chosen by measurements on CPUs and GPUs, in single and double
++precision.
++
++Direct conversions are added, so that the tangent operators usually
++computed by the behaviours (`DSIG_DF`, `DTAU_DF`, `DTAU_DDF`, `DS_DEGL`,
++`DS_DC` and `SPATIAL_MODULI`) are converted to the tangent operators
++requested by the interfaces (`DSIG_DF`, `DS_DEGL`, `DPK1_DF`, `DTAU_DDF`,
++`ABAQUS` and `C_TRUESDELL`) by a single conversion. `MFront` chooses
++the shortest path of conversions by a breadth first search, and the
++strain measures of the `generic` interface (Green-Lagrange, Hencky) use
++the direct conversions. The results are unchanged, up to the rounding
++errors.
++
 +## Logarithmic strain handler
 +
 +The `LogarithmicStrainHandler` class can be built from the deformation
@@ -4568,7 +4664,7 @@ index e30ba629b..2c31b9803 100644
  ## Homogenization
  
  The following methods of the `ParticulateMicrostructure` objects are able
-@@ -942,7 +1149,18 @@ allowing to parametrize the solver.
+@@ -942,7 +1245,18 @@ allowing to parametrize the solver.
  
  #### Parameters of the `Default` Linear Solver
  
@@ -4588,7 +4684,7 @@ index e30ba629b..2c31b9803 100644
  
  #### Parameters of the `TDLS` Linear Solver
  
-@@ -996,6 +1214,15 @@ The following options are supported:
+@@ -996,6 +1310,15 @@ The following options are supported:
    readable in user code blocks, reports the number of out-of-tile
    searches of the last linear solve. If `false` (the default), the
    generated code is unchanged.
@@ -4604,7 +4700,7 @@ index e30ba629b..2c31b9803 100644
  
  If a parameter is not defined, the default values are inherited from the
  `TiledLUppConfig` class defined by the `TDLS` library. See the
-@@ -1016,6 +1243,12 @@ are:
+@@ -1016,6 +1339,12 @@ are:
  
  ### Examples
  
@@ -4617,7 +4713,7 @@ index e30ba629b..2c31b9803 100644
  ~~~~ {#LinearSystemSolver .cpp}
  @LinearSystemSolver TDLS{
    tile_size: 4,
-@@ -1034,7 +1267,7 @@ are:
+@@ -1034,7 +1363,7 @@ are:
  `MFront` now allows to define options in a configuration file define
  through the `--configuration-file` command line argument as follows:
  
@@ -4626,7 +4722,7 @@ index e30ba629b..2c31b9803 100644
  $ mfront --configuration-file=config.json --interface=generic-parallel UO2_ShearModulus.mfront
  ~~~~
  
-@@ -1085,6 +1318,13 @@ have the same syntax, but their options are only passed to the
+@@ -1085,6 +1414,13 @@ have the same syntax, but their options are only passed to the
  interfaces dedicated to material properties, behaviours and models
  respectively.
  
@@ -4640,7 +4736,7 @@ index e30ba629b..2c31b9803 100644
  ### The `compilation_options` section
  
  The `compilation_options` section associates to a language (`c`,
-@@ -1094,7 +1334,7 @@ The `compilation_options` section associates to a language (`c`,
+@@ -1094,7 +1430,7 @@ The `compilation_options` section associates to a language (`c`,
  compilation_options : {
    cxx : {
      compiler: "nvc++",
@@ -4649,7 +4745,7 @@ index e30ba629b..2c31b9803 100644
    }
  }
  ~~~~
-@@ -1125,20 +1365,22 @@ The `linking_options` section defines the options passed to the linker.
+@@ -1125,20 +1461,22 @@ The `linking_options` section defines the options passed to the linker.
  #### The `linker_flags` option
  
  The `linker_flags` option specifies the flags passed to the linker, as a
@@ -4676,7 +4772,7 @@ index e30ba629b..2c31b9803 100644
  $ mfront --obuild --interface='{generic-parallel:{backend:"stlpar"{execution_policy:"par_unseq"}}}' UO2_ShearModulus.mfront
  ~~~~
  
-@@ -1153,7 +1395,14 @@ page for details](generic-parallel-material-property-interface.html).
+@@ -1153,7 +1491,14 @@ page for details](generic-parallel-material-property-interface.html).
  - `stlpar`: parallel algorithms of the C++ standard library, on CPUs or on
    NVIDIA GPUs with `nvc++ -stdpar=gpu`;
  - `cuda` and `hip`;
@@ -4692,7 +4788,7 @@ index e30ba629b..2c31b9803 100644
  
  ### Generated functions
  
-@@ -1196,19 +1445,20 @@ int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
+@@ -1196,19 +1541,20 @@ int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
    backend, including the exceptions thrown on the host by its runtime).
    An empty batch is accepted without any check.
  - the kernels only update the statistics of the evaluation when an event
@@ -4720,7 +4816,7 @@ index e30ba629b..2c31b9803 100644
  - the automatic data transfers of the `sycl` backend also copy the
    statuses of the points and the statistics.
  - the default number of threads per block of the `cuda` and `hip`
-@@ -1217,7 +1467,8 @@ int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
+@@ -1217,7 +1563,8 @@ int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
    loaded in the same process: each library has its own parameters.
  - the generated code mostly depends on the material property. The
    backend selects the header and the expression of its primitive
@@ -4730,7 +4826,7 @@ index e30ba629b..2c31b9803 100644
    the function of the runtime which is called and the symbols describing
    the backend. The generated code holds a function object evaluating
    the material property at one point, the report function and the
-@@ -1231,7 +1482,8 @@ int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
+@@ -1231,7 +1578,8 @@ int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
  
  The generated functions receive an execution policy (`execution_policy`
  member of the data of a batch), or a null pointer for the default policy
@@ -4740,7 +4836,7 @@ index e30ba629b..2c31b9803 100644
  `mfront::generic_parallel` namespace, one per backend, declared in the
  headers of `MFront/GenericParallel`:
  
-@@ -1239,7 +1491,13 @@ headers of `MFront/GenericParallel`:
+@@ -1239,7 +1587,13 @@ headers of `MFront/GenericParallel`:
    a stream;
  - `SyclBackendExecutionPolicy`, which holds a queue. The `sycl` backend has
    no default policy;
@@ -4755,7 +4851,7 @@ index e30ba629b..2c31b9803 100644
  
  All the policies have two common options (`BackendExecutionCommonPolicy`):
  `preserve_stack_size` (the stack size of the threads of the device is
-@@ -1271,6 +1529,217 @@ with the Itanium ABI: a policy created by a program built by Visual
+@@ -1271,6 +1625,217 @@ with the Itanium ABI: a policy created by a program built by Visual
  Studio can be checked by a library generated by a `TFEL` built with
  MinGW, and the reverse.
  
@@ -4973,7 +5069,7 @@ index e30ba629b..2c31b9803 100644
  ## Improvements to the `Cast3M` interface
  
  ### Improved generation of `Gibiane` input file
-@@ -1369,6 +1838,44 @@ the `TFEL/Material/GeneralisedGursonTvergaardNeedlemanStressCriterion.hxx`
+@@ -1369,6 +1934,44 @@ the `TFEL/Material/GeneralisedGursonTvergaardNeedlemanStressCriterion.hxx`
  and `TFEL/Material/GeneralisedRousselierTanguyBessonStressCriterion.hxx`
  headers.
  
@@ -5018,7 +5114,7 @@ index e30ba629b..2c31b9803 100644
  # New features in `mfront-query`
  
  ## `--compute-thermal-expansion` and `--compute-stress-free-expansion` queries
-@@ -1411,6 +1918,17 @@ the framework of the AnoHonA ANR project (n° AAPG2023).
+@@ -1411,6 +2014,17 @@ the framework of the AnoHonA ANR project (n° AAPG2023).
  
  # Issues fixed
  
@@ -5036,7 +5132,7 @@ index e30ba629b..2c31b9803 100644
  ## Issue 969: GPU coalescence/broadcast loss when projectors/identities are accessed with warp-divergent runtime index
  
  The `Id`, `IxI`, `K`, `M` and `J` methods of the `st2tost2` class, the
-@@ -2218,3 +2736,88 @@ For more details, see <https://github.com/thelfer/tfel/issues/905>
+@@ -2218,3 +2832,88 @@ For more details, see <https://github.com/thelfer/tfel/issues/905>
  ## Issue 853: [tfel-fcheck] Have the possibility to launch multiple call to `tfel-check` simultaenously in a CI context
  
  For more details, see <https://github.com/thelfer/tfel/issues/853>

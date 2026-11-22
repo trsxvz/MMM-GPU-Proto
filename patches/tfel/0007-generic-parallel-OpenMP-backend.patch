@@ -1,6 +1,6 @@
-From d52498d4c41f6bc45d7f728450370f0aaccdce09 Mon Sep 17 00:00:00 2001
+From 57c732a67ce3bd1dfe65d5dcd5eec8a0a7418fbf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 04:21:42 +0100
+Date: Sun, 22 Nov 2026 09:43:39 +0100
 Subject: [PATCH] generic-parallel: OpenMP backend
 
 target teams distribute parallel for construct (offload option) or

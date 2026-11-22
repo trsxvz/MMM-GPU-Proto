@@ -195,21 +195,11 @@ namespace mfront::gb::logarithmic_strain {
         const tfel::math::stensor<N, real>& s,
         const FiniteStrainTangentOperator smf) {
       using tfel::material::convert;
-      if ((smf == FiniteStrainTangentOperator::DSIG_DF) ||
-          (smf == FiniteStrainTangentOperator::DTAU_DDF)) {
+      if (smf == FiniteStrainTangentOperator::DSIG_DF) {
         const auto Cs = lgh.convertToSpatialTangentModuli(K, T);
-        const auto Dt =
-            convert<FiniteStrainTangentOperator::DTAU_DF,
+        tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
+            convert<FiniteStrainTangentOperator::DSIG_DF,
                     FiniteStrainTangentOperator::SPATIAL_MODULI>(Cs, F0, F, s);
-        if (smf == FiniteStrainTangentOperator::DSIG_DF) {
-          tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
-              convert<FiniteStrainTangentOperator::DSIG_DF,
-                      FiniteStrainTangentOperator::DTAU_DF>(Dt, F0, F, s);
-        } else {
-          tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
-              convert<FiniteStrainTangentOperator::DTAU_DDF,
-                      FiniteStrainTangentOperator::DTAU_DF>(Dt, F0, F, s);
-        }
       } else if (smf == FiniteStrainTangentOperator::DS_DEGL) {
         tfel::math::map<tfel::math::st2tost2<N, real>>(v) =
             lgh.convertToMaterialTangentModuli(K, T);
@@ -217,6 +207,11 @@ namespace mfront::gb::logarithmic_strain {
         const auto Cse = lgh.convertToMaterialTangentModuli(K, T);
         tfel::math::map<tfel::math::t2tot2<N, real>>(v) =
             convert<FiniteStrainTangentOperator::DPK1_DF,
+                    FiniteStrainTangentOperator::DS_DEGL>(Cse, F0, F, s);
+      } else if (smf == FiniteStrainTangentOperator::DTAU_DDF) {
+        const auto Cse = lgh.convertToMaterialTangentModuli(K, T);
+        tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
+            convert<FiniteStrainTangentOperator::DTAU_DDF,
                     FiniteStrainTangentOperator::DS_DEGL>(Cse, F0, F, s);
       } else {
         reportError(d, "invalid choice for consistent tangent operator");

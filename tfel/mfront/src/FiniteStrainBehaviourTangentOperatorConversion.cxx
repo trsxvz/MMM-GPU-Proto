@@ -86,6 +86,10 @@ namespace mfront {
     // indicate the source and then the target. The template
     // parameters of the FiniteStrainBehaviourTangentOperatorConverter
     // are given in the reverse order.
+    // The order of the declarations matters: among the paths made of the
+    // smallest number of conversions between two tangent operators, the
+    // first one in the order of the declarations is selected (see
+    // FiniteStrainBehaviourTangentOperatorConversionPath).
     std_add(TangentOperator::DS_DF, TangentOperator::DTAU_DF);
     std_add(TangentOperator::DTAU_DF, TangentOperator::C_TAU_JAUMANN);
     std_add(TangentOperator::DTAU_DF, TangentOperator::SPATIAL_MODULI);
@@ -111,9 +115,10 @@ namespace mfront {
     std_add(TangentOperator::ABAQUS, TangentOperator::DSIG_DF);
     std_add(TangentOperator::ABAQUS, TangentOperator::DTAU_DF);
     std_add(TangentOperator::C_TAU_JAUMANN, TangentOperator::ABAQUS);
+    std_add(TangentOperator::C_TAU_JAUMANN, TangentOperator::SPATIAL_MODULI);
     std_add(TangentOperator::C_TAU_JAUMANN, TangentOperator::DTAU_DF);
-    std_add(TangentOperator::DT_DELOG, TangentOperator::DS_DC);
     std_add(TangentOperator::DT_DELOG, TangentOperator::SPATIAL_MODULI);
+    std_add(TangentOperator::DT_DELOG, TangentOperator::DS_DC);
     std_add(TangentOperator::DT_DELOG, TangentOperator::C_TRUESDELL);
     std_add(TangentOperator::DSIG_DF, TangentOperator::DPK1_DF);
     std_add(TangentOperator::DS_DEGL, TangentOperator::DPK1_DF);
@@ -121,6 +126,32 @@ namespace mfront {
     std_add(TangentOperator::DPK1_DF, TangentOperator::DSIG_DF);
     std_add(TangentOperator::DTAU_DF, TangentOperator::DPK1_DF);
     std_add(TangentOperator::DTAU_DDF, TangentOperator::DPK1_DF);
+    std_add(TangentOperator::DSIG_DF, TangentOperator::DTAU_DF);
+    std_add(TangentOperator::DSIG_DF, TangentOperator::DTAU_DDF);
+    std_add(TangentOperator::DSIG_DF, TangentOperator::DS_DEGL);
+    std_add(TangentOperator::DSIG_DF, TangentOperator::ABAQUS);
+    std_add(TangentOperator::DSIG_DF, TangentOperator::C_TRUESDELL);
+    std_add(TangentOperator::DTAU_DF, TangentOperator::DS_DEGL);
+    std_add(TangentOperator::DTAU_DF, TangentOperator::C_TRUESDELL);
+    std_add(TangentOperator::DTAU_DDF, TangentOperator::DSIG_DF);
+    std_add(TangentOperator::DTAU_DDF, TangentOperator::DS_DEGL);
+    std_add(TangentOperator::DTAU_DDF, TangentOperator::ABAQUS);
+    std_add(TangentOperator::DTAU_DDF, TangentOperator::C_TRUESDELL);
+    std_add(TangentOperator::DS_DEGL, TangentOperator::DSIG_DF);
+    std_add(TangentOperator::DS_DEGL, TangentOperator::DTAU_DDF);
+    std_add(TangentOperator::DS_DEGL, TangentOperator::C_TRUESDELL);
+    std_add(TangentOperator::DS_DC, TangentOperator::DSIG_DF);
+    std_add(TangentOperator::DS_DC, TangentOperator::DTAU_DDF);
+    std_add(TangentOperator::DS_DC, TangentOperator::DPK1_DF);
+    std_add(TangentOperator::DS_DC, TangentOperator::ABAQUS);
+    std_add(TangentOperator::DS_DC, TangentOperator::C_TRUESDELL);
+    std_add(TangentOperator::SPATIAL_MODULI, TangentOperator::DSIG_DF);
+    std_add(TangentOperator::SPATIAL_MODULI, TangentOperator::DTAU_DDF);
+    std_add(TangentOperator::SPATIAL_MODULI, TangentOperator::DPK1_DF);
+    std_add(TangentOperator::SPATIAL_MODULI, TangentOperator::C_TAU_JAUMANN);
+    std_add(TangentOperator::C_TRUESDELL, TangentOperator::DSIG_DF);
+    std_add(TangentOperator::DT_DELOG, TangentOperator::DS_DEGL);
+    std_add(TangentOperator::DT_DELOG, TangentOperator::DPK1_DF);
     return converters;
   }  // end of
      // FiniteStrainBehaviourTangentOperatorConversion::getAvailableFiniteStrainBehaviourTangentOperatorConversions

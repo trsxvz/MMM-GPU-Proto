@@ -108,4 +108,35 @@ namespace mfront {
   }  // end of
      // FiniteStrainBehaviourTangentOperatorConversionPath::getShortestPath
 
+  FiniteStrainBehaviourTangentOperatorConversionPath
+  FiniteStrainBehaviourTangentOperatorConversionPath::getShortestPath(
+      const std::vector<TangentOperatorFlag>& k,
+      const TangentOperatorFlag& t,
+      const std::vector<FiniteStrainBehaviourTangentOperatorConversion>&
+          converters) {
+    using Path = FiniteStrainBehaviourTangentOperatorConversionPath;
+    // tangent operators reached and first of the shortest paths leading to
+    // each of them
+    std::vector<TangentOperatorFlag> operators(k);
+    std::vector<Path> paths(k.size());
+    for (std::vector<Path>::size_type i = 0; i != paths.size(); ++i) {
+      for (const auto& c : converters) {
+        if ((c.from() != operators[i]) ||
+            (std::find(operators.begin(), operators.end(), c.to()) !=
+             operators.end())) {
+          continue;
+        }
+        auto p = paths[i];
+        p.push_back(c);
+        if (c.to() == t) {
+          return p;
+        }
+        operators.push_back(c.to());
+        paths.push_back(p);
+      }
+    }
+    return {};
+  }  // end of
+     // FiniteStrainBehaviourTangentOperatorConversionPath::getShortestPath
+
 }  // end of namespace mfront
