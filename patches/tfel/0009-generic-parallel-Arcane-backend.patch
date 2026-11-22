@@ -1,6 +1,6 @@
-From a80754c336199a556761a7f106b2d17c38bd127c Mon Sep 17 00:00:00 2001
+From 473b9d356d8398c4e981e4fbd33941045225b149 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 09:43:39 +0100
+Date: Sun, 22 Nov 2026 10:53:16 +0100
 Subject: [PATCH] generic-parallel: Arcane backend
 
 Accelerator API of Arccore, the core component of the Arcane framework,

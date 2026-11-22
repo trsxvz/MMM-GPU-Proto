@@ -1,6 +1,6 @@
-From 23abb3693376326231d42cd5bca7fb5fd5037818 Mon Sep 17 00:00:00 2001
+From 201154cdb439220c759363868ee8d2d299ccc0d6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 09:43:38 +0100
+Date: Sun, 22 Nov 2026 10:53:15 +0100
 Subject: [PATCH] MFront: generated code compatible with device code, numerical
  type of the generic interfaces
 
@@ -22,6 +22,13 @@ Subject: [PATCH] MFront: generated code compatible with device code, numerical
   same paths as the enumeration of the maximal paths at a cost
   independent of their number; strain measure wrappers of the generic
   interface (Green-Lagrange, Hencky) calling the direct conversions.
+- device code of the finite strain behaviours: the tangent operator (or
+  the prediction operator) defined by the behaviour is computed by a
+  single call in computeConsistentTangentOperator
+  (computePredictionOperator), the functions of the operators deduced from
+  it only converting it; the kernels of the GPUs, which inline every call,
+  held one copy of the code of the behaviour per tangent operator handled.
+  The code compiled for the host is unchanged.
 - final conversion of the tangent operator computed in the storage of Dt
   (thelfer/tfel#1489).
 - setUninitialized method of the local variables and of the integration
@@ -70,7 +77,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  .../include/MFront/TDLSLinearSystemSolver.hxx |    4 +
  mfront/include/MFront/VariableDescription.hxx |    9 +
  mfront/src/AbstractBehaviourInterface.cxx     |   17 +
- mfront/src/BehaviourCodeGeneratorBase.cxx     |  902 +++++++----
+ mfront/src/BehaviourCodeGeneratorBase.cxx     | 1022 +++++++++----
  mfront/src/BehaviourDSLCommon.cxx             |  118 +-
  mfront/src/BehaviourDescription.cxx           |   33 +
  mfront/src/BehaviourInterfaceBase.cxx         |   22 +
@@ -169,7 +176,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  mtest/src/GenericBehaviour.cxx                |    4 +
  mtest/src/GenericEvolution.cxx                |    2 +
  mtest/src/GenericMaterialProperty.cxx         |    2 +
- 133 files changed, 5544 insertions(+), 3196 deletions(-)
+ 133 files changed, 5650 insertions(+), 3210 deletions(-)
  create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria-float.ref
  create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria.ref
  create mode 100644 mfront-query/tests/references/mfront-query-norton-convergence-criterion-float.ref
@@ -4944,7 +4951,7 @@ index ec25672b1..44b31d05d 100644
  
  }  // end of namespace mfront
 diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
-index 405523548..2ff75976b 100644
+index 405523548..5c6041723 100644
 --- a/mfront/src/BehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
 @@ -11,7 +11,11 @@
@@ -6136,7 +6143,7 @@ index 405523548..2ff75976b 100644
        return;
      }
      if (this->bd.getBehaviourType() ==
-@@ -4695,14 +5032,6 @@ namespace mfront {
+@@ -4695,14 +5032,11 @@ namespace mfront {
          }
        }
        if (!ktos.empty()) {
@@ -6148,10 +6155,15 @@ index 405523548..2ff75976b 100644
 -                  getConversionsPath(k, ktos, converters);
 -          paths.insert(paths.end(), kpaths.begin(), kpaths.end());
 -        }
++        // operator defined by the user from which each of the other
++        // operators is deduced by conversions, when it is supported
++        auto sources =
++            std::map<FiniteStrainBehaviourTangentOperatorBase::Flag,
++                     FiniteStrainBehaviourTangentOperatorBase::Flag>{};
          for (const auto& t : tos) {
            const auto ktype =
                convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
-@@ -4726,25 +5055,29 @@ namespace mfront {
+@@ -4726,25 +5060,29 @@ namespace mfront {
                  (h == ModellingHypothesis::PLANESTRESS)) {
                os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
                      "computePredictionOperator_"
@@ -6194,12 +6206,27 @@ index 405523548..2ff75976b 100644
                } else {
                  os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
                        "computePredictionOperator_"
-@@ -4760,7 +5093,15 @@ namespace mfront {
-                 os << "if(this->computePredictionOperator_" << k
-                    << "(smt) != SUCCESS){\n"
-                    << "return FAILURE;\n"
+@@ -4755,12 +5093,26 @@ namespace mfront {
+                         pc->from());
+                 const auto from_type_flag =
+                     getFiniteStrainBehaviourTangentOperatorFlagType(pc->from());
++                sources.insert({t, pc->from()});
+                 os << "using namespace tfel::math;\n";
+-                os << "// computing " << k << '\n';
+-                os << "if(this->computePredictionOperator_" << k
+-                   << "(smt) != SUCCESS){\n"
+-                   << "return FAILURE;\n"
 -                   << "}\n"
-+                   << "}\n";
++                os << "// computing " << k
++                   << ", which `computePredictionOperator` does in device "
++                   << "code\n";
++                this->writeHostAndDeviceCode(
++                    os,
++                    "if(this->computePredictionOperator_" + k +
++                        "(smt) != SUCCESS){\n"
++                        "return FAILURE;\n"
++                        "}",
++                    "static_cast<void>(smt);");
 +                // the type of the operator computed by the user is only
 +                // checked by the `get` method on the host
 +                os << "if(!this->Dt.template is<" << from_type_flag
@@ -6211,18 +6238,58 @@ index 405523548..2ff75976b 100644
                     << "const " << from_type_flag << "<N,stress> "
                     << "tangentOperator_" << k << " = this->Dt.template get<"
                     << from_type_flag << "<N,stress> >();\n";
-@@ -4780,7 +5121,7 @@ namespace mfront {
+@@ -4778,28 +5130,64 @@ namespace mfront {
+             }
+           }
          }
++        // see `writeBehaviourComputeTangentOperator`
          os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
             << "computePredictionOperator(const SMFlag smflag, "
 -           << "const SMType smt) final{\n"
 +           << "const SMType smt){\n"
             << "using namespace std;\n"
++           << "#ifdef TFEL_DEVICE_CODE\n"
++           << "// operator defined by the behaviour\n"
++           << "switch(smflag){\n";
++        for (const auto& k : ktos) {
++          const auto ktype =
++              convertFiniteStrainBehaviourTangentOperatorFlagToString(k);
++          os << "case " << ktype << ":\n";
++          for (const auto& [t, source] : sources) {
++            if (source == k) {
++              os << "case "
++                 << convertFiniteStrainBehaviourTangentOperatorFlagToString(t)
++                 << ":\n";
++            }
++          }
++          os << "if(this->computePredictionOperator_" << ktype
++             << "(smt) != SUCCESS){\n"
++             << "return FAILURE;\n"
++             << "}\n"
++             << "break;\n";
++        }
++        if (ktos.size() + sources.size() != tos.size()) {
++          // unsupported operators
++          os << "default:\n"
++             << "break;\n";
++        }
++        os << "}\n"
++           << "#endif /* TFEL_DEVICE_CODE */\n"
             << "switch(smflag){\n";
          for (const auto& t : tos) {
-@@ -4790,16 +5131,19 @@ namespace mfront {
-              << "return this->computePredictionOperator_" << ktype
-              << "(smt);\n";
+           const auto ktype =
+               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
+-          os << "case " << ktype << ":\n"
+-             << "return this->computePredictionOperator_" << ktype
+-             << "(smt);\n";
++          const auto call =
++              "return this->computePredictionOperator_" + ktype + "(smt);";
++          os << "case " << ktype << ":\n";
++          if (std::find(ktos.begin(), ktos.end(), t) != ktos.end()) {
++            this->writeHostAndDeviceCode(os, call, "return SUCCESS;");
++          } else {
++            os << call << '\n';
++          }
          }
 -        os << "}\n"
 -           << "tfel::raise(\"" << this->bd.getClassName()
@@ -6246,7 +6313,7 @@ index 405523548..2ff75976b 100644
           << "using namespace std;\n"
           << "using namespace tfel::math;\n"
           << "using std::vector;\n";
-@@ -4810,15 +5154,9 @@ namespace mfront {
+@@ -4810,15 +5198,9 @@ namespace mfront {
             BehaviourDescription::COHESIVEZONEMODEL) ||
            (this->bd.getBehaviourType() ==
             BehaviourDescription::GENERALBEHAVIOUR)) {
@@ -6265,7 +6332,7 @@ index 405523548..2ff75976b 100644
        }
        os << this->bd.getCode(h, BehaviourData::ComputePredictionOperator)
           << "return SUCCESS;\n"
-@@ -4848,14 +5186,6 @@ namespace mfront {
+@@ -4848,14 +5230,11 @@ namespace mfront {
          }
        }
        if (!ktos.empty()) {
@@ -6277,10 +6344,15 @@ index 405523548..2ff75976b 100644
 -                  getConversionsPath(k, ktos, converters);
 -          paths.insert(paths.end(), kpaths.begin(), kpaths.end());
 -        }
++        // operator defined by the user from which each of the other
++        // operators is deduced by conversions, when it is supported
++        auto sources =
++            std::map<FiniteStrainBehaviourTangentOperatorBase::Flag,
++                     FiniteStrainBehaviourTangentOperatorBase::Flag>{};
          for (const auto& t : tos) {
            const auto ktype =
                convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
-@@ -4878,24 +5208,30 @@ namespace mfront {
+@@ -4878,24 +5257,30 @@ namespace mfront {
                   ModellingHypothesis::AXISYMMETRICALGENERALISEDPLANESTRESS) ||
                  (h == ModellingHypothesis::PLANESTRESS)) {
                os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator_"
@@ -6324,12 +6396,27 @@ index 405523548..2ff75976b 100644
                } else {
                  auto pc = path.begin();
                  const auto k =
-@@ -4910,7 +5246,15 @@ namespace mfront {
-                 os << "if(!this->computeConsistentTangentOperator_" << k
-                    << "(smt)){\n"
-                    << "return false;\n"
+@@ -4905,12 +5290,26 @@ namespace mfront {
+                     getFiniteStrainBehaviourTangentOperatorFlagType(pc->from());
+                 os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator_"
+                    << ktype << "(const SMType smt){\n";
++                sources.insert({t, pc->from()});
+                 os << "using namespace tfel::math;\n";
+-                os << "// computing " << k << '\n';
+-                os << "if(!this->computeConsistentTangentOperator_" << k
+-                   << "(smt)){\n"
+-                   << "return false;\n"
 -                   << "}\n"
-+                   << "}\n";
++                os << "// computing " << k
++                   << ", which `computeConsistentTangentOperator` does in "
++                   << "device code\n";
++                this->writeHostAndDeviceCode(
++                    os,
++                    "if(!this->computeConsistentTangentOperator_" + k +
++                        "(smt)){\n"
++                        "return false;\n"
++                        "}",
++                    "static_cast<void>(smt);");
 +                // the type of the operator computed by the user is only
 +                // checked by the `get` method on the host
 +                os << "if(!this->Dt.template is<" << k_type_flag
@@ -6341,9 +6428,60 @@ index 405523548..2ff75976b 100644
                     << "const " << k_type_flag << "<N,stress> "
                     << "tangentOperator_" << k << " = this->Dt.template get<"
                     << k_type_flag << "<N,stress>>();\n";
-@@ -4939,11 +5283,14 @@ namespace mfront {
-              << "return this->computeConsistentTangentOperator_" << ktype
-              << "(smt);\n";
+@@ -4928,22 +5327,62 @@ namespace mfront {
+             }
+           }
+         }
++        // In device code, an operator defined by the user is computed by a
++        // single call whatever the requested operator, and the functions of
++        // the operators deduced from it only convert it: computing it in
++        // each of these functions, as on the host, would duplicate the code
++        // of the user in the kernels of the GPUs, which inline every call.
+         os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator(const "
+               "SMFlag smflag,const "
+               "SMType smt){\n"
++           << "#ifdef TFEL_DEVICE_CODE\n"
++           << "// operator defined by the behaviour\n"
++           << "switch(smflag){\n";
++        for (const auto& k : ktos) {
++          const auto ktype =
++              convertFiniteStrainBehaviourTangentOperatorFlagToString(k);
++          os << "case " << ktype << ":\n";
++          for (const auto& [t, source] : sources) {
++            if (source == k) {
++              os << "case "
++                 << convertFiniteStrainBehaviourTangentOperatorFlagToString(t)
++                 << ":\n";
++            }
++          }
++          os << "if(!this->computeConsistentTangentOperator_" << ktype
++             << "(smt)){\n"
++             << "return false;\n"
++             << "}\n"
++             << "break;\n";
++        }
++        if (ktos.size() + sources.size() != tos.size()) {
++          // unsupported operators
++          os << "default:\n"
++             << "break;\n";
++        }
++        os << "}\n"
++           << "#endif /* TFEL_DEVICE_CODE */\n"
+            << "switch(smflag){\n";
+         for (const auto& t : tos) {
+           const auto ktype =
+               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
+-          os << "case " << ktype << ":\n"
+-             << "return this->computeConsistentTangentOperator_" << ktype
+-             << "(smt);\n";
++          const auto call = "return this->computeConsistentTangentOperator_" +
++                            ktype + "(smt);";
++          os << "case " << ktype << ":\n";
++          if (find(ktos.begin(), ktos.end(), t) != ktos.end()) {
++            this->writeHostAndDeviceCode(os, call, "return true;");
++          } else {
++            os << call << '\n';
++          }
          }
 -        os << "}\n"
 -           << "tfel::raise(\"" << this->bd.getClassName()
@@ -6361,7 +6499,7 @@ index 405523548..2ff75976b 100644
        }
      } else {
        if (this->bd.hasCode(h, BehaviourData::ComputeTangentOperator)) {
-@@ -4982,7 +5329,7 @@ namespace mfront {
+@@ -4982,7 +5421,7 @@ namespace mfront {
        std::ostream& os) const {
      this->checkBehaviourFile(os);
      os << "TFEL_HOST_DEVICE real getMinimalTimeStepScalingFactor() const "
@@ -6370,7 +6508,7 @@ index 405523548..2ff75976b 100644
            "  return this->minimal_time_step_scaling_factor;\n"
            "}\n\n";
    }
-@@ -4993,7 +5340,7 @@ namespace mfront {
+@@ -4993,7 +5432,7 @@ namespace mfront {
      this->checkBehaviourFile(os);
      os << "TFEL_HOST_DEVICE std::pair<bool, real>\n"
            "computeAPrioriTimeStepScalingFactor(const real "
@@ -6379,7 +6517,7 @@ index 405523548..2ff75976b 100644
            "const auto time_scaling_factor = "
            "this->computeAPrioriTimeStepScalingFactorII();\n"
            "return {time_scaling_factor.first,\n"
-@@ -5030,7 +5377,7 @@ namespace mfront {
+@@ -5030,7 +5469,7 @@ namespace mfront {
      this->checkBehaviourFile(os);
      os << "TFEL_HOST_DEVICE std::pair<bool, real>\n"
            "computeAPosterioriTimeStepScalingFactor(const real "
@@ -6388,7 +6526,7 @@ index 405523548..2ff75976b 100644
            "const auto time_scaling_factor = "
            "this->computeAPosterioriTimeStepScalingFactorII();\n"
            "return {time_scaling_factor.first,\n"
-@@ -5124,7 +5471,7 @@ namespace mfront {
+@@ -5124,7 +5563,7 @@ namespace mfront {
             << " * \\param[in] mfront_idx: array index relative to " << v1.name
             << "\n"
             << " */\n"
@@ -6397,7 +6535,7 @@ index 405523548..2ff75976b 100644
             << "(const ushort mfront_idx) noexcept {\n";
          if ((v1.getTypeFlag() == SupportedTypes::SCALAR) &&
              (v2.getTypeFlag() == SupportedTypes::SCALAR)) {
-@@ -5158,7 +5505,7 @@ namespace mfront {
+@@ -5158,7 +5597,7 @@ namespace mfront {
             << " * \\param[in] mfront_idx2: array index relative to " << v2.name
             << "\n"
             << " */\n"
@@ -6406,7 +6544,7 @@ index 405523548..2ff75976b 100644
             << "(const ushort mfront_idx, const ushort mfront_idx2) noexcept "
             << "{\n";
          if ((v1.getTypeFlag() == SupportedTypes::SCALAR) &&
-@@ -5301,7 +5648,8 @@ namespace mfront {
+@@ -5301,7 +5740,8 @@ namespace mfront {
               << " = this->" << source << " + this->d" << source << ";\n";
          } else if (md.isStaticVariableName(source)) {
            os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
@@ -6416,7 +6554,7 @@ index 405523548..2ff75976b 100644
          } else {
            os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
               << " = this->" << source << ";\n";
-@@ -5381,7 +5729,8 @@ namespace mfront {
+@@ -5381,7 +5821,8 @@ namespace mfront {
               << " = this->d" << source << ";\n";
          } else if (md.isStaticVariableName(source)) {
            os << "mfront_behaviour_variable_" << b.name << ". " << esv.name
@@ -6426,7 +6564,7 @@ index 405523548..2ff75976b 100644
            os << "mfront_behaviour_variable_" << b.name << ". d" << esv.name
               << " = " << esv.type << "{};\n";
          } else {
-@@ -5677,7 +6026,8 @@ namespace mfront {
+@@ -5677,7 +6118,8 @@ namespace mfront {
      os << "/*!\n"
         << "* \\brief Default constructor\n"
         << "*/\n"

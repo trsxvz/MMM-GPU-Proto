@@ -8602,3 +8602,45 @@ Validation: 6752 targeted TFEL tests and the 17 tests of the conversions,
 compilation sweeps of the concerned laws with nvcc and clang (15 OK, 1
 USER_CODE as before), generic-parallel tests `cuda-nvcc` (-O3),
 compilation with nvc++ (OpenACC, stdpar) and AdaptiveCpp.
+
+### 2026-11-22 (morning), tangent operator computed by a single call in device code (T1)
+
+The integration kernel of the polycrystal law contained one copy of the
+tangent operator of the behaviour per tangent operator handled by the
+kernel: each `computeConsistentTangentOperator_X` generated for an operator
+deduced by conversion called the function of the operator defined by the
+behaviour, and the GPU compilers inline every call. In device code, this
+operator is now computed by a single call in
+`computeConsistentTangentOperator`, the functions of the deduced operators
+only converting it; the prediction operators follow the same scheme
+(`BehaviourCodeGeneratorBase.cxx`, `writeHostAndDeviceCode`). The host code
+is unchanged: the host objects are identical byte for byte (Saint-Venant
+Kirchhoff with the `generic` interface, polycrystal law with the OpenMP
+backend), since computing the operator once on the host would inline it in
+the integration and change the contraction of its operations.
+
+Polycrystal law (`results/series3-night-2026-11-22.md`): outputs identical
+to the bit (GPU and CPU, float and double), run times unchanged; kernel
+instructions -44 % (RTX float) to -77 % (MI300A), compilation of the
+kernel -20 % to -70 %, H100 float spills 112/120 -> 4/4 B, scratch of
+MI300A 7848 -> 6040 B (float) and 11504 -> 8672 B (double). The growth of
+the scratch frame of MI300A caused by #1501 disappears: it came from the
+limit of clang on the number of basic blocks of an inlined function
+(`-amdgpu-inline-max-bb`, 1100), crossed by the 12 inlined copies of the
+tangent operator. T1 also removes a sensitivity of nvcc to code never
+executed: with the conversion graph, the law variant computing its tangent
+with `getPartialJacobianInvert` had a stack of 6056 B instead of 2416 B on
+the RTX 5080 (float 6.77 -> 5.63 ms with T1; in double, T1 costs this
+variant 1.5 %, in the code generated around the Newton loop).
+
+Set aside: a single call of the behaviour in device code whatever the
+stress measure and the gradient (C1: -19 % instructions, H100 stack -30 %)
+changes the last bits of 10 to 12 stresses of 589824 on the GPU for the
+path of mfem-mgis and costs 0.4 % in double on the RTX 5080. The threads
+of a warp leaving the Newton loop at different iterations do not
+reconverge after the loop, so the final conversion of the stress runs
+twice per warp. This lack of reconvergence after the Newton loop is being
+studied separately.
+Validation: 6752 targeted TFEL tests, compilation sweeps (nvcc, clang),
+generic-parallel tests `cuda-nvcc` (-O3), compilation with nvc++ (OpenACC,
+stdpar) and AdaptiveCpp.

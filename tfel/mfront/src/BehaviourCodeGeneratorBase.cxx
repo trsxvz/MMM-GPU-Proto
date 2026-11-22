@@ -5032,6 +5032,11 @@ namespace mfront {
         }
       }
       if (!ktos.empty()) {
+        // operator defined by the user from which each of the other
+        // operators is deduced by conversions, when it is supported
+        auto sources =
+            std::map<FiniteStrainBehaviourTangentOperatorBase::Flag,
+                     FiniteStrainBehaviourTangentOperatorBase::Flag>{};
         for (const auto& t : tos) {
           const auto ktype =
               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
@@ -5088,12 +5093,18 @@ namespace mfront {
                         pc->from());
                 const auto from_type_flag =
                     getFiniteStrainBehaviourTangentOperatorFlagType(pc->from());
+                sources.insert({t, pc->from()});
                 os << "using namespace tfel::math;\n";
-                os << "// computing " << k << '\n';
-                os << "if(this->computePredictionOperator_" << k
-                   << "(smt) != SUCCESS){\n"
-                   << "return FAILURE;\n"
-                   << "}\n";
+                os << "// computing " << k
+                   << ", which `computePredictionOperator` does in device "
+                   << "code\n";
+                this->writeHostAndDeviceCode(
+                    os,
+                    "if(this->computePredictionOperator_" + k +
+                        "(smt) != SUCCESS){\n"
+                        "return FAILURE;\n"
+                        "}",
+                    "static_cast<void>(smt);");
                 // the type of the operator computed by the user is only
                 // checked by the `get` method on the host
                 os << "if(!this->Dt.template is<" << from_type_flag
@@ -5119,17 +5130,50 @@ namespace mfront {
             }
           }
         }
+        // see `writeBehaviourComputeTangentOperator`
         os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
            << "computePredictionOperator(const SMFlag smflag, "
            << "const SMType smt){\n"
            << "using namespace std;\n"
+           << "#ifdef TFEL_DEVICE_CODE\n"
+           << "// operator defined by the behaviour\n"
+           << "switch(smflag){\n";
+        for (const auto& k : ktos) {
+          const auto ktype =
+              convertFiniteStrainBehaviourTangentOperatorFlagToString(k);
+          os << "case " << ktype << ":\n";
+          for (const auto& [t, source] : sources) {
+            if (source == k) {
+              os << "case "
+                 << convertFiniteStrainBehaviourTangentOperatorFlagToString(t)
+                 << ":\n";
+            }
+          }
+          os << "if(this->computePredictionOperator_" << ktype
+             << "(smt) != SUCCESS){\n"
+             << "return FAILURE;\n"
+             << "}\n"
+             << "break;\n";
+        }
+        if (ktos.size() + sources.size() != tos.size()) {
+          // unsupported operators
+          os << "default:\n"
+             << "break;\n";
+        }
+        os << "}\n"
+           << "#endif /* TFEL_DEVICE_CODE */\n"
            << "switch(smflag){\n";
         for (const auto& t : tos) {
           const auto ktype =
               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
-          os << "case " << ktype << ":\n"
-             << "return this->computePredictionOperator_" << ktype
-             << "(smt);\n";
+          const auto call =
+              "return this->computePredictionOperator_" + ktype + "(smt);";
+          os << "case " << ktype << ":\n";
+          if (std::find(ktos.begin(), ktos.end(), t) != ktos.end()) {
+            this->writeHostAndDeviceCode(os, call, "return SUCCESS;");
+          } else {
+            os << call << '\n';
+          }
         }
         os << "}\n";
         this->writeDeviceCompatibleRaise(
@@ -5186,6 +5230,11 @@ namespace mfront {
         }
       }
       if (!ktos.empty()) {
+        // operator defined by the user from which each of the other
+        // operators is deduced by conversions, when it is supported
+        auto sources =
+            std::map<FiniteStrainBehaviourTangentOperatorBase::Flag,
+                     FiniteStrainBehaviourTangentOperatorBase::Flag>{};
         for (const auto& t : tos) {
           const auto ktype =
               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
@@ -5241,12 +5290,18 @@ namespace mfront {
                     getFiniteStrainBehaviourTangentOperatorFlagType(pc->from());
                 os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator_"
                    << ktype << "(const SMType smt){\n";
+                sources.insert({t, pc->from()});
                 os << "using namespace tfel::math;\n";
-                os << "// computing " << k << '\n';
-                os << "if(!this->computeConsistentTangentOperator_" << k
-                   << "(smt)){\n"
-                   << "return false;\n"
-                   << "}\n";
+                os << "// computing " << k
+                   << ", which `computeConsistentTangentOperator` does in "
+                   << "device code\n";
+                this->writeHostAndDeviceCode(
+                    os,
+                    "if(!this->computeConsistentTangentOperator_" + k +
+                        "(smt)){\n"
+                        "return false;\n"
+                        "}",
+                    "static_cast<void>(smt);");
                 // the type of the operator computed by the user is only
                 // checked by the `get` method on the host
                 os << "if(!this->Dt.template is<" << k_type_flag
@@ -5272,16 +5327,53 @@ namespace mfront {
             }
           }
         }
+        // In device code, an operator defined by the user is computed by a
+        // single call whatever the requested operator, and the functions of
+        // the operators deduced from it only convert it: computing it in
+        // each of these functions, as on the host, would duplicate the code
+        // of the user in the kernels of the GPUs, which inline every call.
         os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator(const "
               "SMFlag smflag,const "
               "SMType smt){\n"
+           << "#ifdef TFEL_DEVICE_CODE\n"
+           << "// operator defined by the behaviour\n"
+           << "switch(smflag){\n";
+        for (const auto& k : ktos) {
+          const auto ktype =
+              convertFiniteStrainBehaviourTangentOperatorFlagToString(k);
+          os << "case " << ktype << ":\n";
+          for (const auto& [t, source] : sources) {
+            if (source == k) {
+              os << "case "
+                 << convertFiniteStrainBehaviourTangentOperatorFlagToString(t)
+                 << ":\n";
+            }
+          }
+          os << "if(!this->computeConsistentTangentOperator_" << ktype
+             << "(smt)){\n"
+             << "return false;\n"
+             << "}\n"
+             << "break;\n";
+        }
+        if (ktos.size() + sources.size() != tos.size()) {
+          // unsupported operators
+          os << "default:\n"
+             << "break;\n";
+        }
+        os << "}\n"
+           << "#endif /* TFEL_DEVICE_CODE */\n"
            << "switch(smflag){\n";
         for (const auto& t : tos) {
           const auto ktype =
               convertFiniteStrainBehaviourTangentOperatorFlagToString(t);
-          os << "case " << ktype << ":\n"
-             << "return this->computeConsistentTangentOperator_" << ktype
-             << "(smt);\n";
+          const auto call = "return this->computeConsistentTangentOperator_" +
+                            ktype + "(smt);";
+          os << "case " << ktype << ":\n";
+          if (find(ktos.begin(), ktos.end(), t) != ktos.end()) {
+            this->writeHostAndDeviceCode(os, call, "return true;");
+          } else {
+            os << call << '\n';
+          }
         }
         os << "}\n";
         this->writeDeviceCompatibleRaise(
