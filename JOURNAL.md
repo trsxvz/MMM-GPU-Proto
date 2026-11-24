@@ -8663,3 +8663,128 @@ See `results/analyses-2026-11-22.md`.
   computed from the inverse of the jacobian (L2t1) gives -13 % in float and
   -9.7 % in double on GPU without TDLS.
 Lesson: measure several batch sizes; a single size hid the irregularity.
+
+### 2026-11-24, statistics of the batches signalled once to the host
+
+A review of the blocks of statistics of the synchronous computations
+(`StatisticsBlock`, entry of 20 and 21/11) found two defects in the series
+`78fb1d845`:
+
+- the number of stores to the memory of the host was not bounded: every
+  thread updating the statistics (every warp with CUDA and HIP) stored the
+  flag of the block, in pinned host memory. On the RTX 5080, with every
+  point of a batch of 2^20 points out of its bounds, a call took 622 µs
+  with CUDA against 64 µs with the copies of the official master, and 670
+  to 682 µs against 483 to 496 µs with SYCL, RAJA and Arcane. A block was
+  also reset by a synchronous copy after an event: 14.5 µs per call with
+  one event at 1000 points, against 10.6 µs with the copies;
+- with HIP, the block was allocated by `hipHostAlloc` with the flags
+  `hipHostAllocPortable` and `hipHostAllocMapped`, which HIP only defines
+  since ROCm 6.3 (`hip_runtime_api.h` of the releases 5.7.1 to 6.4.0): the
+  kernels did not compile with ROCm 5.7.1 (checked for gfx90a with the
+  packages of the distribution; the test configurations and the CI use
+  more recent versions of HIP).
+
+The design was rewritten on a local branch (`statistics-locked`, commit
+`2b13a11c6`) and integrated in the series (`834940d61`, patches 0003, 0005,
+0006, 0009 and 0012), for the `cuda`, `hip`, `sycl`, `kokkos`, `raja` and
+`arcane` backends:
+
+- a thread recording an event first reads a flag of the block in device
+  memory, kept 128 bytes away from the statistics, which every event
+  modifies. The first thread which sets it, by an atomic operation, sets
+  the flag read by the host: one store to the memory of the host per
+  call, whatever the number of events. The other threads perform no
+  atomic operation on this flag and do not access the memory of the host.
+  The atomic operation is an exchange with CUDA and HIP, whose kernels
+  combine the events of a warp, and with Kokkos, which performs the
+  additions of `unsigned long long` values by compare-and-swap loops on
+  the CUDA devices. It is an addition with SYCL, RAJA and Arcane: the
+  additions of the threads of a warp of an NVIDIA device are merged in a
+  single atomic operation by its compiler, contrary to the exchanges
+  (10^5 points with an event at every point: 67.5 against 77.9 µs with
+  SYCL, 57.4 against 68.0 µs with RAJA, 60.4 against 64.5 µs with Arcane);
+- an indicator of the block, only accessed by the host, tells if the
+  statistics of the device hold their neutral value. It is cleared before
+  each launch and only set by a call completed without event: after an
+  event, a failure or an exception, the next call resets the statistics
+  by a copy performed before its computations, without additional
+  synchronization with CUDA, HIP, Kokkos and RAJA;
+- the statistics are only copied back if the flag read by the host is
+  set;
+- a SYCL device without host allocations of the unified shared memory
+  cannot set the flag of the host: its statistics are reset and copied at
+  each call;
+- with HIP, the block is allocated by `hipHostMalloc`, which every version
+  of HIP provides.
+
+A call without event still costs its kernel and one synchronization. A
+call with events now costs what the copies of the official master cost,
+whatever the number of events. Microseconds per synchronous call of a
+material property on the RTX 5080 (`results/series4-2026-11-24.md`;
+copies of the official master, reproduced in the headers of the commit /
+series `78fb1d845` / new series):
+
+| backend | no event, 1000 points | one event, 1000 points | every point, 2^20 points |
+|---|---|---|---|
+| `cuda` (nvcc) | 10.3 / 6.2 / 6.2 | 10.6 / 14.5 / 10.9 | 64 / 622 / 64 |
+| `hip` (clang, NVIDIA platform) | 10.2 / 6.0 / 6.0 | 10.6 / 14.4 / 10.7 | 64 / 627 / 64 |
+| `sycl` (AdaptiveCpp) | 23.4 / 10.2 / 9.2 | 23.3 / 23.6 / 20.5 | 496 / 682 / 492 |
+| `kokkos` | 10.9 / 6.7 / 6.6 | 11.7 / 15.6 / 11.8 | not measured |
+| `raja` | 10.7 / 6.5 / 6.4 | 10.8 / 14.7 / 10.8 | 483 / 676 / 483 |
+| `arcane` | 14.2 / 6.5 / 6.5 | 14.3 / 14.6 / 14.5 | 486 / 670 / 486 |
+
+On the other devices available:
+
+- AMD integrated GPU (gfx1036, HIP of ROCm 10.1): 9.6 µs per call without
+  event at 1000 points against 21.7 µs with the copies, 20.4 against
+  22.4 µs with one event, 161 against 173 µs without event at 10^5 points;
+- CPU device of AdaptiveCpp (OpenMP): 5.5 against 10.6 µs without event at
+  1000 points, 259 against 266 µs at 2^20 points;
+- CPU device of DPC++ (OpenCL): 9.2 against 13.5 µs without event at 1000
+  points, but 327 against 274 µs at 2^20 points (302 µs with the series
+  `78fb1d845`). `signalEvents` is not executed without event: the
+  difference comes from the code generated for the loop (272 µs if
+  `signalEvents` only holds a store).
+
+Separate finding, not treated here: on a CUDA device, Kokkos performs the
+atomic operations on `unsigned long long` values, the type of the
+statistics, by compare-and-swap loops (its native operations are defined
+for `uint64_t`). With every point out of its bounds, a call of the
+`kokkos` backend takes 250 µs at 1000 points and 0.53 s at 10^5 points,
+with the copies as with the new series, against 11.7 µs and 57 µs when the
+operations are performed on `std::uint64_t` values.
+
+Validation of the commit, with its own install of TFEL (logs of
+`scratch/stats-locked`): `generic-parallel` test suites of the
+`arcane`, `cuda-clang`, `cuda-nvcc`, `hip-clang-nvidia-platform`,
+`hip-hipcc`, `kokkos`, `openmp-host-gcc`, `raja`, `stlpar-parunseq-gcc`
+and `sycl-default-acpp` configurations, and of 4 other configurations for
+the behaviours and 11 for the material properties; deterministic checks
+of the events, random batches on 8 host threads and failures injected at
+the reset of the block, at the launch, at the synchronization and at the
+copy of the statistics: 0 errors with the six backends (on the RTX 5080,
+the AMD integrated GPU and the CPU devices of SYCL); time step scaling
+factor of the batches of 8 configurations; kernels compiled with HIP for
+gfx90a and gfx942 with ROCm 5.7.1 and ROCm 10.1.
+
+Validation of the series, TFEL being installed from it
+(`results/series4-2026-11-24.md`): installed runtime headers identical to
+the ones of the commit; 6752 targeted TFEL tests; compilation sweeps
+(nvcc, clang); outputs of the polycrystal law bit-identical to the series
+`78fb1d845` on GPU and CPU, in float and double, timings unchanged (5.21 ms
+in float for 2^20 points and 18.9 ms in double for 2^18 points on the RTX
+5080, for both series), static resources of its kernels identical (H100
+sm_90, MI300A gfx942); events and random batches of the harness, 0 errors
+with the six backends, and injected failures run again, 0 errors;
+kernels compiled with HIP of ROCm 5.7.1 and ROCm 10.1 for AMD devices;
+`generic-parallel` tests at -O3: behaviours and material properties of
+`arcane`, `cuda-clang`, `cuda-nvcc`, `hip-clang-nvidia-platform`,
+`hip-hipcc`, `kokkos`, `openmp-host-gcc`, `raja` and `sycl-default-acpp`,
+material properties of 12 other configurations.
+
+Not verified: a discrete AMD GPU connected by PCI Express (the AMD device
+available is an integrated GPU, which shares the memory of the host; the
+kernels for gfx90a and gfx942 are only compiled), Windows, a SYCL device
+without host allocations of the unified shared memory (only emulated by a
+variant of the headers), H100 and MI300A (static resources only).

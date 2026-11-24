@@ -619,26 +619,27 @@ then be in coarse-grained memory, for instance host memory allocated by
 The devices only write in the statistics when an event occurs at a point
 (failure, unreliable result, decrease of the time step scaling factor), by
 atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane`
-backends): the
-reporting of the statistics then costs nothing when the computations
-succeed. The `OpenMP` and `OpenACC` backends and the C++ parallel algorithms
-merge the statistics of the points by a parallel reduction, whose result, a
-few integers, is copied to the host at each call. Without statistics given
-by the calling code, the `CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and
-`Arcane` backends hold the statistics in a block of a pool, as the
-statistics of the material properties, and in a local variable when the
-computations are performed on the host (execution spaces of Kokkos and
-execution policies of RAJA of the host, `Thread` and `Sequential` queues of
-Arcane). A block (see `mfront::generic_parallel::StatisticsBlock`) holds
-the statistics in device memory, where the atomic operations are
-performed, and a flag in pinned host memory, set by the threads updating
-the statistics: once the computations are completed, the statistics are
-only copied to the host if the flag is set, the block being then reset
-before its next use. A call without event thus performs neither copy nor
-additional synchronization. The time step scaling factor of a block is
-only written below the initial value of the call, which is restored when
-the statistics are read. Those blocks are allocated at the first call on a
-device and reused by the following calls (see
+backends): the reporting of the statistics then costs nothing when the
+computations succeed. The `OpenMP` and `OpenACC` backends and the C++
+parallel algorithms merge the statistics of the points by a parallel
+reduction, whose result, a few integers, is copied to the host at each
+call. Without statistics given by the calling code, the `CUDA`, `HIP`,
+`SYCL`, `Kokkos`, `RAJA` and `Arcane` backends hold the statistics in a
+block of a pool, as the statistics of the material properties, and in a
+local variable when the computations are performed on the host (execution
+spaces of Kokkos and execution policies of RAJA of the host, `Thread` and
+`Sequential` queues of Arcane). A block (see
+`mfront::generic_parallel::StatisticsBlock`) holds the statistics in
+device memory, where the atomic operations are performed, and a flag in
+pinned host memory, set by the first thread recording an event, whatever
+the number of events: once the computations are completed, the statistics
+are only copied to the host if the flag is set, and are then reset by the
+next call using the block, by a copy performed before its computations. A
+call without event thus performs neither copy nor additional
+synchronization. The time step scaling factor of a block is only written
+below the initial value of the call, which is restored when the statistics
+are read. Those blocks are allocated at the first call on a device and
+reused by the following calls (see
 `mfront::generic_parallel::StatusBlockPool`).
 
 The stack size of the threads of a GPU is a property of the context of the

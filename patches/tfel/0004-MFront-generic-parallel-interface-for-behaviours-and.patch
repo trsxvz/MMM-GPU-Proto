@@ -1,6 +1,6 @@
-From 5911fccb203fc5f068cb5f6d9eb4a81ed549d6cd Mon Sep 17 00:00:00 2001
+From 2862e211aeace4fe62abf11f4045093e9d2e59c3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 10:53:16 +0100
+Date: Tue, 24 Nov 2026 15:44:49 +0100
 Subject: [PATCH] MFront: generic-parallel interface for behaviours and models
 
 Integration of a behaviour, initialize functions, post-processings,
@@ -14,8 +14,6 @@ being unable to assume that the fields and the arrays don't overlap.
   gathered with constant sizes, material properties at the beginning of
   the time step only gathered for the initialize functions, full arrays
   scattered without test and with incremental addresses.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  mfront/include/CMakeLists.txt                 |   10 +
  .../MFront/BehaviourRotationFunctions.hxx     |  111 ++

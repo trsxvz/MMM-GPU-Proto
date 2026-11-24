@@ -1,6 +1,6 @@
-From af08bf01d724ebfd3cebd233d7e0687bd7f8bcd3 Mon Sep 17 00:00:00 2001
+From 5fb759e05dfce0bbea4886acbdb8dc29e6176911 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 10:53:18 +0100
+Date: Tue, 24 Nov 2026 15:44:51 +0100
 Subject: [PATCH] Tests of the generic-parallel interfaces
 
 Tests of the behaviours and of the models for all the configurations,
@@ -8,8 +8,6 @@ comparison to the generic interface, libraries also containing the
 functions of the generic interface, material property calling another
 material property, successive evaluations, tests of the additional
 backends.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  .../BehaviourVariableTest.mfront              |   34 +
  .../BehaviourVariableTestPlasticity.mfront    |   22 +

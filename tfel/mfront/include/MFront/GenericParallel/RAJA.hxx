@@ -35,6 +35,15 @@ namespace mfront::generic_parallel::raja {
                                        const unsigned long long v) {
         RAJA::atomicMin<RAJA::auto_atomic>(p, v);
       }
+      /*!
+       * \brief set a flag (see `signalEvents`), by an addition: contrary to
+       * the exchanges, the additions of the threads of a warp of an NVIDIA
+       * device are merged in a single atomic operation by its compiler
+       * \return true if the flag was already set
+       */
+      RAJA_HOST_DEVICE static bool testAndSet(unsigned long long* const p) {
+        return RAJA::atomicAdd<RAJA::auto_atomic>(p, 1ull) != 0;
+      }
     };
 
     /*!
@@ -49,9 +58,9 @@ namespace mfront::generic_parallel::raja {
       //! \brief apply the function at the `i`-th point
       RAJA_HOST_DEVICE void operator()(const size_type i) const {
         const auto r = this->f(i);
-        if ((this->statistics != nullptr) &&
-            (updateStatistics<Atomics>(*(this->statistics), r, this->rdt0))) {
-          signalEvents(this->events);
+        if (this->statistics != nullptr) {
+          updateStatistics<Atomics>(*(this->statistics), r, this->rdt0,
+                                    this->signalled, this->events);
         }
       }
       //! \brief function object applied at one point
@@ -61,8 +70,11 @@ namespace mfront::generic_parallel::raja {
        * (see the `hasEvents` method of the handlers of the statistics)
        */
       Statistics* statistics;
-      //! \brief flag set when the statistics are updated (see
-      //! `StatisticsBlock`), or null
+      //! \brief flag set by the threads which signal an event, if the
+      //! statistics are the ones of a block (see `StatisticsBlock`)
+      unsigned long long* signalled;
+      //! \brief flag set by the first thread which signals an event (see
+      //! `signalEvents`), or null
       int* events;
       //! \brief ordered key of the initial time step scaling factor
       unsigned long long rdt0;
@@ -96,15 +108,15 @@ namespace mfront::generic_parallel::raja {
     template <typename Statistics, typename Resource>
     StatisticsBlock<Statistics>* allocateStatisticsBlock(Resource& r) {
       using camp::resources::MemoryAccess;
-      auto* const statistics =
-          r.template allocate<Statistics>(1, MemoryAccess::Device);
+      auto* const device = r.template allocate<DeviceStatistics<Statistics>>(
+          1, MemoryAccess::Device);
       try {
         auto* const block = r.template allocate<StatisticsBlock<Statistics>>(
             1, MemoryAccess::Pinned);
-        return ::new (block)
-            StatisticsBlock<Statistics>{.statistics = statistics, .events = 1};
+        return ::new (block) StatisticsBlock<Statistics>{
+            .device = device, .neutral = false, .events = 0, .statistics = {}};
       } catch (...) {
-        r.deallocate(statistics, MemoryAccess::Device);
+        r.deallocate(device, MemoryAccess::Device);
         throw;
       }
     }  // end of allocateStatisticsBlock
@@ -189,8 +201,8 @@ namespace mfront::generic_parallel::raja {
       // statistics given by the calling code: the result is given by the
       // report function of the library. Without event, the statistics, if
       // any, are not accessed by the kernel, as for the GPU backends
-      RAJA::forall<ExecutionPolicy>(resource, range,
-                                    Update{f, e.statistics, nullptr, rdt0});
+      RAJA::forall<ExecutionPolicy>(
+          resource, range, Update{f, e.statistics, nullptr, nullptr, rdt0});
       if (!p.common_options.asynchronous) {
         resource.wait();
       }
@@ -202,8 +214,8 @@ namespace mfront::generic_parallel::raja {
     auto statistics = Statistics{};
     h.initialize(statistics);
     if constexpr (!isDeviceExecutionPolicy<ExecutionPolicy>) {
-      RAJA::forall<ExecutionPolicy>(resource, range,
-                                    Update{f, &statistics, nullptr, rdt0});
+      RAJA::forall<ExecutionPolicy>(
+          resource, range, Update{f, &statistics, nullptr, nullptr, rdt0});
       resource.wait();
     } else {
       const auto block =
@@ -215,21 +227,26 @@ namespace mfront::generic_parallel::raja {
       if (b == nullptr) {
         return report(s, -7, "unable to allocate the statistics of the batch");
       }
-      if (holdsEvents(*b)) {
-        // synchronous reset, after an event or at the first use
-        const auto neutral = getNeutralStatistics(statistics);
-        resource.memcpy(b->statistics, &neutral, sizeof(Statistics));
-        resource.wait();
-        clearEvents(*b);
+      // reset, after an event or at the first use, by a copy performed
+      // before the computations, whose source is kept until the wait
+      const auto neutral = getNeutralStatistics(statistics);
+      if (!b->neutral) {
+        resource.memcpy(b->device, &neutral, sizeof(neutral));
       }
+      b->neutral = false;
+      b->events = 0;
       RAJA::forall<ExecutionPolicy>(
-          resource, range, Update{f, b->statistics, &(b->events), rdt0});
+          resource, range,
+          Update{f, &(b->device->statistics), &(b->device->signalled),
+                 &(b->events), rdt0});
       resource.wait();
-      if (holdsEvents(*b)) {
-        auto block_statistics = Statistics{};
-        resource.memcpy(&block_statistics, b->statistics, sizeof(Statistics));
+      if (b->events == 0) {
+        b->neutral = true;
+      } else {
+        resource.memcpy(&(b->statistics), &(b->device->statistics),
+                        sizeof(Statistics));
         resource.wait();
-        statistics = mergeBlockStatistics(statistics, block_statistics);
+        statistics = mergeBlockStatistics(statistics, b->statistics);
       }
     }
     return h.report(s, statistics);

@@ -1,14 +1,12 @@
-From 2785c733c2a416d3c8ad0b8807e4788ecd1c5971 Mon Sep 17 00:00:00 2001
+From e7dbb6ff5886ae180fba903ef10d05d9f97ab8f2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 10:53:16 +0100
+Date: Tue, 24 Nov 2026 15:44:50 +0100
 Subject: [PATCH] CMake: configurations of the generic-parallel interfaces
 
 Detection of the compilers and of the libraries of the configurations
 (Kokkos, RAJA, Arccore, nvc++, clang CUDA path), flags of the
 configuration files, components of tfel-check, legacy value of the
 enable-sanitize-options option.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  CMakeLists.txt                                |   2 +
  cmake/modules/sanitizers.cmake                |   9 +

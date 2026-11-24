@@ -1,13 +1,11 @@
-From 78fb1d8454cdc09545feb615a9858d65c99ab0c7 Mon Sep 17 00:00:00 2001
+From 834940d6118db68b9426adb0086da2c26f839322 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 10:53:19 +0100
+Date: Tue, 24 Nov 2026 15:44:52 +0100
 Subject: [PATCH] Documentation of the generic-parallel interfaces
 
 Page of the generic-parallel interface for behaviours, additional
 backends and options of the interface for material properties, keywords
 and options of the DSLs, release notes.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  docs/mfront/CMakeLists.txt                    |    2 +
  docs/mfront/CompareToNumericalJacobian.md     |    6 +-
@@ -44,8 +42,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  docs/web/behaviour-variable.md                |   17 +
  docs/web/documentations.md                    |    1 +
  docs/web/generic-behaviours-interface.md      |  102 +-
- .../generic-parallel-behaviour-interface.md   | 1444 +++++++++++++++++
- ...ic-parallel-material-property-interface.md |  394 ++++-
+ .../generic-parallel-behaviour-interface.md   | 1445 +++++++++++++++++
+ ...ic-parallel-material-property-interface.md |  411 ++++-
  docs/web/initializers.md                      |   10 +-
  docs/web/install.md                           |   13 +
  docs/web/mfront-template.html                 |    2 +
@@ -54,7 +52,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  docs/web/tensors.md                           |    9 +
  docs/web/tfel-config.md                       |   94 +-
  docs/web/tfel-math.md                         |   20 +
- 45 files changed, 4149 insertions(+), 106 deletions(-)
+ 45 files changed, 4161 insertions(+), 112 deletions(-)
  create mode 100644 docs/mfront/LocalVariable.md
  create mode 100644 docs/mfront/SharedData.md
  create mode 100644 docs/web/generic-parallel-behaviour-interface.md
@@ -2123,10 +2121,10 @@ index b135f5240..5b5bc2e88 100644
 +version 5.2 for the writing of behaviours usable with `float`.
 diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
 new file mode 100644
-index 000000000..da00d716f
+index 000000000..e0ec4823c
 --- /dev/null
 +++ b/docs/web/generic-parallel-behaviour-interface.md
-@@ -0,0 +1,1444 @@
+@@ -0,0 +1,1445 @@
 +---
 +title: The `generic-parallel` interface for behaviours
 +lang: en-EN
@@ -2748,26 +2746,27 @@ index 000000000..da00d716f
 +The devices only write in the statistics when an event occurs at a point
 +(failure, unreliable result, decrease of the time step scaling factor), by
 +atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane`
-+backends): the
-+reporting of the statistics then costs nothing when the computations
-+succeed. The `OpenMP` and `OpenACC` backends and the C++ parallel algorithms
-+merge the statistics of the points by a parallel reduction, whose result, a
-+few integers, is copied to the host at each call. Without statistics given
-+by the calling code, the `CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and
-+`Arcane` backends hold the statistics in a block of a pool, as the
-+statistics of the material properties, and in a local variable when the
-+computations are performed on the host (execution spaces of Kokkos and
-+execution policies of RAJA of the host, `Thread` and `Sequential` queues of
-+Arcane). A block (see `mfront::generic_parallel::StatisticsBlock`) holds
-+the statistics in device memory, where the atomic operations are
-+performed, and a flag in pinned host memory, set by the threads updating
-+the statistics: once the computations are completed, the statistics are
-+only copied to the host if the flag is set, the block being then reset
-+before its next use. A call without event thus performs neither copy nor
-+additional synchronization. The time step scaling factor of a block is
-+only written below the initial value of the call, which is restored when
-+the statistics are read. Those blocks are allocated at the first call on a
-+device and reused by the following calls (see
++backends): the reporting of the statistics then costs nothing when the
++computations succeed. The `OpenMP` and `OpenACC` backends and the C++
++parallel algorithms merge the statistics of the points by a parallel
++reduction, whose result, a few integers, is copied to the host at each
++call. Without statistics given by the calling code, the `CUDA`, `HIP`,
++`SYCL`, `Kokkos`, `RAJA` and `Arcane` backends hold the statistics in a
++block of a pool, as the statistics of the material properties, and in a
++local variable when the computations are performed on the host (execution
++spaces of Kokkos and execution policies of RAJA of the host, `Thread` and
++`Sequential` queues of Arcane). A block (see
++`mfront::generic_parallel::StatisticsBlock`) holds the statistics in
++device memory, where the atomic operations are performed, and a flag in
++pinned host memory, set by the first thread recording an event, whatever
++the number of events: once the computations are completed, the statistics
++are only copied to the host if the flag is set, and are then reset by the
++next call using the block, by a copy performed before its computations. A
++call without event thus performs neither copy nor additional
++synchronization. The time step scaling factor of a block is only written
++below the initial value of the call, which is restored when the statistics
++are read. Those blocks are allocated at the first call on a device and
++reused by the following calls (see
 +`mfront::generic_parallel::StatusBlockPool`).
 +
 +The stack size of the threads of a GPU is a property of the context of the
@@ -3572,7 +3571,7 @@ index 000000000..da00d716f
 +policy being copied in the generated code
 +(`check-execution-policies.sh` script, generation of the sources only).
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index 96bea2db8..2cdb65e40 100644
+index 96bea2db8..8160a91e3 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -18,7 +18,12 @@ This page describes the `generic-parallel` interface for material
@@ -3701,29 +3700,38 @@ index 96bea2db8..2cdb65e40 100644
  
  The statistics give the number of points where the evaluation failed, the
  number of points where a bound is violated with the warning policy, and
-@@ -233,11 +256,18 @@ point, whatever the order of the computations, and only the report
+@@ -233,15 +256,21 @@ point, whatever the order of the computations, and only the report
  function of the same library decodes them. A structure of statistics is
  used for one material property and one batch. The kernels compute the
  status of each point and merge it in the statistics only when an event
 -occurs: with integer atomic operations (`CUDA`, `HIP` and `SYCL` backends,
-+occurs: with integer atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos`,
-+`RAJA` and `Arcane` backends,
- the `CUDA` and `HIP` backends first combining the statuses of the points
+-the `CUDA` and `HIP` backends first combining the statuses of the points
 -of a warp), or by a reduction (C++ parallel algorithms). With the atomic
-+of a warp), or by a reduction (C++ parallel algorithms, `OpenMP` and
-+`OpenACC`). With the atomic
- operations, the reporting of the errors costs nothing when the evaluation
+-operations, the reporting of the errors costs nothing when the evaluation
 -succeeds. A reduction combines the statuses of all the points and copies
-+succeeds: without statistics given by the calling code, a thread updating
-+the statistics, in device memory, also sets a flag in pinned host memory,
-+read by the host once the computations are completed. The statistics are
-+only copied to the host if the flag is set, the block being then reset
-+before its next use (see `mfront::generic_parallel::StatisticsBlock`). A
-+reduction combines the statuses of all the points and copies
- its result, a few integers, to the host at each call. The members of the
- statistics have the type `mfront_gp_atomic_size_type`, an alias of
- `unsigned long long`: it is the only 64 bits integer type for which `CUDA`
-@@ -279,7 +309,8 @@ computed:
+-its result, a few integers, to the host at each call. The members of the
+-statistics have the type `mfront_gp_atomic_size_type`, an alias of
+-`unsigned long long`: it is the only 64 bits integer type for which `CUDA`
+-provides the `atomicAdd` and `atomicMin` functions.
++occurs: with integer atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos`,
++`RAJA` and `Arcane` backends, the `CUDA` and `HIP` backends first
++combining the statuses of the points of a warp), or by a reduction (C++
++parallel algorithms, `OpenMP` and `OpenACC`). With the atomic operations,
++the reporting of the errors costs nothing when the evaluation succeeds:
++without statistics given by the calling code, the first thread recording
++an event sets a flag in pinned host memory, read by the host once the
++computations are completed. The statistics, in device memory, are only
++copied to the host if the flag is set, and are then reset by the next call
++using them (see `mfront::generic_parallel::StatisticsBlock`). A reduction
++combines the statuses of all the points and copies its result, a few
++integers, to the host at each call. The members of the statistics have the
++type `mfront_gp_atomic_size_type`, an alias of `unsigned long long`: it is
++the only 64 bits integer type for which `CUDA` provides the `atomicAdd`
++and `atomicMin` functions.
+ 
+ ## Output status
+ 
+@@ -279,7 +308,8 @@ computed:
  - `-7`: runtime error of the backend: allocation, data transfer,
    submission or execution of a kernel, stack size of the threads of the
    device, or exceptions thrown on the host by the runtimes of the backends
@@ -3733,7 +3741,7 @@ index 96bea2db8..2cdb65e40 100644
    exception goes through the
    generated functions: an unexpected exception also gives `-7`.
  
-@@ -317,6 +348,15 @@ written when the evaluation fails. The body of a material property must
+@@ -317,6 +347,15 @@ written when the evaluation fails. The body of a material property must
  thus not throw: with the C++ parallel algorithms, an exception leaving
  the computation of a point terminates the process (`std::terminate`).
  
@@ -3749,7 +3757,7 @@ index 96bea2db8..2cdb65e40 100644
  If the runtime checks are disabled (`disable_runtime_checks` DSL option),
  as with the `generic` interface, the number of arguments, the parameters,
  the bounds and the results are not checked. The checks of the structure
-@@ -325,6 +365,54 @@ policy) remain: they cost little on the host and avoid invalid
+@@ -325,6 +364,54 @@ policy) remain: they cost little on the host and avoid invalid
  memory accesses. The statuses of the points, if requested, are then null,
  and the report function returns `0`.
  
@@ -3804,7 +3812,7 @@ index 96bea2db8..2cdb65e40 100644
  # Backends
  
  Backends are associated with parallel programming models.
-@@ -350,8 +438,11 @@ transfers the fields) and the symbols describing the backend. It holds:
+@@ -350,8 +437,11 @@ transfers the fields) and the symbols describing the backend. It holds:
    each point with the primitive of the backend.
  
  The primitive of a backend, declared in `MFront/GenericParallel/GPU.hxx`
@@ -3818,7 +3826,7 @@ index 96bea2db8..2cdb65e40 100644
  batch, checks the execution policy, combines the statuses of the points
  and reports the statistics (see `MFront/GenericParallel/Batch.hxx`).
  These headers are installed with `TFEL`: the rest of the generated code
-@@ -379,7 +470,9 @@ with the appropriate flags. This file may also contain the options
+@@ -379,7 +469,9 @@ with the appropriate flags. This file may also contain the options
  associated with the `CUDA` backend, see below. Depending on the parallel
  configurations selected during the `cmake` configuration steps, two
  configuration files may be installed: `config-cuda-nvcc.json` and
@@ -3829,7 +3837,7 @@ index 96bea2db8..2cdb65e40 100644
  
  The following code shows how to call the function
  `UO2_ShearModulus_generic_parallel`. In this example, the porosity is
-@@ -433,12 +526,18 @@ compiler to build the source code generated by the `CUDA` backend
+@@ -433,12 +525,18 @@ compiler to build the source code generated by the `CUDA` backend
  compilation_options : {
    cuda : {
      compiler: "/usr/local/cuda-12.8/bin/nvcc",
@@ -3850,7 +3858,7 @@ index 96bea2db8..2cdb65e40 100644
  #### Example of configuration file for `clang++`
  
  The following configuration file exemplifies how to use the `clang++`
-@@ -478,7 +577,14 @@ and \(256\).
+@@ -478,7 +576,14 @@ and \(256\).
  The function object evaluating the material property at the points of a
  batch, which holds the pointers to the arguments and to the output and
  their strides, is passed by value to the kernel, as a kernel parameter,
@@ -3866,7 +3874,7 @@ index 96bea2db8..2cdb65e40 100644
  
  If the material property exposes parameters, those are stored in a global
  variable on the host (the CPU). For efficiency, the values of the
-@@ -495,17 +601,26 @@ computes the status of its point. The statuses of the points of a warp are
+@@ -495,17 +600,32 @@ computes the status of its point. The statuses of the points of a warp are
  combined, and the statistics are only accessed, with integer atomic
  operations, if an event occurs in the warp, minimizing the cost of error
  handling. Without statistics given by the calling code, the statistics are
@@ -3886,24 +3894,30 @@ index 96bea2db8..2cdb65e40 100644
 +allocated per call. Each generated function has its own pool. A block (see
 +`mfront::generic_parallel::StatisticsBlock`) holds the statistics in
 +device memory, where the atomic operations are performed, and a flag in
-+pinned host memory, set by the threads updating the statistics. Between
-+two calls, the statistics of a block hold their neutral value unless the
-+flag is set. Once the computations are completed, the host reads the
-+flag: without event, which is the usual case, the result is given without
-+copy nor additional synchronization. Otherwise, the statistics are copied
-+to the host, and the block is reset by a synchronous copy before its next
-+use. The host never accesses the statistics while kernels run, and the
-+atomic operations are never performed on host memory: the PCI Express bus
-+only provides the atomic addition, exchange and compare-and-swap
-+operations, the other ones not being performed on the AMD GPUs connected
-+by PCI Express without page migration (XNACK). The `HIP` and `SYCL`
-+backends handle the errors in the same way, the `SYCL` backend updating
-+the statistics point by point. Those blocks are never freed. The C++
-+parallel algorithms merge the statuses of the points by a reduction.
++pinned host memory. Between two calls, the statistics of a block hold
++their neutral value. A thread recording an event first reads a second
++flag of the block, in device memory: the first thread which sets it also
++sets the flag of the host, which is the only store to the memory of the
++host of a call, whatever the number of events. Once the computations are
++completed, the host reads its flag: without event, which is the usual
++case, the result is given without copy nor additional synchronization.
++Otherwise, the statistics are copied to the host, and the next call using
++the block resets it by a copy performed before its computations, as after
++a call which failed. The host never accesses the statistics while kernels
++run, and the atomic operations are never performed on host memory: the PCI
++Express bus only provides the atomic addition, exchange and
++compare-and-swap operations, the other ones not being performed on the AMD
++GPUs connected by PCI Express without page migration (XNACK). The `HIP`
++and `SYCL` backends handle the errors in the same way, the `SYCL` backend
++updating the statistics point by point. A `SYCL` device which does not
++support the host allocations of the unified shared memory can't set the
++flag: the statistics are then reset and copied to the host at each call.
++Those blocks are never freed. The C++ parallel algorithms merge the
++statuses of the points by a reduction.
  
  Before launching a kernel, the stack size of the threads is increased if
  the kernel requires it (see the `preserve_stack_size` option of the
-@@ -605,7 +720,12 @@ linking_options : {
+@@ -605,7 +725,12 @@ linking_options : {
  ~~~~
  
  The library is marked as never unloaded (`-Wl,-z,nodelete`): unloading
@@ -3917,7 +3931,7 @@ index 96bea2db8..2cdb65e40 100644
  
  #### Example of configuration file for `nvc++`
  
-@@ -616,22 +736,27 @@ execute the computation of the material property on the device:
+@@ -616,22 +741,27 @@ execute the computation of the material property on the device:
  ~~~~{.json}
  interfaces_options: {
    generic-parallel: {
@@ -3949,7 +3963,7 @@ index 96bea2db8..2cdb65e40 100644
  
  ### Options
  
-@@ -643,7 +768,8 @@ Two options are available:
+@@ -643,7 +773,8 @@ Two options are available:
    - `parallel_policy` (or `par`)
    - `parallel_unsequenced_policy` (or `par_unseq`, default)
  - `device_stack_size`: minimal stack size, in bytes, of the threads of the
@@ -3959,7 +3973,7 @@ index 96bea2db8..2cdb65e40 100644
  
  The exact meaning of those policies are implementations defined and may
  depend on compiler flags used. See [this
-@@ -732,7 +858,8 @@ This backend has two options:
+@@ -732,7 +863,8 @@ This backend has two options:
  
  - `data_transfer_policy` (see below);
  - `device_stack_size`: minimal stack size, in bytes, of the threads of an
@@ -3969,7 +3983,7 @@ index 96bea2db8..2cdb65e40 100644
  
  #### Data transfer policy
  
-@@ -747,12 +874,13 @@ available:
+@@ -747,12 +879,13 @@ available:
    both directions, so that the values between two values of a strided
    output are kept. The output, the statuses and the statistics are copied
    back once the kernel is completed: the evaluation is then synchronous
@@ -3986,7 +4000,7 @@ index 96bea2db8..2cdb65e40 100644
  throws them, as the handlers of most calling codes do.
  
  > **Providing data on the device**
-@@ -765,6 +893,141 @@ throws them, as the handlers of most calling codes do.
+@@ -765,6 +898,141 @@ throws them, as the handlers of most calling codes do.
  > another queue, the user is responsible for ensuring that the data are
  > effectively copied before calling `MFront`'s generated functions.
  
@@ -4128,7 +4142,7 @@ index 96bea2db8..2cdb65e40 100644
  # Tests
  
  Unlike other material property interfaces, the tests for the
-@@ -779,7 +1042,8 @@ named `generic-parallel-configurations` when invoking `cmake` as follows:
+@@ -779,7 +1047,8 @@ named `generic-parallel-configurations` when invoking `cmake` as follows:
  cmake -Dgeneric-parallel-configurations="cuda-nvcc;cuda-clang"
  ~~~~
  
@@ -4138,7 +4152,7 @@ index 96bea2db8..2cdb65e40 100644
  
  Each configuration runs:
  
-@@ -802,11 +1066,17 @@ Each configuration runs:
+@@ -802,11 +1071,17 @@ Each configuration runs:
    configuration. The values are compared exactly when the computations
    are performed on the host by a compiler which neither contracts nor
    reorders the floating point operations by default (`g++`, `clang++`,
@@ -4158,7 +4172,7 @@ index 96bea2db8..2cdb65e40 100644
  
  The following tests configurations are currently supported:
  
-@@ -829,6 +1099,22 @@ The following tests configurations are currently supported:
+@@ -829,6 +1104,22 @@ The following tests configurations are currently supported:
    compiler on the CPU.
  - `sycl-gpu-acpp`: compilation of `SYCL` files using the `acpp`
    compiler on the GPU using the `generic` target.

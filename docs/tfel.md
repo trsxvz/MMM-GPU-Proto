@@ -420,13 +420,25 @@ allocated at the first call and then reused
 (`MFront/GenericParallel/StatusBlockPool.hxx`). A block
 (`StatisticsBlock`, `MFront/GenericParallel/Batch.hxx`) holds the
 statistics in device memory, where the atomic operations are performed,
-and a flag in pinned host memory, set by a plain store by the threads
-which update the statistics. After the synchronisation, the host reads the
-flag: without an event, the result is given without any copy nor
-additional synchronisation. After an event, the statistics are copied to
-the host, and the block is reset by a synchronous copy before its next
-use; a block is also reset at its first use. The invariant is: flag not
-set, statistics neutral and no transfer of the block in progress. The
+and a flag in pinned host memory. A thread recording an event first reads
+a second flag, in device memory and away from the cache lines of the
+statistics: the first thread which sets it, by an atomic operation (an
+exchange with `cuda`, `hip` and `kokkos`, an addition with `sycl`, `raja`
+and `arcane`), also sets the flag of the host. A call thus performs at
+most one store to the memory of the host, whatever the number of events.
+After the synchronisation, the host reads its flag: without an event, the
+result is given without any copy nor additional synchronisation. After an
+event, the statistics are copied to the host, and the next call using the
+block resets them by a copy performed before its computations. The host
+keeps in the block whether the statistics of the device hold their
+neutral value: this indicator, never accessed by the device, is cleared
+before each launch and only set by a call completed without event, so
+that a block is also reset at its first use and after a call which
+failed. A SYCL device without host allocations of the unified shared
+memory cannot set the flag of the host: its statistics are reset and
+copied at each call. With HIP, the block is allocated by `hipHostMalloc`,
+which every version of HIP provides (the flags of `hipHostAlloc` only
+exist since ROCm 6.3). The
 atomic operations are never performed on host memory: the PCI Express bus
 only provides the atomic addition, exchange and compare-and-swap
 operations, the other ones being silently not performed on the AMD GPUs
@@ -446,7 +458,13 @@ call with the flag at 1000 points, against 29.0 µs with managed memory
 (former prototype) and 32.6 µs with the copies of the master of TFEL;
 437 µs against 447 and 441 µs at 100,000 points. Earlier measurement, on an
 elastic behaviour and 1000 points: the synchronous CUDA call went from 135
-to 29 µs when the statistics stopped being allocated at each call.
+to 29 µs when the statistics stopped being allocated at each call. With
+events (material property, synchronous CUDA call, 24/11,
+`results/series4-2026-11-24.md`, the copies of the master of TFEL being
+reproduced in the headers of the series): at 1000 points, 6.2 µs per call
+without event against 10.3 µs with the copies, and 10.9 µs against 10.6 µs
+with one event; with an event at every point of 2^20 points, 64 µs with
+the flag as with the copies.
 
 ### Synchronous and asynchronous
 

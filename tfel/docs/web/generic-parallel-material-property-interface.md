@@ -257,21 +257,20 @@ function of the same library decodes them. A structure of statistics is
 used for one material property and one batch. The kernels compute the
 status of each point and merge it in the statistics only when an event
 occurs: with integer atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos`,
-`RAJA` and `Arcane` backends,
-the `CUDA` and `HIP` backends first combining the statuses of the points
-of a warp), or by a reduction (C++ parallel algorithms, `OpenMP` and
-`OpenACC`). With the atomic
-operations, the reporting of the errors costs nothing when the evaluation
-succeeds: without statistics given by the calling code, a thread updating
-the statistics, in device memory, also sets a flag in pinned host memory,
-read by the host once the computations are completed. The statistics are
-only copied to the host if the flag is set, the block being then reset
-before its next use (see `mfront::generic_parallel::StatisticsBlock`). A
-reduction combines the statuses of all the points and copies
-its result, a few integers, to the host at each call. The members of the
-statistics have the type `mfront_gp_atomic_size_type`, an alias of
-`unsigned long long`: it is the only 64 bits integer type for which `CUDA`
-provides the `atomicAdd` and `atomicMin` functions.
+`RAJA` and `Arcane` backends, the `CUDA` and `HIP` backends first
+combining the statuses of the points of a warp), or by a reduction (C++
+parallel algorithms, `OpenMP` and `OpenACC`). With the atomic operations,
+the reporting of the errors costs nothing when the evaluation succeeds:
+without statistics given by the calling code, the first thread recording
+an event sets a flag in pinned host memory, read by the host once the
+computations are completed. The statistics, in device memory, are only
+copied to the host if the flag is set, and are then reset by the next call
+using them (see `mfront::generic_parallel::StatisticsBlock`). A reduction
+combines the statuses of all the points and copies its result, a few
+integers, to the host at each call. The members of the statistics have the
+type `mfront_gp_atomic_size_type`, an alias of `unsigned long long`: it is
+the only 64 bits integer type for which `CUDA` provides the `atomicAdd`
+and `atomicMin` functions.
 
 ## Output status
 
@@ -607,20 +606,26 @@ a device and reused by the following calls (see
 allocated per call. Each generated function has its own pool. A block (see
 `mfront::generic_parallel::StatisticsBlock`) holds the statistics in
 device memory, where the atomic operations are performed, and a flag in
-pinned host memory, set by the threads updating the statistics. Between
-two calls, the statistics of a block hold their neutral value unless the
-flag is set. Once the computations are completed, the host reads the
-flag: without event, which is the usual case, the result is given without
-copy nor additional synchronization. Otherwise, the statistics are copied
-to the host, and the block is reset by a synchronous copy before its next
-use. The host never accesses the statistics while kernels run, and the
-atomic operations are never performed on host memory: the PCI Express bus
-only provides the atomic addition, exchange and compare-and-swap
-operations, the other ones not being performed on the AMD GPUs connected
-by PCI Express without page migration (XNACK). The `HIP` and `SYCL`
-backends handle the errors in the same way, the `SYCL` backend updating
-the statistics point by point. Those blocks are never freed. The C++
-parallel algorithms merge the statuses of the points by a reduction.
+pinned host memory. Between two calls, the statistics of a block hold
+their neutral value. A thread recording an event first reads a second
+flag of the block, in device memory: the first thread which sets it also
+sets the flag of the host, which is the only store to the memory of the
+host of a call, whatever the number of events. Once the computations are
+completed, the host reads its flag: without event, which is the usual
+case, the result is given without copy nor additional synchronization.
+Otherwise, the statistics are copied to the host, and the next call using
+the block resets it by a copy performed before its computations, as after
+a call which failed. The host never accesses the statistics while kernels
+run, and the atomic operations are never performed on host memory: the PCI
+Express bus only provides the atomic addition, exchange and
+compare-and-swap operations, the other ones not being performed on the AMD
+GPUs connected by PCI Express without page migration (XNACK). The `HIP`
+and `SYCL` backends handle the errors in the same way, the `SYCL` backend
+updating the statistics point by point. A `SYCL` device which does not
+support the host allocations of the unified shared memory can't set the
+flag: the statistics are then reset and copied to the host at each call.
+Those blocks are never freed. The C++ parallel algorithms merge the
+statuses of the points by a reduction.
 
 Before launching a kernel, the stack size of the threads is increased if
 the kernel requires it (see the `preserve_stack_size` option of the

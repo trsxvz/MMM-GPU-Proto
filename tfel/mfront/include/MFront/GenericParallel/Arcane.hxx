@@ -38,6 +38,17 @@ namespace mfront::generic_parallel::arcane {
         using ::Arcane::Accelerator::eAtomicOperation;
         ::Arcane::Accelerator::doAtomic<eAtomicOperation::Min>(p, v);
       }
+      /*!
+       * \brief set a flag (see `signalEvents`), by an addition: contrary to
+       * the exchanges, the additions of the threads of a warp of an NVIDIA
+       * device are merged in a single atomic operation by its compiler
+       * \return true if the flag was already set
+       */
+      ARCCORE_HOST_DEVICE static bool testAndSet(unsigned long long* const p) {
+        using ::Arcane::Accelerator::eAtomicOperation;
+        return ::Arcane::Accelerator::doAtomic<eAtomicOperation::Add>(
+                   p, 1ull) != 0;
+      }
     };
 
     /*!
@@ -52,9 +63,9 @@ namespace mfront::generic_parallel::arcane {
       //! \brief apply the function at the `i`-th point
       ARCCORE_HOST_DEVICE void operator()(const size_type i) const {
         const auto r = this->f(i);
-        if ((this->statistics != nullptr) &&
-            (updateStatistics<Atomics>(*(this->statistics), r, this->rdt0))) {
-          signalEvents(this->events);
+        if (this->statistics != nullptr) {
+          updateStatistics<Atomics>(*(this->statistics), r, this->rdt0,
+                                    this->signalled, this->events);
         }
       }
       //! \brief function object applied at one point
@@ -64,8 +75,11 @@ namespace mfront::generic_parallel::arcane {
        * (see the `hasEvents` method of the handlers of the statistics)
        */
       Statistics* statistics;
-      //! \brief flag set when the statistics are updated (see
-      //! `StatisticsBlock`), or null
+      //! \brief flag set by the threads which signal an event, if the
+      //! statistics are the ones of a block (see `StatisticsBlock`)
+      unsigned long long* signalled;
+      //! \brief flag set by the first thread which signals an event (see
+      //! `signalEvents`), or null
       int* events;
       //! \brief ordered key of the initial time step scaling factor
       unsigned long long rdt0;
@@ -81,8 +95,9 @@ namespace mfront::generic_parallel::arcane {
      */
     template <typename Statistics>
     StatisticsBlock<Statistics>* allocateStatisticsBlock() {
-      auto* const statistics = allocate<Statistics>(getDeviceMemoryAllocator());
-      if (statistics == nullptr) {
+      auto* const device =
+          allocate<DeviceStatistics<Statistics>>(getDeviceMemoryAllocator());
+      if (device == nullptr) {
         return nullptr;
       }
       auto* const block =
@@ -90,8 +105,8 @@ namespace mfront::generic_parallel::arcane {
       if (block == nullptr) {
         return nullptr;
       }
-      return ::new (block)
-          StatisticsBlock<Statistics>{.statistics = statistics, .events = 1};
+      return ::new (block) StatisticsBlock<Statistics>{
+          .device = device, .neutral = false, .events = 0, .statistics = {}};
     }  // end of allocateStatisticsBlock
 
     /*!
@@ -197,7 +212,7 @@ namespace mfront::generic_parallel::arcane {
       // statistics given by the calling code: the result is given by the
       // report function of the library. Without event, the statistics, if
       // any, are not accessed by the kernel, as for the GPU backends
-      launch(queue, n, Update{f, e.statistics, nullptr, rdt0});
+      launch(queue, n, Update{f, e.statistics, nullptr, nullptr, rdt0});
       if (!p.common_options.asynchronous) {
         queue.barrier();
       }
@@ -209,7 +224,7 @@ namespace mfront::generic_parallel::arcane {
     auto statistics = Statistics{};
     h.initialize(statistics);
     if (!queue.isAcceleratorPolicy()) {
-      launch(queue, n, Update{f, &statistics, nullptr, rdt0});
+      launch(queue, n, Update{f, &statistics, nullptr, nullptr, rdt0});
       queue.barrier();
       return h.report(s, statistics);
     }
@@ -222,21 +237,26 @@ namespace mfront::generic_parallel::arcane {
     }
     // the copies of Arccore are synchronous
     using ::Arcane::Accelerator::MemoryCopyArgs;
-    constexpr auto size = static_cast<::Arcane::Int64>(sizeof(Statistics));
-    if (holdsEvents(*b)) {
+    if (!b->neutral) {
       // reset, after an event or at the first use
       const auto neutral = getNeutralStatistics(statistics);
-      queue.copyMemory(MemoryCopyArgs(b->statistics, &neutral, size));
-      clearEvents(*b);
+      queue.copyMemory(MemoryCopyArgs(
+          b->device, &neutral, static_cast<::Arcane::Int64>(sizeof(neutral))));
     }
-    launch(queue, n, Update{f, b->statistics, &(b->events), rdt0});
+    b->neutral = false;
+    b->events = 0;
+    launch(queue, n,
+           Update{f, &(b->device->statistics), &(b->device->signalled),
+                  &(b->events), rdt0});
     queue.barrier();
-    if (!holdsEvents(*b)) {
+    if (b->events == 0) {
+      b->neutral = true;
       return h.report(s, statistics);
     }
-    auto block_statistics = Statistics{};
-    queue.copyMemory(MemoryCopyArgs(&block_statistics, b->statistics, size));
-    return h.report(s, mergeBlockStatistics(statistics, block_statistics));
+    queue.copyMemory(
+        MemoryCopyArgs(&(b->statistics), &(b->device->statistics),
+                       static_cast<::Arcane::Int64>(sizeof(Statistics))));
+    return h.report(s, mergeBlockStatistics(statistics, b->statistics));
   }  // end of apply
 
   /*!

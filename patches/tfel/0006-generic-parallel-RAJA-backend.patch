@@ -1,26 +1,24 @@
-From 6c90f6435785c34b3ceb305ee71961ace9542143 Mon Sep 17 00:00:00 2001
+From 33f7d5981c7afabbdc92b583b7b9b7b989b79b29 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 10:53:16 +0100
+Date: Tue, 24 Nov 2026 15:44:49 +0100
 Subject: [PATCH] generic-parallel: RAJA backend
 
 RAJA::forall with the execution policy given by the execution_policy
 option, on a resource of camp, statistics in device memory, function object
 not copied in the stack of each thread (configurations raja and
 raja-host).
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  .../configuration-files/config-raja-host.json |  20 ++
  mfront/configuration-files/config-raja.json   |  20 ++
  mfront/include/CMakeLists.txt                 |   6 +
- .../include/MFront/GenericParallel/RAJA.hxx   | 253 ++++++++++++++++++
+ .../include/MFront/GenericParallel/RAJA.hxx   | 270 ++++++++++++++++++
  .../MFront/GenericParallel/RAJABackend.hxx    |  70 +++++
  .../RAJABackendExecutionPolicy.hxx            | 104 +++++++
- .../GenericParallel/RAJAExecutionPolicy.hxx   | 185 +++++++++++++
+ .../GenericParallel/RAJAExecutionPolicy.hxx   | 185 ++++++++++++
  .../MFront/GenericParallelBehaviour/RAJA.hxx  |  70 +++++
  mfront/src/CMakeLists.txt                     |   1 +
  mfront/src/GenericParallel/RAJABackend.cxx    |  67 +++++
- 10 files changed, 796 insertions(+)
+ 10 files changed, 813 insertions(+)
  create mode 100644 mfront/configuration-files/config-raja-host.json
  create mode 100644 mfront/configuration-files/config-raja.json
  create mode 100644 mfront/include/MFront/GenericParallel/RAJA.hxx
@@ -101,10 +99,10 @@ index 73b81a09a..9e7aaa7cf 100644
  install_mfront_header(MFront GenericModelInterface.hxx)
 diff --git a/mfront/include/MFront/GenericParallel/RAJA.hxx b/mfront/include/MFront/GenericParallel/RAJA.hxx
 new file mode 100644
-index 000000000..80a3bef95
+index 000000000..d49ea5796
 --- /dev/null
 +++ b/mfront/include/MFront/GenericParallel/RAJA.hxx
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,270 @@
 +/*!
 + * \file   mfront/include/MFront/GenericParallel/RAJA.hxx
 + * \brief  This file declares the primitive of the `raja` backend of the
@@ -142,6 +140,15 @@ index 000000000..80a3bef95
 +                                       const unsigned long long v) {
 +        RAJA::atomicMin<RAJA::auto_atomic>(p, v);
 +      }
++      /*!
++       * \brief set a flag (see `signalEvents`), by an addition: contrary to
++       * the exchanges, the additions of the threads of a warp of an NVIDIA
++       * device are merged in a single atomic operation by its compiler
++       * \return true if the flag was already set
++       */
++      RAJA_HOST_DEVICE static bool testAndSet(unsigned long long* const p) {
++        return RAJA::atomicAdd<RAJA::auto_atomic>(p, 1ull) != 0;
++      }
 +    };
 +
 +    /*!
@@ -156,9 +163,9 @@ index 000000000..80a3bef95
 +      //! \brief apply the function at the `i`-th point
 +      RAJA_HOST_DEVICE void operator()(const size_type i) const {
 +        const auto r = this->f(i);
-+        if ((this->statistics != nullptr) &&
-+            (updateStatistics<Atomics>(*(this->statistics), r, this->rdt0))) {
-+          signalEvents(this->events);
++        if (this->statistics != nullptr) {
++          updateStatistics<Atomics>(*(this->statistics), r, this->rdt0,
++                                    this->signalled, this->events);
 +        }
 +      }
 +      //! \brief function object applied at one point
@@ -168,8 +175,11 @@ index 000000000..80a3bef95
 +       * (see the `hasEvents` method of the handlers of the statistics)
 +       */
 +      Statistics* statistics;
-+      //! \brief flag set when the statistics are updated (see
-+      //! `StatisticsBlock`), or null
++      //! \brief flag set by the threads which signal an event, if the
++      //! statistics are the ones of a block (see `StatisticsBlock`)
++      unsigned long long* signalled;
++      //! \brief flag set by the first thread which signals an event (see
++      //! `signalEvents`), or null
 +      int* events;
 +      //! \brief ordered key of the initial time step scaling factor
 +      unsigned long long rdt0;
@@ -203,15 +213,15 @@ index 000000000..80a3bef95
 +    template <typename Statistics, typename Resource>
 +    StatisticsBlock<Statistics>* allocateStatisticsBlock(Resource& r) {
 +      using camp::resources::MemoryAccess;
-+      auto* const statistics =
-+          r.template allocate<Statistics>(1, MemoryAccess::Device);
++      auto* const device = r.template allocate<DeviceStatistics<Statistics>>(
++          1, MemoryAccess::Device);
 +      try {
 +        auto* const block = r.template allocate<StatisticsBlock<Statistics>>(
 +            1, MemoryAccess::Pinned);
-+        return ::new (block)
-+            StatisticsBlock<Statistics>{.statistics = statistics, .events = 1};
++        return ::new (block) StatisticsBlock<Statistics>{
++            .device = device, .neutral = false, .events = 0, .statistics = {}};
 +      } catch (...) {
-+        r.deallocate(statistics, MemoryAccess::Device);
++        r.deallocate(device, MemoryAccess::Device);
 +        throw;
 +      }
 +    }  // end of allocateStatisticsBlock
@@ -296,8 +306,8 @@ index 000000000..80a3bef95
 +      // statistics given by the calling code: the result is given by the
 +      // report function of the library. Without event, the statistics, if
 +      // any, are not accessed by the kernel, as for the GPU backends
-+      RAJA::forall<ExecutionPolicy>(resource, range,
-+                                    Update{f, e.statistics, nullptr, rdt0});
++      RAJA::forall<ExecutionPolicy>(
++          resource, range, Update{f, e.statistics, nullptr, nullptr, rdt0});
 +      if (!p.common_options.asynchronous) {
 +        resource.wait();
 +      }
@@ -309,8 +319,8 @@ index 000000000..80a3bef95
 +    auto statistics = Statistics{};
 +    h.initialize(statistics);
 +    if constexpr (!isDeviceExecutionPolicy<ExecutionPolicy>) {
-+      RAJA::forall<ExecutionPolicy>(resource, range,
-+                                    Update{f, &statistics, nullptr, rdt0});
++      RAJA::forall<ExecutionPolicy>(
++          resource, range, Update{f, &statistics, nullptr, nullptr, rdt0});
 +      resource.wait();
 +    } else {
 +      const auto block =
@@ -322,21 +332,26 @@ index 000000000..80a3bef95
 +      if (b == nullptr) {
 +        return report(s, -7, "unable to allocate the statistics of the batch");
 +      }
-+      if (holdsEvents(*b)) {
-+        // synchronous reset, after an event or at the first use
-+        const auto neutral = getNeutralStatistics(statistics);
-+        resource.memcpy(b->statistics, &neutral, sizeof(Statistics));
-+        resource.wait();
-+        clearEvents(*b);
++      // reset, after an event or at the first use, by a copy performed
++      // before the computations, whose source is kept until the wait
++      const auto neutral = getNeutralStatistics(statistics);
++      if (!b->neutral) {
++        resource.memcpy(b->device, &neutral, sizeof(neutral));
 +      }
++      b->neutral = false;
++      b->events = 0;
 +      RAJA::forall<ExecutionPolicy>(
-+          resource, range, Update{f, b->statistics, &(b->events), rdt0});
++          resource, range,
++          Update{f, &(b->device->statistics), &(b->device->signalled),
++                 &(b->events), rdt0});
 +      resource.wait();
-+      if (holdsEvents(*b)) {
-+        auto block_statistics = Statistics{};
-+        resource.memcpy(&block_statistics, b->statistics, sizeof(Statistics));
++      if (b->events == 0) {
++        b->neutral = true;
++      } else {
++        resource.memcpy(&(b->statistics), &(b->device->statistics),
++                        sizeof(Statistics));
 +        resource.wait();
-+        statistics = mergeBlockStatistics(statistics, block_statistics);
++        statistics = mergeBlockStatistics(statistics, b->statistics);
 +      }
 +    }
 +    return h.report(s, statistics);

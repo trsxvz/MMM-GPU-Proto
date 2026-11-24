@@ -1,13 +1,11 @@
-From 2ae301e63dde0c1dd6369dff322a7e4b011f3be7 Mon Sep 17 00:00:00 2001
+From 500659c1cf0eca7eb0105ef5b1d1c95093420783 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 10:53:16 +0100
+Date: Tue, 24 Nov 2026 15:44:49 +0100
 Subject: [PATCH] generic-parallel: OpenMP backend
 
 target teams distribute parallel for construct (offload option) or
 threads of the host (configurations openmp-offload-nvhpc-gpu and
 openmp-host-gcc).
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  .../config-openmp-host-gcc.json               |  17 ++
  .../config-openmp-offload-nvhpc-gpu.json      |  21 +++

@@ -1,6 +1,6 @@
-From 201154cdb439220c759363868ee8d2d299ccc0d6 Mon Sep 17 00:00:00 2001
+From e3b310af9cfd9249ebd835783b5d9464f35ddf16 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 10:53:15 +0100
+Date: Tue, 24 Nov 2026 15:44:49 +0100
 Subject: [PATCH] MFront: generated code compatible with device code, numerical
  type of the generic interfaces
 
@@ -40,8 +40,6 @@ Subject: [PATCH] MFront: generated code compatible with device code, numerical
   substitution (thelfer/tfel#1493); rows of the blocks of the tensorial
   integration variables in computePartialJacobianInvert
   (thelfer/tfel#1495).
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  mfront-query/tests/CMakeLists.txt             |   22 +-
  ...geingburger-convergence-criteria-float.ref |    2 +

@@ -35,6 +35,16 @@ namespace mfront::generic_parallel::kokkos {
                                       const unsigned long long v) {
         Kokkos::atomic_min(p, v);
       }
+      /*!
+       * \brief set a flag (see `signalEvents`), by an exchange: on the CUDA
+       * devices, Kokkos performs the additions of `unsigned long long`
+       * values by compare-and-swap loops, which the threads signalling the
+       * first events would repeat
+       * \return true if the flag was already set
+       */
+      KOKKOS_FUNCTION static bool testAndSet(unsigned long long* const p) {
+        return Kokkos::atomic_exchange(p, 1ull) != 0;
+      }
     };
 
     /*!
@@ -49,9 +59,9 @@ namespace mfront::generic_parallel::kokkos {
       //! \brief apply the function at the `i`-th point
       KOKKOS_FUNCTION void operator()(const size_type i) const {
         const auto r = this->f(i);
-        if ((this->statistics != nullptr) &&
-            (updateStatistics<Atomics>(*(this->statistics), r, this->rdt0))) {
-          signalEvents(this->events);
+        if (this->statistics != nullptr) {
+          updateStatistics<Atomics>(*(this->statistics), r, this->rdt0,
+                                    this->signalled, this->events);
         }
       }
       //! \brief function object applied at one point
@@ -61,8 +71,11 @@ namespace mfront::generic_parallel::kokkos {
        * (see the `hasEvents` method of the handlers of the statistics)
        */
       Statistics* statistics;
-      //! \brief flag set when the statistics are updated (see
-      //! `StatisticsBlock`), or null
+      //! \brief flag set by the threads which signal an event, if the
+      //! statistics are the ones of a block (see `StatisticsBlock`)
+      unsigned long long* signalled;
+      //! \brief flag set by the first thread which signals an event (see
+      //! `signalEvents`), or null
       int* events;
       //! \brief ordered key of the initial time step scaling factor
       unsigned long long rdt0;
@@ -79,20 +92,20 @@ namespace mfront::generic_parallel::kokkos {
      */
     template <typename Statistics, typename MemorySpace>
     StatisticsBlock<Statistics>* allocateStatisticsBlock() {
-      auto* const statistics =
-          static_cast<Statistics*>(Kokkos::kokkos_malloc<MemorySpace>(
-              "mfront::generic_parallel::kokkos::statistics",
-              sizeof(Statistics)));
+      using Device = DeviceStatistics<Statistics>;
+      auto* const device =
+          static_cast<Device*>(Kokkos::kokkos_malloc<MemorySpace>(
+              "mfront::generic_parallel::kokkos::statistics", sizeof(Device)));
       Kokkos::push_finalize_hook(
-          [statistics] { Kokkos::kokkos_free<MemorySpace>(statistics); });
+          [device] { Kokkos::kokkos_free<MemorySpace>(device); });
       auto* const block = Kokkos::kokkos_malloc<Kokkos::SharedHostPinnedSpace>(
           "mfront::generic_parallel::kokkos::statistics_block",
           sizeof(StatisticsBlock<Statistics>));
       Kokkos::push_finalize_hook([block] {
         Kokkos::kokkos_free<Kokkos::SharedHostPinnedSpace>(block);
       });
-      return ::new (block)
-          StatisticsBlock<Statistics>{.statistics = statistics, .events = 1};
+      return ::new (block) StatisticsBlock<Statistics>{
+          .device = device, .neutral = false, .events = 0, .statistics = {}};
     }  // end of allocateStatisticsBlock
 
     /*!
@@ -179,7 +192,7 @@ namespace mfront::generic_parallel::kokkos {
       // report function of the library. Without event, the statistics, if
       // any, are not accessed by the kernel, as for the GPU backends
       Kokkos::parallel_for("mfront::generic_parallel::kokkos::apply", range,
-                           Update{f, e.statistics, nullptr, rdt0});
+                           Update{f, e.statistics, nullptr, nullptr, rdt0});
       if (!p.common_options.asynchronous) {
         space.fence();
       }
@@ -193,7 +206,7 @@ namespace mfront::generic_parallel::kokkos {
     if constexpr (Kokkos::SpaceAccessibility<ExecutionSpace,
                                              Kokkos::HostSpace>::accessible) {
       Kokkos::parallel_for("mfront::generic_parallel::kokkos::apply", range,
-                           Update{f, &statistics, nullptr, rdt0});
+                           Update{f, &statistics, nullptr, nullptr, rdt0});
       space.fence();
     } else {
       using MemorySpace = typename ExecutionSpace::memory_space;
@@ -212,28 +225,31 @@ namespace mfront::generic_parallel::kokkos {
       if (b == nullptr) {
         return report(s, -7, "unable to allocate the statistics of the batch");
       }
-      const auto device =
-          Bytes(reinterpret_cast<char*>(b->statistics), sizeof(Statistics));
-      if (holdsEvents(*b)) {
-        // synchronous reset, after an event or at the first use
-        auto neutral = getNeutralStatistics(statistics);
+      // reset, after an event or at the first use, by a copy performed
+      // before the computations, whose source is kept until the fence
+      auto neutral = getNeutralStatistics(statistics);
+      if (!b->neutral) {
         Kokkos::deep_copy(
-            space, device,
-            HostBytes(reinterpret_cast<char*>(&neutral), sizeof(Statistics)));
-        space.fence();
-        clearEvents(*b);
+            space, Bytes(reinterpret_cast<char*>(b->device), sizeof(neutral)),
+            HostBytes(reinterpret_cast<char*>(&neutral), sizeof(neutral)));
       }
+      b->neutral = false;
+      b->events = 0;
       Kokkos::parallel_for("mfront::generic_parallel::kokkos::apply", range,
-                           Update{f, b->statistics, &(b->events), rdt0});
+                           Update{f, &(b->device->statistics),
+                                  &(b->device->signalled), &(b->events), rdt0});
       space.fence();
-      if (holdsEvents(*b)) {
-        auto block_statistics = Statistics{};
-        Kokkos::deep_copy(space,
-                          HostBytes(reinterpret_cast<char*>(&block_statistics),
-                                    sizeof(Statistics)),
-                          device);
+      if (b->events == 0) {
+        b->neutral = true;
+      } else {
+        Kokkos::deep_copy(
+            space,
+            HostBytes(reinterpret_cast<char*>(&(b->statistics)),
+                      sizeof(Statistics)),
+            Bytes(reinterpret_cast<char*>(&(b->device->statistics)),
+                  sizeof(Statistics)));
         space.fence();
-        statistics = mergeBlockStatistics(statistics, block_statistics);
+        statistics = mergeBlockStatistics(statistics, b->statistics);
       }
     }
     return h.report(s, statistics);

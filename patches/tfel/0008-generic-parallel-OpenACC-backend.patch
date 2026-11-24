@@ -1,12 +1,10 @@
-From 27b5500c516d665a217efa46b839a67e569de281 Mon Sep 17 00:00:00 2001
+From 664848fbf351ba7e96455678610d1b7f00e7c1d7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
-Date: Sun, 22 Nov 2026 10:53:16 +0100
+Date: Tue, 24 Nov 2026 15:44:50 +0100
 Subject: [PATCH] generic-parallel: OpenACC backend
 
 parallel loop construct on the device selected by the compiler
 (configurations openacc-nvhpc-gpu and openacc-nvhpc-multicore).
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  .../config-openacc-nvhpc-gpu.json             |  20 +++
  .../config-openacc-nvhpc-multicore.json       |  14 ++
