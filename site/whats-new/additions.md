@@ -76,13 +76,17 @@ behaviour, functions that process a whole batch of points.
   array gives the status of each point.
 - **Error reporting at no cost on success**: kernels write into the
   statistics only when an event occurs at a point. In synchronous mode,
-  the `cuda`, `hip`, `sycl`, `kokkos` and `raja` backends keep the statistics in
-  reused blocks accessible by host and GPU. Measured on an elastic
-  behaviour and 1000 points: the synchronous CUDA call goes from 135 to
-  29 µs.
+  the `cuda`, `hip`, `sycl`, `kokkos`, `raja` and `arcane` backends keep
+  the statistics in device memory, in blocks reused from one call to the
+  next. The first thread recording an event sets a flag in pinned host
+  memory: a call without event performs no copy and a single
+  synchronisation, and the statistics are copied back only after an
+  event. Measured with CUDA on 1000 points: an elastic behaviour goes
+  from 135 µs per call (allocation at each call) to 28 µs, a material
+  property from 10.3 µs (statistics copied back at each call) to 6.2 µs.
 - **Synchronous or asynchronous computation**: with statistics given in
-  the options, the `cuda`, `hip`, `kokkos`, `raja` and `sycl` backends return as
-  soon as the computation is submitted; after synchronising the queue,
+  the options, the `cuda`, `hip`, `kokkos`, `raja`, `sycl` and `arcane`
+  backends return as soon as the computation is submitted; after synchronising the queue,
   the report function of the library fills the output status. Several batches and the
   assembly can be submitted before a single synchronisation.
 - **Stack size of GPU threads**, computed from the attributes of the
